@@ -1,0 +1,159 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: IAM role for Datadog AWS Integration
+Parameters:
+  ExternalId:
+    Description: >-
+      External ID for the Datadog role (generate at
+      https://app.datadoghq.com/account/settings#integrations/amazon-web-services)
+    Type: String
+  IAMRoleName:
+    Description: Customize the name of IAM role for Datadog AWS integration
+    Type: String  
+    Default: DatadogIntegrationRole
+  Permissions:
+    Description: >-
+      Customize the permission level for the Datadog IAM role.
+      Select "Core" to only grant Datadog read-only permissions (not recommended).
+    Type: String
+    Default: Full
+    AllowedValues:
+      - Full
+      - Core
+  LogArchives:
+    Description: >-
+      S3 paths to store log archives for log rehydration. Separate multiple paths with comma,
+      e.g., "my-bucket,my-bucket-with-path/path".
+    Type: String
+    Default: ''
+Conditions:
+  GrantFullPermissions:
+    Fn::Equals:
+      - Ref: Permissions
+      - Full
+Resources:
+  DatadogIntegrationRole:
+    Type: 'AWS::IAM::Role'
+    Metadata:
+      cfn-lint:
+        config:
+          # cfn-lint does not support "Fn::Transform"
+          ignore_checks:
+          - E3002
+          - E3003
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: 'arn:aws:iam::464622532012:root'
+            Action:
+              - 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      Path: /
+      RoleName: !Ref IAMRoleName
+      Policies:
+        - PolicyName: DatadogAWSIntegrationPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+            - !If
+              - GrantFullPermissions
+              -
+                Effect: Allow
+                Resource: '*'
+                Action:
+                  - 'apigateway:GET'
+                  - 'autoscaling:Describe*'
+                  - 'budgets:ViewBudget'
+                  - 'cloudfront:GetDistributionConfig'
+                  - 'cloudfront:ListDistributions'
+                  - 'cloudtrail:DescribeTrails'
+                  - 'cloudtrail:GetTrailStatus'
+                  - 'cloudwatch:Describe*'
+                  - 'cloudwatch:Get*'
+                  - 'cloudwatch:List*'
+                  - 'codedeploy:List*'
+                  - 'codedeploy:BatchGet*'
+                  - 'directconnect:Describe*'
+                  - 'dynamodb:List*'
+                  - 'dynamodb:Describe*'
+                  - 'ec2:Describe*'
+                  - 'ecs:Describe*'
+                  - 'ecs:List*'
+                  - 'elasticache:Describe*'
+                  - 'elasticache:List*'
+                  - 'elasticfilesystem:DescribeFileSystems'
+                  - 'elasticfilesystem:DescribeTags'
+                  - 'elasticloadbalancing:Describe*'
+                  - 'elasticmapreduce:List*'
+                  - 'elasticmapreduce:Describe*'
+                  - 'es:ListTags'
+                  - 'es:ListDomainNames'
+                  - 'es:DescribeElasticsearchDomains'
+                  - 'health:DescribeEvents'
+                  - 'health:DescribeEventDetails'
+                  - 'health:DescribeAffectedEntities'
+                  - 'kinesis:List*'
+                  - 'kinesis:Describe*'
+                  - 'lambda:AddPermission'
+                  - 'lambda:GetPolicy'
+                  - 'lambda:List*'
+                  - 'lambda:RemovePermission'
+                  - 'logs:TestMetricFilter'
+                  - 'logs:PutSubscriptionFilter'
+                  - 'logs:DeleteSubscriptionFilter'
+                  - 'logs:DescribeSubscriptionFilters'
+                  - 'rds:Describe*'
+                  - 'rds:List*'
+                  - 'redshift:DescribeClusters'
+                  - 'redshift:DescribeLoggingStatus'
+                  - 'route53:List*'
+                  - 's3:GetBucketLogging'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetBucketNotification'
+                  - 's3:GetBucketTagging'
+                  - 's3:ListAllMyBuckets'
+                  - 's3:PutBucketNotification'
+                  - 'ses:Get*'
+                  - 'sns:List*'
+                  - 'sns:Publish'
+                  - 'sqs:ListQueues'
+                  - 'states:ListStateMachines'
+                  - 'states:DescribeStateMachine'
+                  - 'support:*'
+                  - 'tag:GetResources'
+                  - 'tag:GetTagKeys'
+                  - 'tag:GetTagValues'
+                  - 'xray:BatchGetTraces'
+                  - 'xray:GetTraceSummaries'
+              -
+                Effect: Allow
+                Resource: '*'
+                Action:
+                  - 'cloudwatch:Get*'
+                  - 'cloudwatch:List*'
+                  - 'ec2:Describe*'
+                  - 'support:*'
+                  - 'tag:GetResources'
+                  - 'tag:GetTagKeys'
+                  - 'tag:GetTagValues'
+        - Fn::Transform:
+          - Name: 'LogArchivePolicy'
+            Parameters:
+              LogArchives: !Ref LogArchives
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Required
+      Parameters:
+        - ExternalId
+    - Label:
+        default: Optional
+      Parameters:
+        - IAMRoleName
+        - Permissions
+        - LogArchives

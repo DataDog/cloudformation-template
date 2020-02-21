@@ -1,2 +1,4 @@
 # cloudformation-template
-Easily set up the Datadog AWS integration using CloudFormation
+
+Datadog CloudFormation templates
+- [Create AWS resources required by the Datadog AWS integration](./aws/README.md)

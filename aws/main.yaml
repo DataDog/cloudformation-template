@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Integration
+Parameters:
+  ExternalId:
+    Description: >-
+      External ID for the Datadog role (generate at
+      https://app.datadoghq.com/account/settings#integrations/amazon-web-services)
+    Type: String
+  DdApiKey:
+    Description: >-
+      API key for the Datadog account (find at
+      https://app.datadoghq.com/account/settings#api)
+    Type: String
+    NoEcho: true
+  DdSite:
+    Type: String
+    Default: datadoghq.com
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+    Description: Define your Datadog Site to send data to -- select datadoghq.com for the Datadog US site or datadoghq.eu for the Datadog EU site.
+  IAMRoleName:
+    Description: Customize the name of IAM role for Datadog AWS integration
+    Type: String
+    Default: DatadogIntegrationRole
+  Permissions:
+    Description: >-
+      Customize the permission level for the Datadog IAM role.
+      Select "Core" to only grant Datadog read-only permissions (not recommended).
+    Type: String
+    Default: Full
+    AllowedValues:
+      - Full
+      - Core
+  LogArchives:
+    Description: >-
+      S3 paths to store log archives for log rehydration. Separate multiple paths with comma,
+      e.g., "my-bucket,my-bucket-with-path/path".
+    Type: String
+    Default: ''
+Resources:
+  LogArchivePolicyMacroStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/log_archive_policy_macro.yaml"
+  DatadogIntegrationRoleStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: LogArchivePolicyMacroStack
+    Properties:
+      TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/datadog_integration_role.yaml"
+      Parameters:
+        ExternalId: !Ref ExternalId
+        Permissions: !Ref Permissions
+        IAMRoleName: !Ref IAMRoleName
+        LogArchives: !Ref LogArchives
+  ForwarderStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/latest.yaml"
+      Parameters:
+        DdApiKey: !Ref DdApiKey
+        DdSite: !Ref DdSite
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Required
+      Parameters:
+        - ExternalId
+        - DdApiKey
+        - DdSite
+    - Label:
+        default: Optional
+      Parameters:
+        - IAMRoleName
+        - Permissions
+        - LogArchives
