@@ -2,7 +2,7 @@
 
 [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog&templateURL=https://datadog-cloudformation-template.s3.amazonaws.com/aws/main.yaml)
 
-Create the following AWS resources required by the Datadog AWS integration
+Creates the following AWS resources required by the Datadog AWS integration:
 - An IAM role (with either Full or Core permissions) for Datadog to assume for data collection (e.g., CloudWatch metrics).
 - If a list of S3 paths for log archives are given, automatically adds the required permissions to the integration IAM role.
 - The [Datadog Forwarder Lambda function](https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring).
