@@ -38,6 +38,11 @@ Parameters:
       e.g., "my-bucket,my-bucket-with-path/path".
     Type: String
     Default: ''
+  DdAWSAccountId:
+    Description: >-
+      Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
+    Type: String
+    Default: "464622532012"
 Resources:
   LogArchivePolicyMacroStack:
     Type: AWS::CloudFormation::Stack
@@ -53,6 +58,7 @@ Resources:
         Permissions: !Ref Permissions
         IAMRoleName: !Ref IAMRoleName
         LogArchives: !Ref LogArchives
+        DdAWSAccountId: !Ref DdAWSAccountId
   ForwarderStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -75,3 +81,7 @@ Metadata:
         - IAMRoleName
         - Permissions
         - LogArchives
+    - Label:
+        default: Advanced
+      Parameters:
+        - DdAWSAccountId
