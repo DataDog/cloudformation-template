@@ -25,6 +25,11 @@ Parameters:
       e.g., "my-bucket,my-bucket-with-path/path".
     Type: String
     Default: ''
+  DdAWSAccountId:
+    Description: >-
+      Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
+    Type: String
+    Default: "464622532012"
 Conditions:
   GrantFullPermissions:
     Fn::Equals:
@@ -46,7 +51,9 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: 'arn:aws:iam::464622532012:root'
+              AWS: !Sub
+                - 'arn:aws:iam::${DdAWSAccountId}:root'
+                - { DdAWSAccountId: !Ref DdAWSAccountId}
             Action:
               - 'sts:AssumeRole'
             Condition:
