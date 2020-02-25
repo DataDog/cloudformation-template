@@ -43,6 +43,10 @@ Parameters:
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
     Type: String
     Default: "464622532012"
+  DdForwarderName:
+    Type: String
+    Default: DatadogForwarder
+    Description: The Datadog Forwarder Lambda function name. DO NOT change when updating an existing CloudFormation stack, otherwise the current forwarder function will be replaced and all the triggers will be lost.
 Resources:
   LogArchivePolicyMacroStack:
     Type: AWS::CloudFormation::Stack
@@ -66,6 +70,7 @@ Resources:
       Parameters:
         DdApiKey: !Ref DdApiKey
         DdSite: !Ref DdSite
+        FunctionName: !Ref DdForwarderName
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -85,3 +90,4 @@ Metadata:
         default: Advanced
       Parameters:
         - DdAWSAccountId
+        - DdForwarderName
