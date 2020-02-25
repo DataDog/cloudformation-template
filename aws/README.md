@@ -9,4 +9,6 @@ Creates the following AWS resources required by the Datadog AWS integration:
   - The Datadog Forwarder only deploy to the AWS region where the AWS integration CloudFormation stack is launched. If you operate in multiple AWS regions, you can deploy the Forwarder stack (without the rest of the AWS integration stack) directly to other regions as needed.
   - The Datadog Forwarder is installed with default settings, edit the Forwarder stack (or nested stack) directly to update the forwarder specific settings.
 
-Note, this CloudFormation stack only manages *AWS* resources required by the integration. The actual integration configuration within Datadog platform can also be managed in CloudFormation using the custom resource [Datadog::Integrations::AWS](https://github.com/DataDog/datadog-cloudformation-resources/tree/master/datadog-integrations-aws-handler).
+This CloudFormation stack only manages *AWS* resources required by the Datadog AWS integration. The actual integration configuration within Datadog platform can also be managed in CloudFormation using the custom resource [Datadog::Integrations::AWS](https://github.com/DataDog/datadog-cloudformation-resources/tree/master/datadog-integrations-aws-handler) if you like.
+
+If you prefer managing the AWS resources using Terraform, check out the sample Terraform configuration [datadog_aws_integration.tf](datadog_aws_integration.tf).
