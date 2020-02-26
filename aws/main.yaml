@@ -47,14 +47,26 @@ Parameters:
     Type: String
     Default: DatadogForwarder
     Description: The Datadog Forwarder Lambda function name. DO NOT change when updating an existing CloudFormation stack, otherwise the current forwarder function will be replaced and all the triggers will be lost.
+  InstallLogArchivePolicyMacro:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+    Description: If the LogArchivePolicy Macro is already installed, set this to false to skip the installation of the LogArchivePolicy Macro.
+Conditions:
+  ShouldInstallLogArchivePolicyMacro:
+    Fn::Equals:
+      - Ref: InstallLogArchivePolicyMacro
+      - true
 Resources:
   LogArchivePolicyMacroStack:
     Type: AWS::CloudFormation::Stack
+    Condition: ShouldInstallLogArchivePolicyMacro
     Properties:
       TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/log_archive_policy_macro.yaml"
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
-    DependsOn: LogArchivePolicyMacroStack
     Properties:
       TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/datadog_integration_role.yaml"
       Parameters:
@@ -63,6 +75,11 @@ Resources:
         IAMRoleName: !Ref IAMRoleName
         LogArchives: !Ref LogArchives
         DdAWSAccountId: !Ref DdAWSAccountId
+      Tags:   
+        - # A trick to create a conditional dependency on LogArchivePolicyMacroStack
+          # https://stackoverflow.com/questions/34607476/cloudformation-apply-condition-on-dependson
+          Key: "LogArchivePolicyMacroStackId"
+          Value: !If [ShouldInstallLogArchivePolicyMacro, !Ref LogArchivePolicyMacroStack, "null"]
   ForwarderStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -91,3 +108,4 @@ Metadata:
       Parameters:
         - DdAWSAccountId
         - DdForwarderName
+        - InstallLogArchivePolicyMacro
