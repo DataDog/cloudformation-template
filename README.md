@@ -2,7 +2,8 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/DataDog/datadog-lambda-layer-python/blob/master/LICENSE)
 
-Datadog CloudFormation templates
+## Datadog CloudFormation templates
+
 - [Create AWS resources required by the Datadog AWS integration](https://github.com/DataDog/cloudformation-template/tree/master/aws)
 
 ## Opening Issues
