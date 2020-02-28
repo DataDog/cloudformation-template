@@ -12,10 +12,17 @@ else
     BUCKET=$1
 fi
 
+# Upload templates to a private bucket -- useful for testing
+if [[ $# -eq 2 ]] && [[ $2 = "--private" ]]; then
+    PRIVATE_TEMPLATE=true
+else
+    PRIVATE_TEMPLATE=false
+fi
+
 # Confirm to proceed
 for i in *.yaml; do
     [ -f "$i" ] || break
-    echo "About to upload $i to s3://datadog-cloudformation-template/aws/$i"
+    echo "About to upload $i to s3://${BUCKET}/aws/$i"
 done
 read -p "Continue (y/n)?" CONT
 if [ "$CONT" != "y" ]; then
@@ -23,8 +30,18 @@ if [ "$CONT" != "y" ]; then
   exit 1
 fi
 
-aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml" \
-    --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+# Update bucket placeholder
+cp main.yaml main.yaml.bak
+perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main.yaml
+trap 'mv main.yaml.bak main.yaml' EXIT
+
+# Upload
+if [ "$PRIVATE_TEMPLATE" = true ] ; then
+    aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml"
+else
+    aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml" \
+        --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+fi
 echo "Done uploading the template, and here is the CloudFormation quick launch URL"
 echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-integration&templateURL=https://${BUCKET}.s3.amazonaws.com/aws/main.yaml"
 

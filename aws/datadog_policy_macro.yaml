@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: CloudFormation Macro Generates IAM Policy for Datadog Integration Role Dynamically
+Resources:
+  DatadogPolicyMacro:
+    Type: AWS::CloudFormation::Macro
+    Properties:
+      Name: DatadogPolicy
+      FunctionName: !GetAtt DatadogPolicyMacroMacroFunction.Arn
+  DatadogPolicyMacroMacroFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.7
+      Handler: index.handler
+      InlineCode: |
+        import traceback, itertools
+        def generate_archives_policy(archives):
+            if not archives:
+                return {"Ref" : "AWS::NoValue"}
+            s3_paths = [path.strip("/ ") for path in archives.split(',')]
+            return {
+                "PolicyName": "DatadogLogArchiveAndRehydratePolicy",
+                "PolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Action": [
+                                "s3:PutObject",
+                                "s3:GetObject"
+                            ],
+                            "Resource": [f"arn:aws:s3:::{s3_path}/*" for s3_path in s3_paths]
+                        },
+                        {
+                            "Effect": "Allow",
+                            "Action": [
+                                "s3:ListBucket"
+                            ],
+                            "Resource": list(set([
+                                f"arn:aws:s3:::{s3_path.split('/')[0]}"
+                                for s3_path in s3_paths
+                            ]))
+                        }
+                    ]
+                }
+            }
+        def generate_trails_policy(trails):
+            if not trails:
+                return {"Ref" : "AWS::NoValue"}
+            s3_buckets = [bucket.strip("/ ") for bucket in trails.split(',')]
+            return {
+                "PolicyName": "DatadogCloudTrailsPolicy",
+                "PolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Action": [
+                                "s3:ListBucket",
+                                "s3:GetObject",
+                                "s3:GetBucketLocation"
+                            ],
+                            "Resource": list(itertools.chain.from_iterable([(f"arn:aws:s3:::{s3_bucket}", f"arn:aws:s3:::{s3_bucket}/*") for s3_bucket in s3_buckets]))
+                        }
+                    ]
+                }
+            }
+        def handler(event, context):
+            try:
+                policy_type = event["params"]["PolicyType"]
+                if policy_type == "LogArchive":
+                    archives = event["params"]["LogArchives"].strip()
+                    fragment = generate_archives_policy(archives)
+                elif policy_type == "CloudTrail":
+                    trails = event["params"]["CloudTrails"].strip()
+                    fragment = generate_trails_policy(trails)
+                else:
+                    fragment = event["fragment"]
+                return {
+                    "requestId": event["requestId"],
+                    "status": "success",
+                    "fragment": fragment,
+                }
+            except Exception as e:
+                traceback.print_exc()
+                return {
+                    "requestId": event["requestId"],
+                    "status": "failure",
+                    "errorMessage": str(e),
+                }
