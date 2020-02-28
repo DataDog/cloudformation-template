@@ -25,6 +25,13 @@ Parameters:
       e.g., "my-bucket,my-bucket-with-path/path".
     Type: String
     Default: ''
+  CloudTrails:
+    Description: >-
+      S3 buckets for the Datadog CloudTrail integration. Separate multiple buckets with commas,
+      e.g., "bucket1,bucket2". Permissions will be automatically added to the Datadog integration IAM role.
+      https://docs.datadoghq.com/integrations/amazon_cloudtrail/
+    Type: String
+    Default: ''
   DdAWSAccountId:
     Description: >-
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
@@ -41,7 +48,7 @@ Resources:
     Metadata:
       cfn-lint:
         config:
-          # cfn-lint does not support "Fn::Transform"
+          # cfn-lint does not yet support "Fn::Transform"
           ignore_checks:
           - E3002
           - E3003
@@ -148,9 +155,15 @@ Resources:
                   - 'tag:GetTagKeys'
                   - 'tag:GetTagValues'
         - Fn::Transform:
-          - Name: 'LogArchivePolicy'
+          - Name: 'DatadogPolicy'
             Parameters:
+              PolicyType: LogArchive
               LogArchives: !Ref LogArchives
+        - Fn::Transform:
+          - Name: 'DatadogPolicy'
+            Parameters:
+              PolicyType: CloudTrail
+              CloudTrails: !Ref CloudTrails
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -164,3 +177,4 @@ Metadata:
         - IAMRoleName
         - Permissions
         - LogArchives
+        - CloudTrails
