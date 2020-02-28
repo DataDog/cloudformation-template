@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
-Description: CloudFormation Macro Generates IAM Policy for Datadog Integration Role Dynamically
+Description: CloudFormation macro that dynamically generates the IAM policy for the Datadog integration role
 Resources:
   DatadogPolicyMacro:
     Type: AWS::CloudFormation::Macro

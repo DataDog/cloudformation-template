@@ -52,7 +52,7 @@ Parameters:
     Type: String
     Default: DatadogForwarder
     Description: >-
-      The Datadog Forwarder Lambda function name.DO NOT change when updating an existing CloudFormation stack,
+      The Datadog Forwarder Lambda function name. DO NOT change when updating an existing CloudFormation stack,
       otherwise the current forwarder function will be replaced and all the triggers will be lost.
   InstallDatadogPolicyMacro:
     Type: String

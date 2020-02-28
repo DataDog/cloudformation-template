@@ -27,7 +27,7 @@ Parameters:
     Default: ''
   CloudTrails:
     Description: >-
-      S3 buckets for Datadog CloudTrail integration. Separate multiple buckets with comma,
+      S3 buckets for the Datadog CloudTrail integration. Separate multiple buckets with commas,
       e.g., "bucket1,bucket2". Permissions will be automatically added to the Datadog integration IAM role.
       https://docs.datadoghq.com/integrations/amazon_cloudtrail/
     Type: String
