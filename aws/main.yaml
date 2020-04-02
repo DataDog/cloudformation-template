@@ -6,16 +6,22 @@ Parameters:
       External ID for the Datadog role (generate at
       https://app.datadoghq.com/account/settings#integrations/amazon-web-services)
     Type: String
+    AllowedPattern: .+
+    ConstraintDescription: ExternalId is required
   DdApiKey:
     Description: >-
       API key for the Datadog account (find at
       https://app.datadoghq.com/account/settings#api)
     Type: String
     NoEcho: true
+    AllowedPattern: .+
+    ConstraintDescription: DdApiKey is required
   DdSite:
     Type: String
     Default: datadoghq.com
     Description: Define your Datadog Site to send data to. For the Datadog EU site, set to datadoghq.eu
+    AllowedPattern: .+
+    ConstraintDescription: DdSite is required
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
@@ -122,3 +128,10 @@ Metadata:
         - DdAWSAccountId
         - DdForwarderName
         - InstallDatadogPolicyMacro
+    ParameterLabels:
+      ExternalId:
+        default: "ExternalId *"
+      DdApiKey:
+        default: "DdApiKey *"
+      DdSite:
+        default: "DdSite *"
