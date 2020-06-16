@@ -99,6 +99,7 @@ Resources:
                   - 'ecs:List*'
                   - 'elasticache:Describe*'
                   - 'elasticache:List*'
+                  - 'elasticfilesystem:DescribeAccessPoints'
                   - 'elasticfilesystem:DescribeFileSystems'
                   - 'elasticfilesystem:DescribeTags'
                   - 'elasticloadbalancing:Describe*'
