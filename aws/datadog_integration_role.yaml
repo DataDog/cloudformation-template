@@ -166,6 +166,16 @@ Resources:
             Parameters:
               PolicyType: CloudTrail
               CloudTrails: !Ref CloudTrails
+Outputs:
+  RoleName:
+    Description: AWS IAM Role named to be used with the DataDog AWS Integration 
+    Value: !Ref IAMRoleName
+  AccountNum:
+    Description: AWS Account number
+    Value: !Ref "AWS::AccountId"
+  Region:
+    Description: AWS Region
+    Value: !Ref "AWS::Region"
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
