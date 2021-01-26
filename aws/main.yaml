@@ -49,6 +49,11 @@ Parameters:
       https://docs.datadoghq.com/integrations/amazon_cloudtrail/
     Type: String
     Default: ''
+  MetricStreamRegions:
+    Description: >-
+      Comma separated list of regions to enable metric streaming (This may increase your cloudwatch bill and will create additional resources)
+    Type: CommaDelimitedList
+    Default: ''
   DdAWSAccountId:
     Description: >-
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
@@ -72,6 +77,13 @@ Conditions:
     Fn::Equals:
       - Ref: InstallDatadogPolicyMacro
       - true
+  MetricStreamRegionsNonEmpty:
+    Fn::Not:
+      - Fn::Equals:
+          - Fn::Join:
+              - ''
+              - Ref: MetricStreamRegions
+          - ''
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
   DatadogPolicyMacroStack:
@@ -106,6 +118,16 @@ Resources:
         DdApiKey: !Ref DdApiKey
         DdSite: !Ref DdSite
         FunctionName: !Ref DdForwarderName
+  # Creates resources for AWS metric streaming in specified regions
+  MultiRegionDatadogStreams:
+    Type: AWS::CloudFormation::Stack
+    Condition: MetricStreamRegionsNonEmpty
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_metric_streams.yaml"
+      Parameters:
+        DdApiKey: !Ref DdApiKey
+        DdSite: !Ref DdSite
+        FunctionName: !Ref DdForwarderName
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -122,6 +144,7 @@ Metadata:
         - Permissions
         - LogArchives
         - CloudTrails
+        - MetricStreamRegions
     - Label:
         default: Advanced
       Parameters:

@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Streams
+Parameters:
+  FirehoseRoleArn:
+    Description: >-
+      The arn for the service role used by kinesis firehose
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: FirehoseRoleArn is required
+  StreamRoleArn:
+    Description: >-
+      The arn for the stream used by the cloudwatch stream
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: StreamRoleArn is required
+  IncludeNamespaces:
+    Description: >-
+      Comma separated list of namespaces to collect via streams
+    Type: CommaDelimitedList
+    Default: ''
+  ExcludeNamespaces:
+    Description: >-
+      Comma separated list of namespaces to exclude collecting from streams (do not set both include and exclude namespaces)
+    Type: CommaDelimitedList
+    Default: ''
+Conditions:
+  IncludeNamespacesNonEmpty:
+    Fn::Not:
+      - Fn::Equals:
+          - Fn::Join:
+              - ''
+              - Ref: IncludeNamespaces
+          - ''
+Resources:
+  DatadogMetricStream:
+    Type: AWS::CloudWatch::MetricStream
+    Properties:
+      Name: "datadog-metrics-stream"
+      FirehoseArn: !GetAtt DatadogMetricKinesisFirehose.Arn
+      RoleArn: !Ref StreamRoleArn
+      Fn::Transform:
+        Name: 'DatadogPolicy'
+        Parameters:
+          FilterType: Fn:If
+            - IncludeNamespacesNonEmpty
+            - "IncludeNamespaces"
+            - "ExcludeNamespaces"
+          Namespaces: Fn:If
+            - IncludeNamespacesNonEmpty
+            - !Ref IncludeNamespaces
+            - !Ref ExcludeNamespaces

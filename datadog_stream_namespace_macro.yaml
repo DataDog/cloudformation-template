@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: CloudFormation macro that dynamically generates the IAM policy for the Datadog integration role
+Resources:
+  DatadogStreamMacro:
+    Type: AWS::CloudFormation::Macro
+    Properties:
+      Name: DatadogStream
+      FunctionName: !GetAtt DatadogStreamMacroMacroFunction.Arn
+  DatadogStreamMacroMacroFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.7
+      Handler: index.handler
+      InlineCode: |
+        import traceback
+        def generate_filters(filters):
+            return [{"Namespace": filter} for filter in filters]
+        def generate_include_filters(filters):
+            return {
+                "IncludeFilters": generate_filters(filters)
+            }
+
+        def generate_exclude_filters(filters):
+            return {
+                "ExcludeFilters": generate_filters(filters)
+            }
+        def handler(event, context):
+            try:
+                filter_type = event["params"]["FilterType"]
+                filters = event["params"]["Namespaces"]
+                if not filters:
+                    fragment = {"Ref" : "AWS::NoValue"}
+                if filter_type == "IncludeFilters":
+                    fragment = generate_include_filters(filters)
+                elif filter_type == "ExcludeFilters":
+                    fragment = generate_exclude_filters(filters)
+                else:
+                    fragment = event["fragment"]
+                return {
+                    "requestId": event["requestId"],
+                    "status": "success",
+                    "fragment": fragment,
+                }
+            except Exception as e:
+                traceback.print_exc()
+                return {
+                    "requestId": event["requestId"],
+                    "status": "failure",
+                    "errorMessage": str(e),
+                }

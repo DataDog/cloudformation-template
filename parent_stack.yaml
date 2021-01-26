@@ -1,0 +1,196 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  ApiKey:
+    Description: >-
+      Your Datadog API Key
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: ApiKey is required
+    NoEcho: true
+  IncludeNamespace:
+    Description: >-
+      A single namespace to turn all streams on for initially for testing purposes
+    Type: String
+    Default: ''
+  Regions:
+    Description: >-
+      Comma separated list of regions to enable metric streaming
+    Type: CommaDelimitedList
+    ConstraintDescription: Regions is required
+    Default: ''
+  DdSite:
+    Type: String
+    Default: datadoghq.com
+    Description: Define your Datadog Site to send data to. For the Datadog EU site, set to datadoghq.eu
+    AllowedPattern: .+
+    ConstraintDescription: DdSite is required
+Conditions:
+  IncludeNamespaceEmpty: !Equals
+    - !Ref IncludeNamespace
+    - ""
+Resources:
+  DatadogStreamStackSetAdministrationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "DatadogStreamStackSetAdministrationRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "cloudformation.amazonaws.com"
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: DatadogStreamCfnStackSetAssumeRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                Resource: "*"
+  DatadogStreamStackSetExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "DatadogStreamStackSetExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !GetAtt DatadogStreamStackSetAdministrationRole.Arn
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: DatadogStreamCfnStackAssumeRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                  - s3:*
+                  - sns:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:PassRole
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:DeleteBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:PutRetentionPolicy
+                  - logs:CreateLogStream
+                  - logs:DeleteLogStream
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub "arn:aws:logs:*:${AWS::AccountId}:log-group:datadog-metric-stream*"
+              - Effect: Allow
+                Action:
+                  - firehose:CreateDeliveryStream
+                  - firehose:DescribeDeliveryStream
+                  - firehose:DeleteDeliveryStream
+                Resource:
+                  - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-metrics-stream"
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricStream
+                  - cloudwatch:GetMetricStream
+                  - cloudwatch:ListMetricStreams
+                  - cloudwatch:DeleteMetricStream
+                Resource:
+                  - !Sub "arn:aws:cloudwatch:*:${AWS::AccountId}:metric-stream/datadog-metrics-stream"
+  ServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "DatadogServiceRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "firehose.amazonaws.com"
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: "datadog_stream_s3_policy"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:AbortMultipartUpload"
+                  - "s3:GetBucketLocation"
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                  - "s3:ListBucketMultipartUploads"
+                  - "s3:PutObject"
+                Resource:
+                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-${AWS::Region}"
+                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-${AWS::Region}/*"
+  DatadogMetricStreamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "DatadogMetricStreamRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - streams.metrics.cloudwatch.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: "datadog_stream_firehose_policy"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "firehose:PutRecord"
+                  - "firehose:PutRecordBatch"
+                Resource:
+                  - !Sub "arn:aws:firehose:us-east-1:${AWS::AccountId}:deliverystream/datadog-metrics-stream"
+                  - !Sub "arn:aws:firehose:us-east-2:${AWS::AccountId}:deliverystream/datadog-metrics-stream"
+      Description: A metric stream role
+  DatadogStreamStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Properties:
+      StackSetName: DatadogStreams
+      PermissionModel: SELF_MANAGED
+      AdministrationRoleARN: !GetAtt DatadogStreamStackSetAdministrationRole.Arn
+      ExecutionRoleName: !Ref DatadogStreamStackSetExecutionRole
+      StackInstancesGroup:
+        - DeploymentTargets:
+            Accounts:
+              - !Ref "AWS::AccountId"
+          Regions: !Ref Regions
+      TemplateURL: !If
+        - IncludeNamespaceEmpty
+        - "https://s3.amazonaws.com/aws-streams.cloudformation-templates/all_namespaces.yaml"
+        - "https://s3.amazonaws.com/aws-streams.cloudformation-templates/single_namespace.yaml"
+      Parameters:
+        - ParameterKey: ApiKey
+          ParameterValue: !Ref ApiKey
+        - ParameterKey: ServiceRoleArn
+          ParameterValue: !GetAtt ServiceRole.Arn
+        - ParameterKey: StreamRoleArn
+          ParameterValue: !GetAtt DatadogMetricStreamRole.Arn
+        - ParameterKey: DdSite
+          ParameterValue: !Ref DdSite
+        - ParameterKey: IncludeNamespace
+          ParameterValue: !Ref IncludeNamespace
