@@ -19,9 +19,25 @@ Parameters:
     Type: String
     AllowedPattern: .+
     ConstraintDescription: StreamRoleArn is required
-  IncludeNamespace:
+  FilterMethod:
     Description: >-
-      A single namespace to turn all streams on for initially for testing purposes
+      "Include" for an inclusion filter or "Exclude" for an exclusion filter for the following namespaces.
+    Type: String
+    Default: 'Include'
+  FirstNamespace:
+    Description: >-
+      A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+    Type: String
+    Default: ''
+  SecondNamespace:
+    Description: >-
+      A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+    Type: String
+    Default: ''
+  ThirdNamespace:
+    Description: >-
+      A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+      If you need additional namespaces follow this link for additional templates.
     Type: String
     Default: ''
   DdSite:
@@ -31,6 +47,13 @@ Parameters:
     AllowedPattern: .+
     Default: datadoghq.com
     ConstraintDescription: DdSite is required
+Conditions:
+  HasIncludeNamespace1: !And [ !Not [ !Equals [ !Ref FirstNamespace, '' ] ], !Equals [ !Ref FilterMethod, 'Include' ]]
+  HasIncludeNamespace2: !And [ !Not [ !Equals [ !Ref SecondNamespace, '' ] ], !Equals [ !Ref FilterMethod, 'Include' ]]
+  HasIncludeNamespace3: !And [ !Not [ !Equals [ !Ref ThirdNamespace, '' ] ], !Equals [ !Ref FilterMethod, 'Include' ]]
+  HasExcludeNamespace1: !And [ !Not [ !Equals [ !Ref FirstNamespace, '' ] ], !Not [ !Equals [ !Ref FilterMethod, 'Include' ]]]
+  HasExcludeNamespace2: !And [ !Not [ !Equals [ !Ref SecondNamespace, '' ] ], !Not [ !Equals [ !Ref FilterMethod, 'Include' ]]]
+  HasExcludeNamespace3: !And [ !Not [ !Equals [ !Ref ThirdNamespace, '' ] ], !Not [ !Equals [ !Ref FilterMethod, 'Include' ]]]
 Resources:
   DatadogStreamLogs:
     Type: AWS::Logs::LogGroup
@@ -94,4 +117,34 @@ Resources:
       FirehoseArn: !GetAtt DatadogMetricKinesisFirehose.Arn
       RoleArn: !Ref StreamRoleArn
       IncludeFilters:
-        - Namespace: !Ref IncludeNamespace
+        - !If
+          - HasIncludeNamespace1
+          - Namespace:
+              !Ref FirstNamespace
+          - !Ref 'AWS::NoValue'
+        - !If
+          - HasIncludeNamespace2
+          - Namespace:
+              !Ref SecondNamespace
+          - !Ref 'AWS::NoValue'
+        - !If
+          - HasIncludeNamespace3
+          - Namespace:
+              !Ref ThirdNamespace
+          - !Ref 'AWS::NoValue'
+      ExcludeFilters:
+        - !If
+          - HasExcludeNamespace1
+          - Namespace:
+              !Ref FirstNamespace
+          - !Ref 'AWS::NoValue'
+        - !If
+          - HasExcludeNamespace2
+          - Namespace:
+              !Ref SecondNamespace
+          - !Ref 'AWS::NoValue'
+        - !If
+          - HasExcludeNamespace3
+          - Namespace:
+              !Ref ThirdNamespace
+          - Ref: 'AWS::NoValue'

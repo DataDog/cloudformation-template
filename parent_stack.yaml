@@ -7,9 +7,25 @@ Parameters:
     AllowedPattern: .+
     ConstraintDescription: ApiKey is required
     NoEcho: true
-  IncludeNamespace:
+  FilterMethod:
     Description: >-
-      A single namespace to turn all streams on for initially for testing purposes
+      "Include" for an inclusion filter or "Exclude" for an exclusion filter for the following namespaces.
+    Type: String
+    Default: 'Include'
+  FirstNamespace:
+    Description: >-
+      A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+    Type: String
+    Default: ''
+  SecondNamespace:
+    Description: >-
+      A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+    Type: String
+    Default: ''
+  ThirdNamespace:
+    Description: >-
+      A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+      If you need additional namespaces follow this link for additional templates.
     Type: String
     Default: ''
   Regions:
@@ -24,10 +40,6 @@ Parameters:
     Description: Define your Datadog Site to send data to. For the Datadog EU site, set to datadoghq.eu
     AllowedPattern: .+
     ConstraintDescription: DdSite is required
-Conditions:
-  IncludeNamespaceEmpty: !Equals
-    - !Ref IncludeNamespace
-    - ""
 Resources:
   DatadogStreamStackSetAdministrationRole:
     Type: AWS::IAM::Role
@@ -179,10 +191,7 @@ Resources:
             Accounts:
               - !Ref "AWS::AccountId"
           Regions: !Ref Regions
-      TemplateURL: !If
-        - IncludeNamespaceEmpty
-        - "https://s3.amazonaws.com/aws-streams.cloudformation-templates/all_namespaces.yaml"
-        - "https://s3.amazonaws.com/aws-streams.cloudformation-templates/single_namespace.yaml"
+      TemplateURL: "https://s3.amazonaws.com/datadog-cloudformation-stream-template/aws/three_namespaces.yaml"
       Parameters:
         - ParameterKey: ApiKey
           ParameterValue: !Ref ApiKey
@@ -192,5 +201,12 @@ Resources:
           ParameterValue: !GetAtt DatadogMetricStreamRole.Arn
         - ParameterKey: DdSite
           ParameterValue: !Ref DdSite
-        - ParameterKey: IncludeNamespace
-          ParameterValue: !Ref IncludeNamespace
+        - ParameterKey: FilterMethod
+          ParameterValue: !Ref FilterMethod
+        - ParameterKey: FirstNamespace
+          ParameterValue: !Ref FirstNamespace
+        - ParameterKey: SecondNamespace
+          ParameterValue: !Ref SecondNamespace
+        - ParameterKey: ThirdNamespace
+          ParameterValue: !Ref ThirdNamespace
+
