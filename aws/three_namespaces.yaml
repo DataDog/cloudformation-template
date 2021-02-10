@@ -45,7 +45,7 @@ Parameters:
       Define your Datadog Site to send data to. For the Datadog EU site, set to datadoghq.eu
     Type: String
     AllowedPattern: .+
-    Default: datadoghq.com
+    Default: 'datadoghq.com'
     ConstraintDescription: DdSite is required
 Conditions:
   HasIncludeNamespace1: !And [ !Not [ !Equals [ !Ref FirstNamespace, '' ] ], !Equals [ !Ref FilterMethod, 'Include' ]]
@@ -54,6 +54,9 @@ Conditions:
   HasExcludeNamespace1: !And [ !Not [ !Equals [ !Ref FirstNamespace, '' ] ], !Not [ !Equals [ !Ref FilterMethod, 'Include' ]]]
   HasExcludeNamespace2: !And [ !Not [ !Equals [ !Ref SecondNamespace, '' ] ], !Not [ !Equals [ !Ref FilterMethod, 'Include' ]]]
   HasExcludeNamespace3: !And [ !Not [ !Equals [ !Ref ThirdNamespace, '' ] ], !Not [ !Equals [ !Ref FilterMethod, 'Include' ]]]
+  USDatacenter: !Equals [ !Ref DdSite, 'datadoghq.com' ]
+  EUDatacenter: !Equals [ !Ref DdSite, 'datadoghq.eu' ]
+  Staging: !Equals [ !Ref DdSite, 'datad0g.com' ]
 Resources:
   DatadogStreamLogs:
     Type: AWS::Logs::LogGroup
@@ -84,7 +87,14 @@ Resources:
           SizeInMBs: 3
           IntervalInSeconds: 60
         EndpointConfiguration:
-          Url: "https://awsmetrics-http-intake.datad0g.com/v1/input"
+          Url:
+            !If
+            - Staging
+            - "https://awsmetrics-http-intake.datad0g.com/v1/input"
+            - !If
+              - EUDatacenter
+              - "https://awsmetrics-intake.datadoghq.eu/v1/input"
+              - "https://awsmetrics-intake.datadoghq.us/v1/input"
           Name: "Event intake"
           AccessKey: !Ref ApiKey
         CloudWatchLoggingOptions:
