@@ -191,7 +191,7 @@ Resources:
             Accounts:
               - !Ref "AWS::AccountId"
           Regions: !Ref Regions
-      TemplateURL: "https://s3.amazonaws.com/datadog-cloudformation-stream-template/aws/three_namespaces.yaml"
+      TemplateURL: "https://s3.amazonaws.com/datadog-cloudformation-stream-template/aws/streams_single_region.yaml"
       Parameters:
         - ParameterKey: ApiKey
           ParameterValue: !Ref ApiKey
@@ -209,4 +209,19 @@ Resources:
           ParameterValue: !Ref SecondNamespace
         - ParameterKey: ThirdNamespace
           ParameterValue: !Ref ThirdNamespace
-
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Required
+      Parameters:
+        - ApiKey
+        - DdSite
+    - Label:
+        default: Optional
+      Parameters:
+        - Regions
+        - FilterMethod
+        - FirstNamespace
+        - SecondNamespace
+        - ThirdNamespace
