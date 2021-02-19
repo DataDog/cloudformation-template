@@ -84,7 +84,7 @@ Resources:
       DeliveryStreamType: "DirectPut"
       HttpEndpointDestinationConfiguration:
         BufferingHints:
-          SizeInMBs: 3
+          SizeInMBs: 4
           IntervalInSeconds: 60
         EndpointConfiguration:
           Url:
@@ -102,6 +102,8 @@ Resources:
           LogGroupName: !Ref DatadogStreamLogs
           LogStreamName: "http_endpoint_delivery"
         RoleARN: !Ref ServiceRoleArn
+        RetryOptions:
+          DurationInSeconds: 60
         S3BackupMode: "FailedDataOnly"
         S3Configuration:
           RoleARN: !Ref ServiceRoleArn
@@ -110,8 +112,6 @@ Resources:
           BufferingHints:
             SizeInMBs: 4
             IntervalInSeconds: 60
-          RetryOptions:
-            DurationInSeconds: 60
           CompressionFormat: "GZIP"
           CloudWatchLoggingOptions:
             Enabled: True
