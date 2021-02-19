@@ -217,10 +217,10 @@ Metadata:
       Parameters:
         - ApiKey
         - DdSite
+        - Regions
     - Label:
         default: Optional
       Parameters:
-        - Regions
         - FilterMethod
         - FirstNamespace
         - SecondNamespace

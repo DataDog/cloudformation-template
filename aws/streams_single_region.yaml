@@ -108,8 +108,10 @@ Resources:
           BucketARN: !GetAtt DatadogStreamBackupBucket.Arn
           ErrorOutputPrefix: "datadog_stream"
           BufferingHints:
-            SizeInMBs: 3
+            SizeInMBs: 4
             IntervalInSeconds: 60
+          RetryOptions:
+            DurationInSeconds: 60
           CompressionFormat: "GZIP"
           CloudWatchLoggingOptions:
             Enabled: True
