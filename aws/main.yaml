@@ -106,6 +106,25 @@ Resources:
         DdApiKey: !Ref DdApiKey
         DdSite: !Ref DdSite
         FunctionName: !Ref DdForwarderName
+Outputs:
+  DatadogForwarderArn:
+    Description: Datadog Forwarder Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+        - ForwarderStack
+        - Outputs.DatadogForwarderArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-DatadogForwarderArn
+  DdApiKeySecretArn:
+    Description: ARN of SecretsManager Secret with Datadog API Key
+    Value:
+      Fn::GetAtt:
+        - ForwarderStack
+        - Outputs.DdApiKeySecretArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-ApiKeySecretArn
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
