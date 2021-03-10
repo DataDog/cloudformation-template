@@ -94,7 +94,7 @@ Resources:
             - !If
               - EUDatacenter
               - "https://awsmetrics-intake.datadoghq.eu/v1/input"
-              - "https://awsmetrics-intake.datadoghq.us/v1/input"
+              - "https://awsmetrics-intake.datadoghq.com/v1/input"
           Name: "Event intake"
           AccessKey: !Ref ApiKey
         CloudWatchLoggingOptions:
@@ -128,6 +128,7 @@ Resources:
       Name: "datadog-metrics-stream"
       FirehoseArn: !GetAtt DatadogMetricKinesisFirehose.Arn
       RoleArn: !Ref StreamRoleArn
+      OutputFormat: "opentelemetry0.4"
       IncludeFilters:
         - !If
           - HasIncludeNamespace1
