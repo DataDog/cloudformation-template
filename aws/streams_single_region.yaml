@@ -128,7 +128,7 @@ Resources:
       Name: "datadog-metrics-stream"
       FirehoseArn: !GetAtt DatadogMetricKinesisFirehose.Arn
       RoleArn: !Ref StreamRoleArn
-      OutputFormat: "opentelemetry0.4"
+      OutputFormat: "opentelemetry0.7"
       IncludeFilters:
         - !If
           - HasIncludeNamespace1
