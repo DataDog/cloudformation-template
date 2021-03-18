@@ -83,8 +83,12 @@ Resources:
               - Effect: Allow
                 Action:
                   - cloudformation:*
-                  - s3:*
-                  - sns:*
+                Resource:
+                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stack/StackSet-DatadogStreams-*"
+                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stackset/DatadogStreams*"
+              - Effect: Allow
+                Action:
+                  - sns:Publish
                 Resource: "*"
               - Effect: Allow
                 Action:
