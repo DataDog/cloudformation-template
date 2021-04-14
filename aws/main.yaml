@@ -107,6 +107,15 @@ Resources:
         DdSite: !Ref DdSite
         FunctionName: !Ref DdForwarderName
 Outputs:
+  IAMRoleName:
+    Description: AWS IAM Role named to be used with the DataDog AWS Integration 
+    Value: !Ref IAMRoleName
+  AccountId:
+    Description: AWS Account number
+    Value: !Ref "AWS::AccountId"
+  Region:
+    Description: AWS Region
+    Value: !Ref "AWS::Region"
   DatadogForwarderArn:
     Description: Datadog Forwarder Lambda Function ARN
     Value:
