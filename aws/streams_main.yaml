@@ -82,14 +82,20 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - cloudformation:*
+                  - "s3:*"
+                Resource:
+                  - "arn:aws:s3:::cf-templates-*"
+              - Effect: Allow
+                Action:
+                  - "cloudformation:*"
                 Resource:
                   - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stack/StackSet-DatadogStreams-*"
                   - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stackset/DatadogStreams*"
               - Effect: Allow
                 Action:
-                  - sns:Publish
-                Resource: "*"
+                  - "sns:Publish"
+                Resource:
+                  - "arn:aws:sns:*:*:CfnNotificationSNSTopic"
               - Effect: Allow
                 Action:
                   - iam:GetRole
