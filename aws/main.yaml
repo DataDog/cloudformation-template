@@ -67,10 +67,21 @@ Parameters:
       - true
       - false
     Description: If you already deployed a stack using this template, set this parameter to false to skip the installation of the DatadogPolicy Macro again.
+  ComplianceIntegration:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: Set this value to "true" if you wish to use the compliance integration in Datadog and we will install the necessary permissions.
 Conditions:
   ShouldInstallDatadogPolicyMacro:
     Fn::Equals:
       - Ref: InstallDatadogPolicyMacro
+      - true
+  ShouldInstallCompliancePolicy:
+    Fn::Equals:
+      - Ref: ComplianceIntegration
       - true
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
@@ -90,6 +101,7 @@ Resources:
         IAMRoleName: !Ref IAMRoleName
         LogArchives: !Ref LogArchives
         CloudTrails: !Ref CloudTrails
+        ComplianceIntegration: !Ref ComplianceIntegration
         DdAWSAccountId: !Ref DdAWSAccountId
       Tags:
         - # A trick to create a conditional dependency on DatadogPolicyMacroStack
@@ -150,6 +162,7 @@ Metadata:
         - Permissions
         - LogArchives
         - CloudTrails
+        - ComplianceIntegration
     - Label:
         default: Advanced
       Parameters:
