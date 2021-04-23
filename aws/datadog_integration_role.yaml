@@ -54,6 +54,65 @@ Conditions:
       - Ref: ComplianceIntegration
       - true
 Resources:
+  DatadogAWSComplianceIntegrationPolicy:
+    Type: "AWS::IAM::Policy"
+    Condition: ShouldInstallCompliancePolicy
+    Properties:
+      PolicyName: DatadogAWSComplianceIntegrationPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Condition: ShouldInstallCompliancePolicy
+            Effect: Allow
+            Resource: '*'
+            Action:
+              - "acm:DescribeCertificate"
+              - "acm:ListCertificates"
+              - "cloudfront:GetDistribution"
+              - "cloudfront:ListDistributions"
+              - "cloudtrail:DescribeTrails"
+              - "cloudtrail:GetEventSelectors"
+              - "cloudtrail:GetTrailStatus"
+              - "config:DescribeConfigurationRecorderStatus"
+              - "config:DescribeConfigurationRecorders"
+              - "iam:GenerateCredentialReport"
+              - "iam:GetAccountPasswordPolicy"
+              - "iam:GetAccountSummary"
+              - "iam:GetCredentialReport"
+              - "iam:GetLoginProfile"
+              - "iam:GetPolicyVersion"
+              - "iam:ListAttachedUserPolicies"
+              - "iam:ListEntitiesForPolicy"
+              - "iam:ListMFADevices"
+              - "iam:ListPolicies"
+              - "iam:ListRoles"
+              - "iam:ListServerCertificates"
+              - "iam:ListUserPolicies"
+              - "iam:ListUsers"
+              - "iam:ListVirtualMFADevices"
+              - "kms:GetKeyPolicy"
+              - "kms:GetKeyRotationStatus"
+              - "kms:ListAliases"
+              - "kms:ListKeys"
+              - "lambda:GetPolicy"
+              - "lambda:ListFunctions"
+              - "rds:DescribeDBSecurityGroups"
+              - "rds:DescribeDBSnapshotAttributes"
+              - "rds:DescribeDBSnapshots"
+              - "s3:GetBucketAcl"
+              - "s3:GetBucketLogging"
+              - "s3:GetBucketPolicy"
+              - "s3:GetBucketPolicyStatus"
+              - "s3:GetBucketPublicAccessBlock"
+              - "s3:GetBucketVersioning"
+              - "sns:GetSubscriptionAttributes"
+              - "sns:GetTopicAttributes"
+              - "sns:ListSubscriptions"
+              - "sns:ListTopics"
+              - "sqs:GetQueueAttributes"
+              - "sqs:ListQueues"
+      Roles:
+        - Ref: "DatadogIntegrationRole"
   DatadogIntegrationRole:
     Type: 'AWS::IAM::Role'
     Metadata:
@@ -80,59 +139,6 @@ Resources:
       Path: /
       RoleName: !Ref IAMRoleName
       Policies:
-        - PolicyName: DatadogAWSComplianceIntegrationPolicy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Condition: ShouldInstallCompliancePolicy
-                Effect: Allow
-                Resource: '*'
-                Action:
-                  - "acm:DescribeCertificate"
-                  - "acm:ListCertificates"
-                  - "cloudfront:GetDistribution"
-                  - "cloudfront:ListDistributions"
-                  - "cloudtrail:DescribeTrails"
-                  - "cloudtrail:GetEventSelectors"
-                  - "cloudtrail:GetTrailStatus"
-                  - "config:DescribeConfigurationRecorderStatus"
-                  - "config:DescribeConfigurationRecorders"
-                  - "iam:GenerateCredentialReport"
-                  - "iam:GetAccountPasswordPolicy"
-                  - "iam:GetAccountSummary"
-                  - "iam:GetCredentialReport"
-                  - "iam:GetLoginProfile"
-                  - "iam:GetPolicyVersion"
-                  - "iam:ListAttachedUserPolicies"
-                  - "iam:ListEntitiesForPolicy"
-                  - "iam:ListMFADevices"
-                  - "iam:ListPolicies"
-                  - "iam:ListRoles"
-                  - "iam:ListServerCertificates"
-                  - "iam:ListUserPolicies"
-                  - "iam:ListUsers"
-                  - "iam:ListVirtualMFADevices"
-                  - "kms:GetKeyPolicy"
-                  - "kms:GetKeyRotationStatus"
-                  - "kms:ListAliases"
-                  - "kms:ListKeys"
-                  - "lambda:GetPolicy"
-                  - "lambda:ListFunctions"
-                  - "rds:DescribeDBSecurityGroups"
-                  - "rds:DescribeDBSnapshotAttributes"
-                  - "rds:DescribeDBSnapshots"
-                  - "s3:GetBucketAcl"
-                  - "s3:GetBucketLogging"
-                  - "s3:GetBucketPolicy"
-                  - "s3:GetBucketPolicyStatus"
-                  - "s3:GetBucketPublicAccessBlock"
-                  - "s3:GetBucketVersioning"
-                  - "sns:GetSubscriptionAttributes"
-                  - "sns:GetTopicAttributes"
-                  - "sns:ListSubscriptions"
-                  - "sns:ListTopics"
-                  - "sqs:GetQueueAttributes"
-                  - "sqs:ListQueues"
         - PolicyName: DatadogAWSIntegrationPolicy
           PolicyDocument:
             Version: 2012-10-17
