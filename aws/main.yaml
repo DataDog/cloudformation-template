@@ -79,10 +79,6 @@ Conditions:
     Fn::Equals:
       - Ref: InstallDatadogPolicyMacro
       - true
-  ShouldInstallCompliancePolicy:
-    Fn::Equals:
-      - Ref: ComplianceIntegration
-      - true
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
   DatadogPolicyMacroStack:
