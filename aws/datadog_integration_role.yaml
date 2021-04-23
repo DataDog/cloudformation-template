@@ -62,8 +62,7 @@ Resources:
       PolicyDocument:
         Version: 2012-10-17
         Statement:
-          - Condition: ShouldInstallCompliancePolicy
-            Effect: Allow
+          - Effect: Allow
             Resource: '*'
             Action:
               - "acm:DescribeCertificate"
@@ -112,7 +111,7 @@ Resources:
               - "sqs:GetQueueAttributes"
               - "sqs:ListQueues"
       Roles:
-        - Ref: "DatadogIntegrationRole"
+        - !Ref DatadogIntegrationRole
   DatadogIntegrationRole:
     Type: 'AWS::IAM::Role'
     Metadata:
