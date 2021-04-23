@@ -109,6 +109,8 @@ Resources:
                   - 'es:ListTags'
                   - 'es:ListDomainNames'
                   - 'es:DescribeElasticsearchDomains'
+                  - 'fsx:DescribeFileSystems'
+                  - 'fsx:ListTagsForResource'
                   - 'health:DescribeEvents'
                   - 'health:DescribeEventDetails'
                   - 'health:DescribeAffectedEntities'
