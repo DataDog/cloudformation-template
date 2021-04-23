@@ -167,7 +167,7 @@ Resources:
                   - 'tag:GetTagValues'
         - PolicyName: DatadogAWSComplianceIntegrationPolicy
           PolicyDocument:
-            Version: 2021-04-22
+            Version: 2012-10-17
             Statement:
               Condition: ShouldInstallCompliancePolicy
               Effect: Allow
