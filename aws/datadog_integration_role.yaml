@@ -122,6 +122,7 @@ Resources:
                   - 'logs:PutSubscriptionFilter'
                   - 'logs:DeleteSubscriptionFilter'
                   - 'logs:DescribeSubscriptionFilters'
+                  - 'organizations:DescribeOrganization'
                   - 'rds:Describe*'
                   - 'rds:List*'
                   - 'redshift:DescribeClusters'
