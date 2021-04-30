@@ -10,7 +10,7 @@ Parameters:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String  
     Default: DatadogIntegrationRole
-  Permissions:
+  BasePermissions:
     Description: >-
       Customize the permission level for the Datadog IAM role.
       Select "Core" to only grant Datadog read-only permissions (not recommended).
@@ -32,7 +32,7 @@ Parameters:
       https://docs.datadoghq.com/integrations/amazon_cloudtrail/
     Type: String
     Default: ''
-  ComplianceIntegration:
+  ResourceCollectionPermissions:
     Type: String
     Default: false
     AllowedValues:
@@ -47,16 +47,16 @@ Parameters:
 Conditions:
   GrantFullPermissions:
     Fn::Equals:
-      - Ref: Permissions
+      - Ref: BasePermissions
       - Full
-  ShouldInstallCompliancePolicy:
+  ShouldInstallResourcePolicy:
     Fn::Equals:
-      - Ref: ComplianceIntegration
+      - Ref: ResourceCollectionPermissions
       - true
 Resources:
   DatadogAWSComplianceIntegrationPolicy:
     Type: "AWS::IAM::Policy"
-    Condition: ShouldInstallCompliancePolicy
+    Condition: ShouldInstallResourcePolicy
     Properties:
       PolicyName: DatadogAWSComplianceIntegrationPolicy
       PolicyDocument:
@@ -240,11 +240,11 @@ Metadata:
         default: Required
       Parameters:
         - ExternalId
+        - IAMRoleName
+        - BasePermissions
     - Label:
         default: Optional
       Parameters:
-        - IAMRoleName
-        - Permissions
         - LogArchives
         - CloudTrails
-        - ComplianceIntegration
+        - ResourceCollectionPermissions
