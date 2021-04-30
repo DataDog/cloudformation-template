@@ -54,11 +54,11 @@ Conditions:
       - Ref: ResourceCollectionPermissions
       - true
 Resources:
-  DatadogAWSComplianceIntegrationPolicy:
+  DatadogAWSResourceCollectionPolicy:
     Type: "AWS::IAM::Policy"
     Condition: ShouldInstallResourcePolicy
     Properties:
-      PolicyName: DatadogAWSComplianceIntegrationPolicy
+      PolicyName: DatadogAWSResourceCollectionPolicy
       PolicyDocument:
         Version: 2012-10-17
         Statement:
