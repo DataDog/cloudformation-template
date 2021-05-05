@@ -12,8 +12,8 @@ Parameters:
     Default: DatadogIntegrationRole
   BasePermissions:
     Description: >-
-      Customize the permission level for the Datadog IAM role.
-      Select "Core" to only grant Datadog read-only permissions (not recommended).
+      Customize the base permissions for the Datadog IAM role.
+      Select "Core" to only grant Datadog permissions to a very limited set of metrics and metadata (not recommended).
     Type: String
     Default: Full
     AllowedValues:
@@ -38,7 +38,7 @@ Parameters:
     AllowedValues:
       - true
       - false
-    Description: Set this value to "true" if you wish to use the compliance integration in Datadog and we will install the necessary permissions.
+    Description: Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
   DdAWSAccountId:
     Description: >-
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
