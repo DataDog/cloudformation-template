@@ -104,6 +104,7 @@ Resources:
               - "s3:GetBucketPolicyStatus"
               - "s3:GetBucketPublicAccessBlock"
               - "s3:GetBucketVersioning"
+              - "s3:GetEncryptionConfiguration"
               - "sns:GetSubscriptionAttributes"
               - "sns:GetTopicAttributes"
               - "sns:ListSubscriptions"
