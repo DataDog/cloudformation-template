@@ -26,10 +26,10 @@ Parameters:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
     Default: DatadogIntegrationRole
-  Permissions:
+  BasePermissions:
     Description: >-
-      Customize the permission level for the Datadog IAM role.
-      Select "Core" to only grant Datadog read-only permissions (not recommended).
+      Customize the base permissions for the Datadog IAM role.
+      Select "Core" to only grant Datadog permissions to a very limited set of metrics and metadata (not recommended).
     Type: String
     Default: Full
     AllowedValues:
@@ -66,7 +66,14 @@ Parameters:
     AllowedValues:
       - true
       - false
-    Description: If you already deployed a stack using this template, set this parameter to false to skip the installation of the DatadogPolicy Macro again.
+    Description: If you already deployed a stack using this template, set this parameter to "false" to skip the installation of the DatadogPolicy Macro again.
+  ResourceCollectionPermissions:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
 Conditions:
   ShouldInstallDatadogPolicyMacro:
     Fn::Equals:
@@ -86,10 +93,11 @@ Resources:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml"
       Parameters:
         ExternalId: !Ref ExternalId
-        Permissions: !Ref Permissions
+        BasePermissions: !Ref BasePermissions
         IAMRoleName: !Ref IAMRoleName
         LogArchives: !Ref LogArchives
         CloudTrails: !Ref CloudTrails
+        ResourceCollectionPermissions: !Ref ResourceCollectionPermissions
         DdAWSAccountId: !Ref DdAWSAccountId
       Tags:
         - # A trick to create a conditional dependency on DatadogPolicyMacroStack
@@ -140,16 +148,17 @@ Metadata:
     - Label:
         default: Required
       Parameters:
+        - IAMRoleName
         - ExternalId
         - DdApiKey
+        - BasePermissions
         - DdSite
     - Label:
         default: Optional
       Parameters:
-        - IAMRoleName
-        - Permissions
         - LogArchives
         - CloudTrails
+        - ResourceCollectionPermissions
     - Label:
         default: Advanced
       Parameters:

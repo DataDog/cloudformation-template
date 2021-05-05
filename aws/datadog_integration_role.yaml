@@ -10,10 +10,10 @@ Parameters:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String  
     Default: DatadogIntegrationRole
-  Permissions:
+  BasePermissions:
     Description: >-
-      Customize the permission level for the Datadog IAM role.
-      Select "Core" to only grant Datadog read-only permissions (not recommended).
+      Customize the base permissions for the Datadog IAM role.
+      Select "Core" to only grant Datadog permissions to a very limited set of metrics and metadata (not recommended).
     Type: String
     Default: Full
     AllowedValues:
@@ -32,6 +32,13 @@ Parameters:
       https://docs.datadoghq.com/integrations/amazon_cloudtrail/
     Type: String
     Default: ''
+  ResourceCollectionPermissions:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
   DdAWSAccountId:
     Description: >-
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
@@ -40,9 +47,72 @@ Parameters:
 Conditions:
   GrantFullPermissions:
     Fn::Equals:
-      - Ref: Permissions
+      - Ref: BasePermissions
       - Full
+  ShouldInstallResourcePolicy:
+    Fn::Equals:
+      - Ref: ResourceCollectionPermissions
+      - true
 Resources:
+  DatadogAWSResourceCollectionPolicy:
+    Type: "AWS::IAM::Policy"
+    Condition: ShouldInstallResourcePolicy
+    Properties:
+      PolicyName: DatadogAWSResourceCollectionPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Resource: '*'
+            Action:
+              - "acm:DescribeCertificate"
+              - "acm:ListCertificates"
+              - "cloudfront:GetDistribution"
+              - "cloudfront:ListDistributions"
+              - "cloudtrail:DescribeTrails"
+              - "cloudtrail:GetEventSelectors"
+              - "cloudtrail:GetTrailStatus"
+              - "config:DescribeConfigurationRecorderStatus"
+              - "config:DescribeConfigurationRecorders"
+              - "iam:GenerateCredentialReport"
+              - "iam:GetAccountPasswordPolicy"
+              - "iam:GetAccountSummary"
+              - "iam:GetCredentialReport"
+              - "iam:GetLoginProfile"
+              - "iam:GetPolicyVersion"
+              - "iam:ListAttachedUserPolicies"
+              - "iam:ListEntitiesForPolicy"
+              - "iam:ListMFADevices"
+              - "iam:ListPolicies"
+              - "iam:ListRoles"
+              - "iam:ListServerCertificates"
+              - "iam:ListUserPolicies"
+              - "iam:ListUsers"
+              - "iam:ListVirtualMFADevices"
+              - "kms:GetKeyPolicy"
+              - "kms:GetKeyRotationStatus"
+              - "kms:ListAliases"
+              - "kms:ListKeys"
+              - "lambda:GetPolicy"
+              - "lambda:ListFunctions"
+              - "rds:DescribeDBSecurityGroups"
+              - "rds:DescribeDBSnapshotAttributes"
+              - "rds:DescribeDBSnapshots"
+              - "s3:GetBucketAcl"
+              - "s3:GetBucketLogging"
+              - "s3:GetBucketPolicy"
+              - "s3:GetBucketPolicyStatus"
+              - "s3:GetBucketPublicAccessBlock"
+              - "s3:GetBucketVersioning"
+              - "s3:GetEncryptionConfiguration"
+              - "sns:GetSubscriptionAttributes"
+              - "sns:GetTopicAttributes"
+              - "sns:ListSubscriptions"
+              - "sns:ListTopics"
+              - "sqs:GetQueueAttributes"
+              - "sqs:ListQueues"
+      Roles:
+        - !Ref DatadogIntegrationRole
   DatadogIntegrationRole:
     Type: 'AWS::IAM::Role'
     Metadata:
@@ -174,10 +244,11 @@ Metadata:
         default: Required
       Parameters:
         - ExternalId
+        - IAMRoleName
+        - BasePermissions
     - Label:
         default: Optional
       Parameters:
-        - IAMRoleName
-        - Permissions
         - LogArchives
         - CloudTrails
+        - ResourceCollectionPermissions
