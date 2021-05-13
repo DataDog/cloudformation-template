@@ -38,7 +38,9 @@ Parameters:
     AllowedValues:
       - true
       - false
-    Description: Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
+    Description: >-
+      Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
+      You need this set to "true" to use Cloud Security Posture Management. You will also need "BasePermissions" set to "Full".
   DdAWSAccountId:
     Description: >-
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
@@ -95,6 +97,9 @@ Resources:
               - "kms:ListKeys"
               - "lambda:GetPolicy"
               - "lambda:ListFunctions"
+              - "redshift:DescribeClusterParameterGroups"
+              - "redshift:DescribeClusterParameters"
+              - "redshift:DescribeLoggingStatus"
               - "rds:DescribeDBSecurityGroups"
               - "rds:DescribeDBSnapshotAttributes"
               - "rds:DescribeDBSnapshots"
