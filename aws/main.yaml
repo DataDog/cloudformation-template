@@ -73,7 +73,9 @@ Parameters:
     AllowedValues:
       - true
       - false
-    Description: Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
+    Description: >-
+      Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
+      You need this set to "true" to use Cloud Security Posture Management. You will also need "BasePermissions" set to "Full".
 Conditions:
   ShouldInstallDatadogPolicyMacro:
     Fn::Equals:
