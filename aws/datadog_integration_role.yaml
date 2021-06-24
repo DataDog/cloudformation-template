@@ -81,6 +81,7 @@ Resources:
               - "iam:GetAccountSummary"
               - "iam:GetCredentialReport"
               - "iam:GetLoginProfile"
+              - "iam:GetPolicy"
               - "iam:GetPolicyVersion"
               - "iam:ListAttachedUserPolicies"
               - "iam:ListAttachedRolePolicies"
