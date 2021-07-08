@@ -56,72 +56,6 @@ Conditions:
       - Ref: ResourceCollectionPermissions
       - true
 Resources:
-  DatadogAWSResourceCollectionPolicy:
-    Type: "AWS::IAM::Policy"
-    Condition: ShouldInstallResourcePolicy
-    Properties:
-      PolicyName: DatadogAWSResourceCollectionPolicy
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: '*'
-            Action:
-              - "acm:DescribeCertificate"
-              - "acm:ListCertificates"
-              - "cloudfront:GetDistribution"
-              - "cloudfront:ListDistributions"
-              - "cloudtrail:DescribeTrails"
-              - "cloudtrail:GetEventSelectors"
-              - "cloudtrail:GetTrailStatus"
-              - "config:DescribeConfigurationRecorderStatus"
-              - "config:DescribeConfigurationRecorders"
-              - "iam:GenerateCredentialReport"
-              - "iam:GetAccountPasswordPolicy"
-              - "iam:GetAccountSummary"
-              - "iam:GetCredentialReport"
-              - "iam:GetLoginProfile"
-              - "iam:GetPolicy"
-              - "iam:GetPolicyVersion"
-              - "iam:ListAttachedUserPolicies"
-              - "iam:ListAttachedRolePolicies"
-              - "iam:ListEntitiesForPolicy"
-              - "iam:ListMFADevices"
-              - "iam:ListPolicies"
-              - "iam:ListRolePolicies"
-              - "iam:ListRoles"
-              - "iam:ListServerCertificates"
-              - "iam:ListUserPolicies"
-              - "iam:ListUsers"
-              - "iam:ListVirtualMFADevices"
-              - "iam:GetRolePolicy"
-              - "kms:GetKeyPolicy"
-              - "kms:GetKeyRotationStatus"
-              - "kms:ListAliases"
-              - "kms:ListKeys"
-              - "lambda:GetPolicy"
-              - "lambda:ListFunctions"
-              - "redshift:DescribeClusterParameterGroups"
-              - "redshift:DescribeClusterParameters"
-              - "redshift:DescribeLoggingStatus"
-              - "rds:DescribeDBSecurityGroups"
-              - "rds:DescribeDBSnapshotAttributes"
-              - "rds:DescribeDBSnapshots"
-              - "s3:GetBucketAcl"
-              - "s3:GetBucketLogging"
-              - "s3:GetBucketPolicy"
-              - "s3:GetBucketPolicyStatus"
-              - "s3:GetBucketPublicAccessBlock"
-              - "s3:GetBucketVersioning"
-              - "s3:GetEncryptionConfiguration"
-              - "sns:GetSubscriptionAttributes"
-              - "sns:GetTopicAttributes"
-              - "sns:ListSubscriptions"
-              - "sns:ListTopics"
-              - "sqs:GetQueueAttributes"
-              - "sqs:ListQueues"
-      Roles:
-        - !Ref DatadogIntegrationRole
   DatadogIntegrationRole:
     Type: 'AWS::IAM::Role'
     Metadata:
@@ -147,6 +81,7 @@ Resources:
                 'sts:ExternalId': !Ref ExternalId
       Path: /
       RoleName: !Ref IAMRoleName
+      ManagedPolicyArns: !If [ShouldInstallResourcePolicy, ['arn:aws:iam::aws:policy/SecurityAudit'], !Ref AWS::NoValue]
       Policies:
         - PolicyName: DatadogAWSIntegrationPolicy
           PolicyDocument:
