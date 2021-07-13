@@ -32,14 +32,15 @@ Parameters:
       https://docs.datadoghq.com/integrations/amazon_cloudtrail/
     Type: String
     Default: ''
-  ResourceCollectionPermissions:
+  CloudSecurityPostureManagementPermissions:
     Type: String
     Default: false
     AllowedValues:
       - true
       - false
     Description: >-
-      Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
+      Set this value to "true" to add permissions for Datadog's Cloud Security Posture Management product
+      to monitor your AWS cloud resource configurations.
       You need this set to "true" to use Cloud Security Posture Management. You will also need "BasePermissions" set to "Full".
   DdAWSAccountId:
     Description: >-
@@ -51,9 +52,9 @@ Conditions:
     Fn::Equals:
       - Ref: BasePermissions
       - Full
-  ShouldInstallResourcePolicy:
+  ShouldInstallCSPMPolicy:
     Fn::Equals:
-      - Ref: ResourceCollectionPermissions
+      - Ref: CloudSecurityPostureManagementPermissions
       - true
 Resources:
   DatadogIntegrationRole:
@@ -81,7 +82,7 @@ Resources:
                 'sts:ExternalId': !Ref ExternalId
       Path: /
       RoleName: !Ref IAMRoleName
-      ManagedPolicyArns: !If [ShouldInstallResourcePolicy, ['arn:aws:iam::aws:policy/SecurityAudit'], !Ref AWS::NoValue]
+      ManagedPolicyArns: !If [ShouldInstallCSPMPolicy, ['arn:aws:iam::aws:policy/SecurityAudit'], !Ref AWS::NoValue]
       Policies:
         - PolicyName: DatadogAWSIntegrationPolicy
           PolicyDocument:
@@ -195,4 +196,4 @@ Metadata:
       Parameters:
         - LogArchives
         - CloudTrails
-        - ResourceCollectionPermissions
+        - CloudSecurityPostureManagementPermissions
