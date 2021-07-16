@@ -67,7 +67,7 @@ Parameters:
       - true
       - false
     Description: If you already deployed a stack using this template, set this parameter to "false" to skip the installation of the DatadogPolicy Macro again.
-  ResourceCollectionPermissions:
+  CloudSecurityPostureManagementPermissions:
     Type: String
     Default: false
     AllowedValues:
@@ -99,7 +99,7 @@ Resources:
         IAMRoleName: !Ref IAMRoleName
         LogArchives: !Ref LogArchives
         CloudTrails: !Ref CloudTrails
-        ResourceCollectionPermissions: !Ref ResourceCollectionPermissions
+        CloudSecurityPostureManagementPermissions: !Ref CloudSecurityPostureManagementPermissions
         DdAWSAccountId: !Ref DdAWSAccountId
       Tags:
         - # A trick to create a conditional dependency on DatadogPolicyMacroStack
@@ -160,7 +160,7 @@ Metadata:
       Parameters:
         - LogArchives
         - CloudTrails
-        - ResourceCollectionPermissions
+        - CloudSecurityPostureManagementPermissions
     - Label:
         default: Advanced
       Parameters:
