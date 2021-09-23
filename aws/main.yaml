@@ -1,13 +1,6 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: Datadog AWS Integration
 Parameters:
-  ExternalId:
-    Description: >-
-      External ID for the Datadog role (generate at
-      https://app.datadoghq.com/account/settings#integrations/amazon-web-services)
-    Type: String
-    AllowedPattern: .+
-    ConstraintDescription: ExternalId is required
   DdApiKey:
     Description: >-
       API key for the Datadog account (find at
@@ -16,6 +9,13 @@ Parameters:
     NoEcho: true
     AllowedPattern: .+
     ConstraintDescription: DdApiKey is required
+  DdAppKey:
+    Description: >-
+      APP key for the Datadog account
+    Type: String
+    NoEcho: true
+    AllowedPattern: .+
+    ConstraintDescription: DdAppKey is required
   DdSite:
     Type: String
     Default: datadoghq.com
@@ -42,18 +42,6 @@ Parameters:
       the Datadog integration IAM role. https://docs.datadoghq.com/logs/archives/rehydrating/?tab=awss3
     Type: String
     Default: ''
-  CloudTrails:
-    Description: >-
-      S3 buckets for Datadog CloudTrail integration. Separate multiple buckets with comma,
-      e.g., "bucket1,bucket2". Permissions will be automatically added to the Datadog integration IAM role.
-      https://docs.datadoghq.com/integrations/amazon_cloudtrail/
-    Type: String
-    Default: ''
-  DdAWSAccountId:
-    Description: >-
-      Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
-    Type: String
-    Default: "464622532012"
   DdForwarderName:
     Type: String
     Default: DatadogForwarder
@@ -88,19 +76,27 @@ Resources:
     Condition: ShouldInstallDatadogPolicyMacro
     Properties:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_policy_macro.yaml"
+  # Installing the AWS Integration in Datadog
+  DatadogAWSIntegration:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://aws-integration-resource-template.s3.amazonaws.com/type_configuration.yaml"
+      Parameters:
+        APIKey: !Ref DdApiKey
+        APPKey: !Ref DdAppKey
   # The IAM role for Datadog integration
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
     Properties:
+      DependsOn: DatadogAWSIntegration
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml"
       Parameters:
-        ExternalId: !Ref ExternalId
+        ExternalId: "{{resolve:secretsmanager:DatadogIntegrationExternalID:SecretString:external_id}}"
         BasePermissions: !Ref BasePermissions
         IAMRoleName: !Ref IAMRoleName
         LogArchives: !Ref LogArchives
-        CloudTrails: !Ref CloudTrails
         CloudSecurityPostureManagementPermissions: !Ref CloudSecurityPostureManagementPermissions
-        DdAWSAccountId: !Ref DdAWSAccountId
+        DdAWSAccountId: "464622532012"
       Tags:
         - # A trick to create a conditional dependency on DatadogPolicyMacroStack
           # https://stackoverflow.com/questions/34607476/cloudformation-apply-condition-on-dependson
@@ -148,29 +144,24 @@ Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
     - Label:
-        default: Required
+        default: Required (Autofilled by Datadog New Account Form)
       Parameters:
-        - IAMRoleName
-        - ExternalId
         - DdApiKey
-        - BasePermissions
+        - DdAppKey
         - DdSite
     - Label:
-        default: Optional
+        default: Advanced (Autofilled by Datadog New Account Form)
       Parameters:
         - LogArchives
-        - CloudTrails
+        - BasePermissions
         - CloudSecurityPostureManagementPermissions
-    - Label:
-        default: Advanced
-      Parameters:
-        - DdAWSAccountId
+        - IAMRoleName
         - DdForwarderName
         - InstallDatadogPolicyMacro
     ParameterLabels:
-      ExternalId:
-        default: "ExternalId *"
       DdApiKey:
         default: "DdApiKey *"
+      DdAppKey:
+        default: "DdAppKey *"
       DdSite:
         default: "DdSite *"
