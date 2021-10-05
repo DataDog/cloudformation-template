@@ -9,7 +9,7 @@ Parameters:
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String  
-    Default: DatadogIntegrationRole
+    Default: DatadogAWSIntegrationRole
   BasePermissions:
     Description: >-
       Customize the base permissions for the Datadog IAM role.
