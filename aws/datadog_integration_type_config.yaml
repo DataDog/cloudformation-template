@@ -14,10 +14,10 @@ Parameters:
       The name of the IAM Role used for the Datadog AWS Integration
     Type: String
   HostTags:
-    Type: List<String>
-    Default: []
+    Type: CommaDelimitedList
+    Default: ""
     Description: >-
-      A list of tags to add to hosts and metrics
+      A comma seperated list of tags to add to hosts and metrics
 Resources:
   CloudFormationTypeActivationRole:
     Type: AWS::IAM::Role
