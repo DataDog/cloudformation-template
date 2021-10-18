@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Resource Type Configuration
+Parameters:
+  APIKey:
+    Description: >-
+      Your Datadog API Key
+    Type: String
+  APPKey:
+    Description: >-
+      Your Datadog APP Key
+    Type: String
+  IAMRoleName:
+    Description: >-
+      The name of the IAM Role used for the Datadog AWS Integration
+    Type: String
+  HostTags:
+    Type: List<String>
+    Default: []
+    Description: >-
+      A list of tags to add to hosts and metrics
+Resources:
+  CloudFormationTypeActivationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - resources.cloudformation.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+        - PolicyName: DatadogAPISecretsPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+            - Effect: Allow
+              Resource: '*'
+              Action:
+              - secretsmanager:CreateSecret
+              - secretsmanager:DeleteSecret
+              - secretsmanager:DescribeSecret
+      Path: "/"
+  TypeActivationLoggingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - resources.cloudformation.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+        - PolicyName: DatadogAPISecretsPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+            - Effect: Allow
+              Resource:
+              - !Join
+                - ''
+                -
+                  - "arn:aws:logs:"
+                  - !Ref AWS::Region
+                  - ":"
+                  - !Ref AWS::AccountId
+                  - ":log-group:AWSIntegrationResourceTest:*"
+              Action:
+              - logs:CreateLogStream
+              - logs:DescribeLogGroups
+              - logs:DeleteLogGroup
+              - logs:CreateLogGroup
+              - logs:DeleteLogStream
+              - logs:PutLogEvents
+              - cloudwatch:PutMetricData
+      Path: "/"
+  AWSIntegrationTypeActivation:
+    Type: "AWS::CloudFormation::TypeActivation"
+    Properties:
+      PublicTypeArn:
+        !Join
+          - ''
+          -
+            - "arn:aws:cloudformation:"
+            - !Ref AWS::Region
+            - "::type/resource/7171b96e5d207b947eb72ca9ce05247c246de623/Datadog-Integrations-AWS"
+      ExecutionRoleArn: !GetAtt CloudFormationTypeActivationRole.Arn
+      TypeNameAlias: "Datadog::Integrations::AWS2"
+      LoggingConfig:
+        LogGroupName: "AWSIntegrationResourceTest"
+        LogRoleArn: !GetAtt TypeActivationLoggingRole.Arn
+  DatadogKeySecrets:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: 'Datadog API Secret'
+      SecretString:
+        !Join
+          - ''
+          -
+            - '{"APIKey": '
+            - '"'
+            - !Ref APIKey
+            - '"'
+            - ', "APPKey": '
+            - '"'
+            - !Ref APPKey
+            - '"}'
+  ResourceTypeConfiguration:
+    Type: "Custom::ResourceTypeConfiguration"
+    Properties:
+      ServiceToken: !GetAtt TypeConfigurationFunction.Arn
+      TypeARN: !Ref AWSIntegrationTypeActivation
+      APIKey: !Join ['', ['{{resolve:secretsmanager:', !Ref DatadogKeySecrets, ':SecretString:APIKey}}' ]]
+      APPKey: !Join ['', ['{{resolve:secretsmanager:', !Ref DatadogKeySecrets, ':SecretString:APPKey}}' ]]
+    DependsOn:
+      - DatadogKeySecrets
+  TypeConfigurationFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "A function to set the type configuration of the Datadog AWS Integration Resource."
+      Code:
+          S3Bucket: "<BUCKET_PLACEHOLDER>"
+          S3Key: "type_configuration_resource.py.zip"
+      Handler: "type_configuration_resource.handler"
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: "python3.8"
+      Timeout: "30"
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: "root"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "cloudformation:SetTypeConfiguration"
+                Resource: "*"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  DatadogAWSIntegrationAPICall:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://datadog-cloudformation-template-test-sandbox.s3.amazonaws.com/datadog_integration_api_call.yaml"
+      Parameters:
+        RoleName: !Ref IAMRoleName
+        HostTags: !Ref HostTags
+    DependsOn: ResourceTypeConfiguration
+Outputs:
+  ExternalID:
+    Description: The external ID associated with the Datadog AWS Integration for this account
+    Value: "{{resolve:secretsmanager:DatadogIntegrationExternalID:SecretString:external_id}}"

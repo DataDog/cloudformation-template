@@ -1,0 +1,19 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Integration API Call
+Parameters:
+  RoleName:
+    Description: >-
+      The name of the IAM role created for Datadog's use.
+    Type: String
+  HostTags:
+    Type: List<String>
+    Default: []
+    Description: >-
+      A list of tags to add to hosts and metrics
+Resources:
+  DatadogTestAWSAccount:
+    Type: "Datadog::Integrations::AWS2"
+    Properties:
+      AccountID: !Ref AWS::AccountId
+      RoleName: !Ref RoleName
+      HostTags: !Ref HostTags
