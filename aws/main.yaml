@@ -80,15 +80,15 @@ Resources:
   DatadogAWSIntegration:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://aws-integration-resource-template.s3.amazonaws.com/type_configuration.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/type_configuration.yaml"
       Parameters:
         APIKey: !Ref DdApiKey
         APPKey: !Ref DdAppKey
   # The IAM role for Datadog integration
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
+    DependsOn: DatadogAWSIntegration
     Properties:
-      DependsOn: DatadogAWSIntegration
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml"
       Parameters:
         ExternalId: "{{resolve:secretsmanager:DatadogIntegrationExternalID:SecretString:external_id}}"

@@ -117,8 +117,7 @@ Resources:
       TypeARN: !Ref AWSIntegrationTypeActivation
       APIKey: !Join ['', ['{{resolve:secretsmanager:', !Ref DatadogKeySecrets, ':SecretString:APIKey}}' ]]
       APPKey: !Join ['', ['{{resolve:secretsmanager:', !Ref DatadogKeySecrets, ':SecretString:APPKey}}' ]]
-    DependsOn:
-      - DatadogKeySecrets
+    DependsOn: DatadogKeySecrets
   TypeConfigurationFunction:
     Type: "AWS::Lambda::Function"
     Properties:
@@ -156,7 +155,7 @@ Resources:
   DatadogAWSIntegrationAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-test-sandbox.s3.amazonaws.com/datadog_integration_api_call.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_api_call.yaml"
       Parameters:
         RoleName: !Ref IAMRoleName
         HostTags: !Ref HostTags
