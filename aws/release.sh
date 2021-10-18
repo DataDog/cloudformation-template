@@ -35,6 +35,11 @@ cp main.yaml main.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main.yaml
 trap 'mv main.yaml.bak main.yaml' EXIT
 
+cp datadog_integration_type_config.yaml datadog_integration_type_config.yaml.bak
+perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" datadog_integration_type_config.yaml
+trap 'mv datadog_integration_type_config.yaml.bak datadog_integration_type_config.yaml' EXIT
+
+
 # Upload
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
     aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml"

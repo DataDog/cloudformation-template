@@ -75,21 +75,22 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Condition: ShouldInstallDatadogPolicyMacro
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_policy_macro.yaml"
+      TemplateURL: "https://datadog-cloudformation-template-test-sandbox.s3.amazonaws.com/aws/datadog_policy_macro.yaml"
   # Installing the AWS Integration in Datadog
   DatadogAWSIntegration:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_type_config.yaml"
+      TemplateURL: "https://datadog-cloudformation-template-test-sandbox.s3.amazonaws.com/aws/datadog_integration_type_config.yaml"
       Parameters:
         APIKey: !Ref DdApiKey
         APPKey: !Ref DdAppKey
+        IAMRoleName: !Ref IAMRoleName
   # The IAM role for Datadog integration
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
     DependsOn: DatadogAWSIntegration
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml"
+      TemplateURL: "https://datadog-cloudformation-template-test-sandbox.s3.amazonaws.com/aws/datadog_integration_role.yaml"
       Parameters:
         ExternalId: "{{resolve:secretsmanager:DatadogIntegrationExternalID:SecretString:external_id}}"
         BasePermissions: !Ref BasePermissions

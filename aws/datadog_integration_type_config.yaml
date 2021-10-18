@@ -124,7 +124,7 @@ Resources:
       Description: "A function to set the type configuration of the Datadog AWS Integration Resource."
       Code:
           S3Bucket: "<BUCKET_PLACEHOLDER>"
-          S3Key: "type_configuration_resource.py.zip"
+          S3Key: "aws/type_configuration_resource.py.zip"
       Handler: "type_configuration_resource.handler"
       Role: !GetAtt LambdaExecutionRole.Arn
       Runtime: "python3.8"
