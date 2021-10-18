@@ -80,7 +80,7 @@ Resources:
   DatadogAWSIntegration:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/type_configuration.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_type_config.yaml"
       Parameters:
         APIKey: !Ref DdApiKey
         APPKey: !Ref DdAppKey
