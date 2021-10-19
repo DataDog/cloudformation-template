@@ -6,10 +6,10 @@ Parameters:
       The name of the IAM role created for Datadog's use.
     Type: String
   HostTags:
-    Type: List<String>
-    Default: []
+    Type: CommaDelimitedList
+    Default: ""
     Description: >-
-      A list of tags to add to hosts and metrics
+      A comma seperated list of tags to add to hosts and metrics
 Resources:
   DatadogTestAWSAccount:
     Type: "Datadog::Integrations::AWS2"

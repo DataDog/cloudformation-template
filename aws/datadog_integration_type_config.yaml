@@ -158,7 +158,7 @@ Resources:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_api_call.yaml"
       Parameters:
         RoleName: !Ref IAMRoleName
-        HostTags: !Ref HostTags
+        HostTags: !Join [ ",", !Ref HostTags ]
     DependsOn: ResourceTypeConfiguration
 Outputs:
   ExternalID:
