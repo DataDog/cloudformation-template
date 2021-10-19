@@ -3,8 +3,7 @@ Description: Datadog AWS Integration
 Parameters:
   DdApiKey:
     Description: >-
-      API key for the Datadog account (find at
-      https://app.datadoghq.com/account/settings#api)
+      API key for the Datadog account
     Type: String
     NoEcho: true
     AllowedPattern: .+
@@ -90,7 +89,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: DatadogAWSIntegration
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-test-sandbox.s3.amazonaws.com/aws/datadog_integration_role.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml"
       Parameters:
         ExternalId: "{{resolve:secretsmanager:DatadogIntegrationExternalID:SecretString:external_id}}"
         BasePermissions: !Ref BasePermissions
@@ -108,7 +107,7 @@ Resources:
   ForwarderStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/latest.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/forwarder.yaml"
       Parameters:
         DdApiKey: !Ref DdApiKey
         DdSite: !Ref DdSite

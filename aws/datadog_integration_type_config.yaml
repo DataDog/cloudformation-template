@@ -94,30 +94,13 @@ Resources:
       LoggingConfig:
         LogGroupName: "AWSIntegrationResourceTest"
         LogRoleArn: !GetAtt TypeActivationLoggingRole.Arn
-  DatadogKeySecrets:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Description: 'Datadog API Secret'
-      SecretString:
-        !Join
-          - ''
-          -
-            - '{"APIKey": '
-            - '"'
-            - !Ref APIKey
-            - '"'
-            - ', "APPKey": '
-            - '"'
-            - !Ref APPKey
-            - '"}'
   ResourceTypeConfiguration:
     Type: "Custom::ResourceTypeConfiguration"
     Properties:
       ServiceToken: !GetAtt TypeConfigurationFunction.Arn
       TypeARN: !Ref AWSIntegrationTypeActivation
-      APIKey: !Join ['', ['{{resolve:secretsmanager:', !Ref DatadogKeySecrets, ':SecretString:APIKey}}' ]]
-      APPKey: !Join ['', ['{{resolve:secretsmanager:', !Ref DatadogKeySecrets, ':SecretString:APPKey}}' ]]
-    DependsOn: DatadogKeySecrets
+      APIKey: !Ref APIKey
+      APPKey: !Ref APPKey
   TypeConfigurationFunction:
     Type: "AWS::Lambda::Function"
     Properties:
