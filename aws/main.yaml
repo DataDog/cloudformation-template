@@ -67,7 +67,7 @@ Parameters:
     Type: CommaDelimitedList
     Default: ""
     Description: >-
-      A comma seperated list of tags to add to hosts and metrics
+      A comma seperated list of tags to add to hosts and metrics. Example: "aws_account:123456789123,account:prod"
 Conditions:
   ShouldInstallDatadogPolicyMacro:
     Fn::Equals:
@@ -97,6 +97,7 @@ Resources:
     Properties:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml"
       Parameters:
+        # This secret contains the external_id returned by the custom cloudformation resource that calls the Datadog API
         ExternalId: "{{resolve:secretsmanager:DatadogIntegrationExternalID:SecretString:external_id}}"
         BasePermissions: !Ref BasePermissions
         IAMRoleName: !Ref IAMRoleName

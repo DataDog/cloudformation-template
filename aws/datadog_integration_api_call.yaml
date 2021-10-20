@@ -12,7 +12,7 @@ Parameters:
       A comma seperated list of tags to add to hosts and metrics
 Resources:
   DatadogTestAWSAccount:
-    Type: "Datadog::Integrations::AWS2"
+    Type: "Datadog::Integrations::AWSQuickstart"
     Properties:
       AccountID: !Ref AWS::AccountId
       RoleName: !Ref RoleName
