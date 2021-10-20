@@ -63,6 +63,11 @@ Parameters:
     Description: >-
       Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
       You need this set to "true" to use Cloud Security Posture Management. You will also need "BasePermissions" set to "Full".
+  HostTags:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: >-
+      A comma seperated list of tags to add to hosts and metrics
 Conditions:
   ShouldInstallDatadogPolicyMacro:
     Fn::Equals:
@@ -74,16 +79,17 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Condition: ShouldInstallDatadogPolicyMacro
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-test-sandbox.s3.amazonaws.com/aws/datadog_policy_macro.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_policy_macro.yaml"
   # Installing the AWS Integration in Datadog
   DatadogAWSIntegration:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-test-sandbox.s3.amazonaws.com/aws/datadog_integration_type_config.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_type_config.yaml"
       Parameters:
         APIKey: !Ref DdApiKey
         APPKey: !Ref DdAppKey
         IAMRoleName: !Ref IAMRoleName
+        HostTags: !Join [ ",", !Ref HostTags ]
   # The IAM role for Datadog integration
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
@@ -107,7 +113,7 @@ Resources:
   ForwarderStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/forwarder.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_forwarder.yaml"
       Parameters:
         DdApiKey: !Ref DdApiKey
         DdSite: !Ref DdSite
@@ -144,14 +150,15 @@ Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
     - Label:
-        default: Required (Autofilled by Datadog New Account Form)
+        default: Required
       Parameters:
         - DdApiKey
         - DdAppKey
         - DdSite
     - Label:
-        default: Advanced (Autofilled by Datadog New Account Form)
+        default: Advanced
       Parameters:
+        - HostTags
         - LogArchives
         - BasePermissions
         - CloudSecurityPostureManagementPermissions
