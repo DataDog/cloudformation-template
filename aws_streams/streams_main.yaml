@@ -200,7 +200,7 @@ Resources:
             Accounts:
               - !Ref "AWS::AccountId"
           Regions: !Ref Regions
-      TemplateURL: "https://s3.amazonaws.com/datadog-cloudformation-stream-template/aws/streams_single_region.yaml"
+      TemplateURL: "https://s3.amazonaws.com/<BUCKET_PLACEHOLDER>/aws/streams_single_region.yaml"
       Parameters:
         - ParameterKey: ApiKey
           ParameterValue: !Ref ApiKey

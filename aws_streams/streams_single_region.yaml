@@ -54,7 +54,6 @@ Conditions:
   HasExcludeNamespace1: !And [ !Not [ !Equals [ !Ref FirstNamespace, '' ] ], !Not [ !Equals [ !Ref FilterMethod, 'Include' ]]]
   HasExcludeNamespace2: !And [ !Not [ !Equals [ !Ref SecondNamespace, '' ] ], !Not [ !Equals [ !Ref FilterMethod, 'Include' ]]]
   HasExcludeNamespace3: !And [ !Not [ !Equals [ !Ref ThirdNamespace, '' ] ], !Not [ !Equals [ !Ref FilterMethod, 'Include' ]]]
-  USDatacenter: !Equals [ !Ref DdSite, 'datadoghq.com' ]
   EUDatacenter: !Equals [ !Ref DdSite, 'datadoghq.eu' ]
   Staging: !Equals [ !Ref DdSite, 'datad0g.com' ]
 Resources:
