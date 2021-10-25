@@ -67,7 +67,7 @@ Parameters:
     Type: CommaDelimitedList
     Default: ""
     Description: >-
-      A comma seperated list of tags to add to hosts and metrics. Example: "aws_account:123456789123,account:prod"
+      A comma separated list of tags to add to hosts and metrics. Example: "aws_account:123456789123,account:prod"
 Conditions:
   ShouldInstallDatadogPolicyMacro:
     Fn::Equals:

@@ -88,13 +88,16 @@ Resources:
           PolicyDocument:
             Version: 2012-10-17
             Statement:
-            - Effect: Allow
-              Resource: !Sub
-                - 'arn:aws:iam::${account}:role/${role}'
-                - { account: !Ref AWS::AccountId, role: !Ref IAMRoleName}
-              Action:
-                - 'iam:List*'
-                - 'iam:Get*'
+            -  !If
+              - GrantFullPermissions
+              - Effect: Allow
+                Resource: !Sub
+                  - 'arn:aws:iam::${account}:role/${role}'
+                  - { account: !Ref AWS::AccountId, role: !Ref IAMRoleName}
+                Action:
+                  - 'iam:List*'
+                  - 'iam:Get*'
+              - !Ref AWS::NoValue
             - !If
               - GrantFullPermissions
               -
