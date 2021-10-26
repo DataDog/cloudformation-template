@@ -26,10 +26,10 @@ Parameters:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
     Default: DatadogIntegrationRole
-  Permissions:
+  BasePermissions:
     Description: >-
-      Customize the permission level for the Datadog IAM role.
-      Select "Core" to only grant Datadog read-only permissions (not recommended).
+      Customize the base permissions for the Datadog IAM role.
+      Select "Core" to only grant Datadog permissions to a very limited set of metrics and metadata (not recommended).
     Type: String
     Default: Full
     AllowedValues:
@@ -49,11 +49,6 @@ Parameters:
       https://docs.datadoghq.com/integrations/amazon_cloudtrail/
     Type: String
     Default: ''
-  MetricStreamRegions:
-    Description: >-
-      Comma separated list of regions to enable metric streaming (This may increase your cloudwatch bill and will create additional resources)
-    Type: CommaDelimitedList
-    Default: ''
   DdAWSAccountId:
     Description: >-
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
@@ -71,19 +66,21 @@ Parameters:
     AllowedValues:
       - true
       - false
-    Description: If you already deployed a stack using this template, set this parameter to false to skip the installation of the DatadogPolicy Macro again.
+    Description: If you already deployed a stack using this template, set this parameter to "false" to skip the installation of the DatadogPolicy Macro again.
+  CloudSecurityPostureManagementPermissions:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
+      You need this set to "true" to use Cloud Security Posture Management. You will also need "BasePermissions" set to "Full".
 Conditions:
   ShouldInstallDatadogPolicyMacro:
     Fn::Equals:
       - Ref: InstallDatadogPolicyMacro
       - true
-  MetricStreamRegionsNonEmpty:
-    Fn::Not:
-      - Fn::Equals:
-          - Fn::Join:
-              - ''
-              - Ref: MetricStreamRegions
-          - ''
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
   DatadogPolicyMacroStack:
@@ -98,10 +95,11 @@ Resources:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml"
       Parameters:
         ExternalId: !Ref ExternalId
-        Permissions: !Ref Permissions
+        BasePermissions: !Ref BasePermissions
         IAMRoleName: !Ref IAMRoleName
         LogArchives: !Ref LogArchives
         CloudTrails: !Ref CloudTrails
+        CloudSecurityPostureManagementPermissions: !Ref CloudSecurityPostureManagementPermissions
         DdAWSAccountId: !Ref DdAWSAccountId
       Tags:
         - # A trick to create a conditional dependency on DatadogPolicyMacroStack
@@ -118,33 +116,51 @@ Resources:
         DdApiKey: !Ref DdApiKey
         DdSite: !Ref DdSite
         FunctionName: !Ref DdForwarderName
-  # Creates resources for AWS metric streaming in specified regions
-  MultiRegionDatadogStreams:
-    Type: AWS::CloudFormation::Stack
-    Condition: MetricStreamRegionsNonEmpty
-    Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_metric_streams.yaml"
-      Parameters:
-        DdApiKey: !Ref DdApiKey
-        DdSite: !Ref DdSite
-        FunctionName: !Ref DdForwarderName
+Outputs:
+  IAMRoleName:
+    Description: AWS IAM Role named to be used with the DataDog AWS Integration 
+    Value: !Ref IAMRoleName
+  AccountId:
+    Description: AWS Account number
+    Value: !Ref "AWS::AccountId"
+  Region:
+    Description: AWS Region
+    Value: !Ref "AWS::Region"
+  DatadogForwarderArn:
+    Description: Datadog Forwarder Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+        - ForwarderStack
+        - Outputs.DatadogForwarderArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-DatadogForwarderArn
+  DdApiKeySecretArn:
+    Description: ARN of SecretsManager Secret with Datadog API Key
+    Value:
+      Fn::GetAtt:
+        - ForwarderStack
+        - Outputs.DdApiKeySecretArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-ApiKeySecretArn
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
     - Label:
         default: Required
       Parameters:
+        - IAMRoleName
         - ExternalId
         - DdApiKey
+        - BasePermissions
         - DdSite
     - Label:
         default: Optional
       Parameters:
-        - IAMRoleName
-        - Permissions
         - LogArchives
         - CloudTrails
-        - MetricStreamRegions
+        - CloudSecurityPostureManagementPermissions
     - Label:
         default: Advanced
       Parameters:
