@@ -10,10 +10,10 @@ Parameters:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String  
     Default: DatadogIntegrationRole
-  Permissions:
+  BasePermissions:
     Description: >-
-      Customize the permission level for the Datadog IAM role.
-      Select "Core" to only grant Datadog read-only permissions (not recommended).
+      Customize the base permissions for the Datadog IAM role.
+      Select "Core" to only grant Datadog permissions to a very limited set of metrics and metadata (not recommended).
     Type: String
     Default: Full
     AllowedValues:
@@ -32,6 +32,16 @@ Parameters:
       https://docs.datadoghq.com/integrations/amazon_cloudtrail/
     Type: String
     Default: ''
+  CloudSecurityPostureManagementPermissions:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Set this value to "true" to add permissions for Datadog's Cloud Security Posture Management product
+      to monitor your AWS cloud resource configurations.
+      You need this set to "true" to use Cloud Security Posture Management. You will also need "BasePermissions" set to "Full".
   DdAWSAccountId:
     Description: >-
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
@@ -40,8 +50,12 @@ Parameters:
 Conditions:
   GrantFullPermissions:
     Fn::Equals:
-      - Ref: Permissions
+      - Ref: BasePermissions
       - Full
+  ShouldInstallCSPMPolicy:
+    Fn::Equals:
+      - Ref: CloudSecurityPostureManagementPermissions
+      - true
 Resources:
   DatadogIntegrationRole:
     Type: 'AWS::IAM::Role'
@@ -68,6 +82,7 @@ Resources:
                 'sts:ExternalId': !Ref ExternalId
       Path: /
       RoleName: !Ref IAMRoleName
+      ManagedPolicyArns: !If [ShouldInstallCSPMPolicy, ['arn:aws:iam::aws:policy/SecurityAudit'], !Ref AWS::NoValue]
       Policies:
         - PolicyName: DatadogAWSIntegrationPolicy
           PolicyDocument:
@@ -109,19 +124,20 @@ Resources:
                   - 'es:ListTags'
                   - 'es:ListDomainNames'
                   - 'es:DescribeElasticsearchDomains'
+                  - 'fsx:DescribeFileSystems'
+                  - 'fsx:ListTagsForResource'
                   - 'health:DescribeEvents'
                   - 'health:DescribeEventDetails'
                   - 'health:DescribeAffectedEntities'
                   - 'kinesis:List*'
                   - 'kinesis:Describe*'
-                  - 'lambda:AddPermission'
                   - 'lambda:GetPolicy'
                   - 'lambda:List*'
-                  - 'lambda:RemovePermission'
                   - 'logs:TestMetricFilter'
                   - 'logs:PutSubscriptionFilter'
                   - 'logs:DeleteSubscriptionFilter'
                   - 'logs:DescribeSubscriptionFilters'
+                  - 'organizations:DescribeOrganization'
                   - 'rds:Describe*'
                   - 'rds:List*'
                   - 'redshift:DescribeClusters'
@@ -173,10 +189,11 @@ Metadata:
         default: Required
       Parameters:
         - ExternalId
+        - IAMRoleName
+        - BasePermissions
     - Label:
         default: Optional
       Parameters:
-        - IAMRoleName
-        - Permissions
         - LogArchives
         - CloudTrails
+        - CloudSecurityPostureManagementPermissions
