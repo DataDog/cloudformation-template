@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  ApiKey:
+    Description: >-
+      Your Datadog API Key
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: ApiKey is required
+    NoEcho: true
+  FilterMethod:
+    Description: >-
+      "Include" for an inclusion filter or "Exclude" for an exclusion filter for the following namespaces.
+    Type: String
+    Default: 'Include'
+  FirstNamespace:
+    Description: >-
+      A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+    Type: String
+    Default: ''
+  SecondNamespace:
+    Description: >-
+      A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+    Type: String
+    Default: ''
+  ThirdNamespace:
+    Description: >-
+      A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+      If you need additional namespaces follow this link for additional templates.
+    Type: String
+    Default: ''
+  Regions:
+    Description: >-
+      Comma separated list of regions to enable metric streaming
+    Type: CommaDelimitedList
+    ConstraintDescription: Regions is required
+    Default: ''
+  DdSite:
+    Type: String
+    Default: datadoghq.com
+    Description: Define your Datadog Site to send data to. For the Datadog EU site, set to datadoghq.eu
+    AllowedPattern: .+
+    ConstraintDescription: DdSite is required
+Resources:
+  DatadogStreamStackSetAdministrationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "DatadogStreamStackSetAdministrationRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "cloudformation.amazonaws.com"
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: DatadogStreamCfnStackSetAssumeRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                Resource: "*"
+  DatadogStreamStackSetExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "DatadogStreamStackSetExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !GetAtt DatadogStreamStackSetAdministrationRole.Arn
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: DatadogStreamCfnStackAssumeRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:*"
+                Resource:
+                  - "arn:aws:s3:::cf-templates-*"
+              - Effect: Allow
+                Action:
+                  - "cloudformation:*"
+                Resource:
+                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stack/StackSet-DatadogStreams-*"
+                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stackset/DatadogStreams*"
+              - Effect: Allow
+                Action:
+                  - "sns:Publish"
+                Resource:
+                  - "arn:aws:sns:*:*:CfnNotificationSNSTopic"
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:PassRole
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:DeleteBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:PutRetentionPolicy
+                  - logs:CreateLogStream
+                  - logs:DeleteLogStream
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub "arn:aws:logs:*:${AWS::AccountId}:log-group:datadog-metric-stream*"
+              - Effect: Allow
+                Action:
+                  - firehose:CreateDeliveryStream
+                  - firehose:DescribeDeliveryStream
+                  - firehose:DeleteDeliveryStream
+                Resource:
+                  - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-metrics-stream"
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricStream
+                  - cloudwatch:GetMetricStream
+                  - cloudwatch:ListMetricStreams
+                  - cloudwatch:DeleteMetricStream
+                Resource:
+                  - !Sub "arn:aws:cloudwatch:*:${AWS::AccountId}:metric-stream/datadog-metrics-stream"
+  ServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "DatadogServiceRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "firehose.amazonaws.com"
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: "datadog_stream_s3_policy"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:AbortMultipartUpload"
+                  - "s3:GetBucketLocation"
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                  - "s3:ListBucketMultipartUploads"
+                  - "s3:PutObject"
+                Resource:
+                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-${AWS::Region}"
+                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-${AWS::Region}/*"
+  DatadogMetricStreamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "DatadogMetricStreamRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - streams.metrics.cloudwatch.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: "datadog_stream_firehose_policy"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "firehose:PutRecord"
+                  - "firehose:PutRecordBatch"
+                Resource:
+                  - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-metrics-stream"
+      Description: A metric stream role
+  DatadogStreamStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Properties:
+      StackSetName: DatadogStreams
+      PermissionModel: SELF_MANAGED
+      AdministrationRoleARN: !GetAtt DatadogStreamStackSetAdministrationRole.Arn
+      ExecutionRoleName: !Ref DatadogStreamStackSetExecutionRole
+      StackInstancesGroup:
+        - DeploymentTargets:
+            Accounts:
+              - !Ref "AWS::AccountId"
+          Regions: !Ref Regions
+      TemplateURL: "https://s3.amazonaws.com/<BUCKET_PLACEHOLDER>/aws/streams_single_region.yaml"
+      Parameters:
+        - ParameterKey: ApiKey
+          ParameterValue: !Ref ApiKey
+        - ParameterKey: ServiceRoleArn
+          ParameterValue: !GetAtt ServiceRole.Arn
+        - ParameterKey: StreamRoleArn
+          ParameterValue: !GetAtt DatadogMetricStreamRole.Arn
+        - ParameterKey: DdSite
+          ParameterValue: !Ref DdSite
+        - ParameterKey: FilterMethod
+          ParameterValue: !Ref FilterMethod
+        - ParameterKey: FirstNamespace
+          ParameterValue: !Ref FirstNamespace
+        - ParameterKey: SecondNamespace
+          ParameterValue: !Ref SecondNamespace
+        - ParameterKey: ThirdNamespace
+          ParameterValue: !Ref ThirdNamespace
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Required
+      Parameters:
+        - ApiKey
+        - DdSite
+        - Regions
+    - Label:
+        default: Optional
+      Parameters:
+        - FilterMethod
+        - FirstNamespace
+        - SecondNamespace
+        - ThirdNamespace
