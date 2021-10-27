@@ -18,27 +18,34 @@ Parameters:
   DdSite:
     Type: String
     Default: datadoghq.com
-    Description: Define your Datadog Site to send data to. For the Datadog EU site, set to datadoghq.eu
-    AllowedPattern: .+
+    Description: Define your Datadog Site to send data to.
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ddog-gov.com
     ConstraintDescription: DdSite is required
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
     Default: DatadogIntegrationRole
-  BasePermissions:
+  ObservabilityPermissions:
     Description: >-
-      Customize the base permissions for the Datadog IAM role.
-      Select "Core" to only grant Datadog permissions to a very limited set of metrics and metadata (not recommended).
+      Customize the observability permissions for the Datadog IAM role.
+      Select "Limited Permissions" to only grant Datadog permissions to monitor a limited set of metrics and metadata
+      (not recommended).
     Type: String
-    Default: Full
+    Default: Standard Permissions
     AllowedValues:
-      - Full
-      - Core
+      - Standard Permissions
+      - Limited Permissions
   LogArchives:
     Description: >-
-      S3 paths to store log archives for log rehydration. Separate multiple paths with comma,
-      e.g., "my-bucket,my-bucket-with-path/path". Permissions will be automatically added to
-      the Datadog integration IAM role. https://docs.datadoghq.com/logs/archives/rehydrating/?tab=awss3
+      S3 paths to store log archives for log rehydration. Separate multiple paths with comma, e.g.,
+      "my-bucket,my-bucket-with-path/path". Permissions will be automatically added to the Datadog integration IAM role
+      so that Datadog can store log archives in these buckets.
+      https://docs.datadoghq.com/logs/archives/rehydrating/?tab=awss3
     Type: String
     Default: ''
   DdForwarderName:
@@ -61,8 +68,7 @@ Parameters:
       - true
       - false
     Description: >-
-      Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
-      You need this set to "true" to use Cloud Security Posture Management. You will also need "BasePermissions" set to "Full".
+      Set this value to "true" to add the IAM permissions necessary to use Cloud Security Posture Management.
   HostTags:
     Type: CommaDelimitedList
     Default: ""
@@ -90,6 +96,7 @@ Resources:
         APPKey: !Ref DdAppKey
         IAMRoleName: !Ref IAMRoleName
         HostTags: !Join [ ",", !Ref HostTags ]
+        DdSite: !Ref DdSite
   # The IAM role for Datadog integration
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
@@ -99,7 +106,7 @@ Resources:
       Parameters:
         # This secret contains the external_id returned by the custom cloudformation resource that calls the Datadog API
         ExternalId: "{{resolve:secretsmanager:DatadogIntegrationExternalID:SecretString:external_id}}"
-        BasePermissions: !Ref BasePermissions
+        ObservabilityPermissions: !Ref ObservabilityPermissions
         IAMRoleName: !Ref IAMRoleName
         LogArchives: !Ref LogArchives
         CloudSecurityPostureManagementPermissions: !Ref CloudSecurityPostureManagementPermissions
@@ -161,7 +168,7 @@ Metadata:
       Parameters:
         - HostTags
         - LogArchives
-        - BasePermissions
+        - ObservabilityPermissions
         - CloudSecurityPostureManagementPermissions
         - IAMRoleName
         - DdForwarderName

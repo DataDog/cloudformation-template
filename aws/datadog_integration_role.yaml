@@ -10,15 +10,16 @@ Parameters:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String  
     Default: DatadogIntegrationRole
-  BasePermissions:
+  ObservabilityPermissions:
     Description: >-
-      Customize the base permissions for the Datadog IAM role.
-      Select "Core" to only grant Datadog permissions to a very limited set of metrics and metadata (not recommended).
+      Customize the observability permissions for the Datadog IAM role.
+      Select "Limited Permissions" to only grant Datadog permissions to monitor a limited set of metrics and metadata
+      (not recommended).
     Type: String
-    Default: Full
+    Default: Standard Permissions
     AllowedValues:
-      - Full
-      - Core
+      - Standard Permissions
+      - Limited Permissions
   LogArchives:
     Description: >-
       S3 paths to store log archives for log rehydration. Separate multiple paths with comma,
@@ -50,8 +51,8 @@ Parameters:
 Conditions:
   GrantFullPermissions:
     Fn::Equals:
-      - Ref: BasePermissions
-      - Full
+      - Ref: ObservabilityPermissions
+      - Standard Permissions
   ShouldInstallCSPMPolicy:
     Fn::Equals:
       - Ref: CloudSecurityPostureManagementPermissions
@@ -200,7 +201,7 @@ Metadata:
       Parameters:
         - ExternalId
         - IAMRoleName
-        - BasePermissions
+        - ObservabilityPermissions
     - Label:
         default: Optional
       Parameters:

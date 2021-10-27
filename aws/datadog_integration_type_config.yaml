@@ -9,6 +9,17 @@ Parameters:
     Description: >-
       Your Datadog APP Key
     Type: String
+  DdSite:
+    Type: String
+    Default: datadoghq.com
+    Description: Define your Datadog Site to send data to.
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ddog-gov.com
+    ConstraintDescription: DdSite is required
   IAMRoleName:
     Description: >-
       The name of the IAM Role used for the Datadog AWS Integration
@@ -100,6 +111,7 @@ Resources:
       TypeARN: !Ref AWSIntegrationTypeActivation
       APIKey: !Ref APIKey
       APPKey: !Ref APPKey
+      ApiURL: !Sub ["https://api.${DdSite}", {DdSite: !Ref DdSite}]
   TypeConfigurationFunction:
     Type: "AWS::Lambda::Function"
     Properties:
