@@ -55,6 +55,7 @@ Conditions:
   HasExcludeNamespace2: !And [ !Not [ !Equals [ !Ref SecondNamespace, '' ] ], !Not [ !Equals [ !Ref FilterMethod, 'Include' ]]]
   HasExcludeNamespace3: !And [ !Not [ !Equals [ !Ref ThirdNamespace, '' ] ], !Not [ !Equals [ !Ref FilterMethod, 'Include' ]]]
   EUDatacenter: !Equals [ !Ref DdSite, 'datadoghq.eu' ]
+  US5Datacenter: !Equals [ !Ref DdSite, 'us5.datadoghq.com' ]
   Staging: !Equals [ !Ref DdSite, 'datad0g.com' ]
 Resources:
   DatadogStreamLogs:
@@ -93,7 +94,10 @@ Resources:
             - !If
               - EUDatacenter
               - "https://awsmetrics-intake.datadoghq.eu/v1/input"
-              - "https://awsmetrics-intake.datadoghq.com/v1/input"
+              - !If
+                - US5Datacenter
+                - !Sub "https://event-platform-intake.us5.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose&dd-api-key=${ApiKey}"
+                - "https://awsmetrics-intake.datadoghq.com/v1/input"
           Name: "Event intake"
           AccessKey: !Ref ApiKey
         CloudWatchLoggingOptions:
