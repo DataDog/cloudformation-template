@@ -160,8 +160,8 @@ Resources:
                   - "s3:ListBucketMultipartUploads"
                   - "s3:PutObject"
                 Resource:
-                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-${AWS::Region}"
-                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-${AWS::Region}/*"
+                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
+                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*/*"
   DatadogMetricStreamRole:
     Type: AWS::IAM::Role
     Properties:
