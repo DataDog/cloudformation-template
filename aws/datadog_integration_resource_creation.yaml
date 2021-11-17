@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Resource Type Configuration
+Parameters:
+  SecretName:
+    Description: >-
+      Your Datadog API Key
+    Type: String
+    Default: ""
+  APIKey:
+    Description: >-
+      Your Datadog API Key
+    Type: String
+    Default: ""
+  APPKey:
+    Description: >-
+      Your Datadog APP Key
+    Type: String
+    Default: ""
+  DdSite:
+    Type: String
+    Default: datadoghq.com
+    Description: Define your Datadog Site to send data to.
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ddog-gov.com
+    ConstraintDescription: DdSite is required
+  IAMRoleName:
+    Description: >-
+      The name of the IAM Role used for the Datadog AWS Integration
+    Type: String
+  HostTags:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: >-
+      A comma seperated list of tags to add to hosts and metrics
+  AdministrationRole:
+    Description: >-
+      The name of the IAM Role used for the Datadog AWS Integration
+    Type: String
+  ExecutionRole:
+    Description: >-
+      The name of the IAM Role used for the Datadog AWS Integration
+    Type: String
+Resources:
+  DatadogIntegrationStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Properties:
+      StackSetName: DatadogIntegration
+      PermissionModel: SELF_MANAGED
+      AdministrationRoleARN: !Ref AdministrationRole
+      ExecutionRoleName: !Ref ExecutionRole
+      StackInstancesGroup:
+        - DeploymentTargets:
+            Accounts:
+              - !Ref "AWS::AccountId"
+          Regions:
+            - "us-east-1"
+      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_integration_api_call.yaml"
+      Parameters:
+        - ParameterKey: RoleName
+          ParameterValue: !Ref IAMRoleName
+        - ParameterKey: HostTags
+          ParameterValue: !Join [ ",", !Ref HostTags ]

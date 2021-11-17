@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates StackSet Roles
+Resources:
+  DatadogStackSetAdministrationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "DatadogStackSetAdministrationRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "cloudformation.amazonaws.com"
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: DatadogCfnStackSetAssumeRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                Resource: "*"
+  DatadogStackSetExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "DatadogStackSetExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !GetAtt DatadogStackSetAdministrationRole.Arn
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: DatadogCfnStackAssumeRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:*"
+                Resource:
+                  - "arn:aws:s3:::cf-templates-*"
+              - Effect: Allow
+                Action:
+                  - "cloudformation:*"
+                Resource:
+                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stack/StackSet-DatadogIntegration-*"
+                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stackset/DatadogIntegration*"
+              - Effect: Allow
+                Action:
+                  - "sns:Publish"
+                Resource:
+                  - "arn:aws:sns:*:*:CfnNotificationSNSTopic"
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:PassRole
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - lambda:*
+                  - cloudformation:*
+                  - secretsmanager:*
+                Resource: "*"
+  CloudFormationTypeActivationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - resources.cloudformation.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: DatadogAPISecretsPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource: '*'
+                Action:
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:DeleteSecret
+                  - secretsmanager:DescribeSecret
+      Path: "/"
+  TypeActivationLoggingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - resources.cloudformation.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: DatadogAPISecretsPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource:
+                  - !Join
+                    - ''
+                    - - "arn:aws:logs:"
+                      - !Ref AWS::Region
+                      - ":"
+                      - !Ref AWS::AccountId
+                      - ":log-group:AWSIntegrationResource:*"
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogGroups
+                  - logs:DeleteLogGroup
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogStream
+                  - logs:PutLogEvents
+      Path: "/"
+  LambdaExecutionRoleTypeConfig:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: "root"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "cloudformation:SetTypeConfiguration"
+                Resource: "*"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  LambdaExecutionRoleAPICall:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: "root"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "cloudformation:CreateStack"
+                  - "cloudformation:DeleteStack"
+                  - "secretsmanager:GetSecretValue"
+                Resource: "*"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+Outputs:
+  AdministrationRole:
+    Description: AWS IAM Role Arn for stack set administration
+    Value: !GetAtt DatadogStackSetAdministrationRole.Arn
+  ExecutionRole:
+    Description: AWS IAM Role Name for stack set execution
+    Value: !Ref DatadogStackSetExecutionRole
+  CloudFormationTypeActivationRole:
+    Description: AWS IAM Role Name for stack set execution
+    Value: !GetAtt CloudFormationTypeActivationRole.Arn
+  TypeActivationLoggingRole:
+    Description: AWS IAM Role Name for stack set execution
+    Value: !GetAtt TypeActivationLoggingRole.Arn
+  LambdaExecutionRoleTypeConfig:
+    Description: AWS IAM Role Name for stack set execution
+    Value: !GetAtt LambdaExecutionRoleTypeConfig.Arn
+  LambdaExecutionRoleAPICall:
+    Description: AWS IAM Role Name for stack set execution
+    Value: !GetAtt LambdaExecutionRoleAPICall.Arn
