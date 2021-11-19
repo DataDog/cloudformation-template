@@ -20,30 +20,17 @@ def handler(event, context):
 		if event['RequestType'] == 'Create':
 			LOGGER.info('Received Create request.')
 			resource_type_arn = event['ResourceProperties']['TypeARN']
-			secret_name = event['ResourceProperties']['SecretName']
 			api_key = event['ResourceProperties']['APIKey']
 			app_key = event['ResourceProperties']['APPKey']
 			api_url = event['ResourceProperties'].get('ApiURL')
 			region = context.invoked_function_arn.split(":")[3]
 
-			if not secret_name:
-				credentials_dict = {
-					"DatadogCredentials": {
-						"ApiKey": api_key,
-						"ApplicationKey": app_key,
-					}
+			credentials_dict = {
+				"DatadogCredentials": {
+					"ApiKey": api_key,
+					"ApplicationKey": app_key,
 				}
-			else:
-				client = boto3.client("secretsmanager", region_name=region)
-				secret_json = client.get_secret_value(SecretId=secret_name)
-				secret_content = json.loads(secret_json["SecretString"])
-				credentials_dict = {
-					"DatadogCredentials": {
-						"ApiKey": secret_content["ClientRequestToken"]["ApiKey"],
-						"ApplicationKey": secret_content["ClientRequestToken"]["AppKey"],
-					}
-				}
-
+			}
 			if api_url is not None:
 				credentials_dict["DatadogCredentials"]["ApiURL"] = api_url
 

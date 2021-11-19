@@ -35,7 +35,7 @@ Parameters:
   Timeout:
     Type: Number
     Default: 120
-    Description: Timeout for the Datadog Forwarder Lambda function
+    Description: Timeout for the Datadog Forwarder Lambda function in seconds
   TagsCacheTTLSeconds:
     Type: Number
     Default: 300
@@ -51,7 +51,7 @@ Parameters:
   SourceZipUrl:
     Type: String
     Default: ""
-    Description: DO NOT CHANGE unless you know what you are doing. Override the default location of the function source code.
+    Description: Override the default location of the function source code. Using the default is recommended.
   InstallAsLayer:
     Type: String
     Default: true
@@ -949,13 +949,13 @@ Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: Required
+          default: API Configuration (Required)
         Parameters:
           - DdApiKey
           - DdApiKeySecretArn
           - DdSite
       - Label:
-          default: Lambda Function (Optional)
+          default: Lambda Function Configuration (Optional)
         Parameters:
           - FunctionName
           - MemorySize
@@ -963,7 +963,7 @@ Metadata:
           - ReservedConcurrency
           - LogRetentionInDays
       - Label:
-          default: Log Forwarding (Optional)
+          default: Log Forwarding Configuration (Optional)
         Parameters:
           - DdTags
           - DdMultilineLogRegexPattern
@@ -977,19 +977,19 @@ Metadata:
           - DdMaxWorkers
           - DdForwardLog
       - Label:
-          default: Log Scrubbing (Optional)
+          default: Log Scrubbing Configuration (Optional)
         Parameters:
           - RedactIp
           - RedactEmail
           - DdScrubbingRule
           - DdScrubbingRuleReplacement
       - Label:
-          default: Log Filtering (Optional)
+          default: Log Filtering Configuration (Optional)
         Parameters:
           - ExcludeAtMatch
           - IncludeAtMatch
       - Label:
-          default: Advanced (Optional)
+          default: Advanced Configuration (Optional)
         Parameters:
           - DdFetchLambdaTags
           - TagsCacheTTLSeconds

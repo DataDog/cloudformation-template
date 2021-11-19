@@ -1,38 +1,12 @@
 import boto3
-from botocore.exceptions import ClientError
 
 import json
 import logging
 import signal
-from time import sleep
 from urllib.request import build_opener, HTTPHandler, Request
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
-
-TEMPLATE_BODY = """
-AWSTemplateFormatVersion: 2010-09-09
-Description: Datadog AWS Integration API Call
-Parameters:
-  RoleName:
-    Description: >-
-      The name of the IAM role created for Datadog's use.
-    Type: String
-  HostTags:
-    Type: CommaDelimitedList
-    Default: ""
-    Description: >-
-      A comma seperated list of tags to add to hosts and metrics
-Resources:
-  DatadogAWSAccountIntegration:
-    Type: Datadog::Integrations::AWSQuickstart
-    Properties:
-      AccountID: !Ref AWS::AccountId
-      RoleName: !Ref RoleName
-      HostTags: !Ref HostTags
-"""
-
-BACKOFFS = [5, 10, 15, 20]
 
 
 def handler(event, context):
@@ -42,51 +16,42 @@ def handler(event, context):
         LOGGER.info('REQUEST RECEIVED:\n %s', context)
         if event['RequestType'] == 'Create':
             LOGGER.info('Received Create request.')
-            region = event['ResourceProperties']['Region']
-            role_name = event['ResourceProperties']['RoleName']
-            host_tags = event['ResourceProperties']['HostTags']
+            secret_name = event['ResourceProperties']['SecretName']
+            api_key = event['ResourceProperties']['APIKey']
+            app_key = event['ResourceProperties']['APPKey']
+            api_url = event['ResourceProperties']['ApiURL']
+            region = context.invoked_function_arn.split(":")[3]
 
-            client = boto3.client("cloudformation", region_name=region)
-            client.create_stack(
-                StackName="DatadogAWSIntegrationAPICall",
-                TemplateBody=TEMPLATE_BODY,
-                Parameters=[
-                    {"ParameterKey": "RoleName", "ParameterValue": role_name},
-                    {"ParameterKey": "HostTags", "ParameterValue": host_tags},
-                ]
-            )
+            if secret_name:
+                dc_to_apiurl = {
+                    "us1.prod.dog": "datadoghq.com",
+                    "eu1.prod.dog": "datadoghq.eu",
+                    "us3.prod.dog": "us3.datadoghq.com",
+                    "us5.prod.dog": "us5.datadoghq.com",
+                    "us1.fed.dog": "ddog-gov.com",
+                }
+                client = boto3.client("secretsmanager", region_name=region)
+                secret_json = client.get_secret_value(SecretId=secret_name)
+                secret_content = json.loads(secret_json["SecretString"])
+                api_key = secret_content["apiKey"]
+                app_key = secret_content["applicationKey"]
+                api_url = dc_to_apiurl[secret_content["datacenter"]]
 
-            # Wait for cloudformation template to finish running
-            for backoff in BACKOFFS:
-                sleep(backoff)
-
-                secretsmanager_client = boto3.client("secretsmanager", region_name=region)
-                try:
-                    secret_json = secretsmanager_client.get_secret_value(
-                        SecretId="DatadogIntegrationExternalID"
-                    )["SecretString"]
-                except ClientError as e:
-                    if e.response['Error']['Code'] == 'ResourceNotFoundException':
-                        continue
-                    raise e
             send_response(event, context, "SUCCESS",
-                          {"Message": "Datadog AWS Integration made successfully.",
-                           "ExternalID": json.loads(secret_json)["external_id"]})
+                          {
+                              "Message": "Type Configuration set correctly.",
+                              "ApiKey": api_key,
+                              "AppKey": app_key,
+                              "ApiUrl": api_url,
+                          })
         elif event['RequestType'] == 'Update':
             LOGGER.info('Received Update request.')
             send_response(event, context, "SUCCESS",
                           {"Message": "Update not supported, no operation performed."})
         elif event['RequestType'] == 'Delete':
             LOGGER.info('Received Delete request.')
-            region = event['ResourceProperties']['Region']
-
-            client = boto3.client("cloudformation", region_name=region)
-            client.delete_stack(
-                StackName="DatadogAWSIntegrationAPICall"
-            )
-
             send_response(event, context, "SUCCESS",
-                          {"Message": "Datadog AWS Integration deleted successfully."})
+                          {"Message": "Delete not supported, no operation performed."})
         else:
             LOGGER.info('Failed - received unexpected request.')
             send_response(event, context, "FAILED",

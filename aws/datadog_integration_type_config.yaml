@@ -1,22 +1,19 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: Resource Type Configuration
 Parameters:
-  SecretName:
-    Description: >-
-      An AWS SecretsManager ARN of a secret containing your API Key, APP Key, and Datadog Site.
-    Type: String
-    Default: ""
-  APIKey:
+  ApiKey:
     Description: >-
       Your Datadog API Key
     Type: String
+    NoEcho: true
     Default: ""
-  APPKey:
+  AppKey:
     Description: >-
       Your Datadog APP Key
     Type: String
+    NoEcho: true
     Default: ""
-  DdSite:
+  ApiUrl:
     Type: String
     Default: datadoghq.com
     Description: Define your Datadog Site to send data to.
@@ -26,7 +23,6 @@ Parameters:
       - us3.datadoghq.com
       - us5.datadoghq.com
       - ddog-gov.com
-    ConstraintDescription: DdSite is required
   IAMRoleName:
     Description: >-
       The name of the IAM Role used for the Datadog AWS Integration
@@ -37,22 +33,6 @@ Parameters:
     Default: ""
     Description: >-
       A comma seperated list of tags to add to hosts and metrics
-  CloudFormationTypeActivationRole:
-    Description: >-
-      The name of the IAM Role used for the Datadog AWS Integration
-    Type: String
-  TypeActivationLoggingRole:
-    Description: >-
-      The name of the IAM Role used for the Datadog AWS Integration
-    Type: String
-  LambdaExecutionRoleTypeConfig:
-    Description: >-
-      The name of the IAM Role used for the Datadog AWS Integration
-    Type: String
-  LambdaExecutionRoleAPICall:
-    Description: >-
-      The name of the IAM Role used for the Datadog AWS Integration
-    Type: String
   ObservabilityPermissions:
     Description: >-
       Customize the observability permissions for the Datadog IAM role.
@@ -63,6 +43,13 @@ Parameters:
     AllowedValues:
       - Standard Permissions
       - Limited Permissions
+  CloudTrails:
+    Description: >-
+      S3 buckets for the Datadog CloudTrail integration. Separate multiple buckets with commas,
+      e.g., "bucket1,bucket2". Permissions will be automatically added to the Datadog integration IAM role.
+      https://docs.datadoghq.com/integrations/amazon_cloudtrail/
+    Type: String
+    Default: ''
   LogArchives:
     Description: >-
       S3 paths to store log archives for log rehydration. Separate multiple paths with comma,
@@ -84,13 +71,22 @@ Parameters:
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
     Type: String
     Default: "464622532012"
-  CloudTrails:
+  CloudFormationTypeActivationRole:
     Description: >-
-      S3 buckets for the Datadog CloudTrail integration. Separate multiple buckets with commas,
-      e.g., "bucket1,bucket2". Permissions will be automatically added to the Datadog integration IAM role.
-      https://docs.datadoghq.com/integrations/amazon_cloudtrail/
+      AWS IAM Role for the role used with the custom Datadog::AWS::Integration resource
     Type: String
-    Default: ''
+  TypeActivationLoggingRole:
+    Description: >-
+      AWS IAM Role for the role to be used for writing logs for the custom resource
+    Type: String
+  LambdaExecutionRoleTypeConfig:
+    Description: >-
+      AWS IAM Role used for executing the type configuration lambda
+    Type: String
+  LambdaExecutionRoleAPICall:
+    Description: >-
+      AWS IAM Role used for the stack that creates the API call to Datadog
+    Type: String
 Conditions:
   GrantFullPermissions:
     Fn::Equals:
@@ -105,12 +101,7 @@ Resources:
     Type: "AWS::CloudFormation::TypeActivation"
     Properties:
       PublicTypeArn:
-        !Join
-          - ''
-          -
-            - "arn:aws:cloudformation:"
-            - !Ref AWS::Region
-            - "::type/resource/7171b96e5d207b947eb72ca9ce05247c246de623/Datadog-Integrations-AWS"
+        !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}::type/resource/7171b96e5d207b947eb72ca9ce05247c246de623/Datadog-Integrations-AWS"
       ExecutionRoleArn: !Ref CloudFormationTypeActivationRole
       TypeNameAlias: "Datadog::Integrations::AWSQuickstart"
       LoggingConfig:
@@ -121,10 +112,9 @@ Resources:
     Properties:
       ServiceToken: !GetAtt TypeConfigurationFunction.Arn
       TypeARN: !Ref AWSIntegrationTypeActivation
-      SecretName: !Ref SecretName
-      APIKey: !Ref APIKey
-      APPKey: !Ref APPKey
-      ApiURL: !Sub ["https://api.${DdSite}", {DdSite: !Ref DdSite}]
+      APIKey: !Ref ApiKey
+      APPKey: !Ref AppKey
+      ApiURL: !Sub ["https://api.${ApiUrl}", {ApiUrl: !Ref ApiUrl}]
   TypeConfigurationFunction:
     Type: "AWS::Lambda::Function"
     Properties:
@@ -135,12 +125,15 @@ Resources:
       Timeout: 30
       Code:
         ZipFile: |
+          import logging
           import boto3
+          import json
 
           import json
           import logging
           import signal
           from urllib.request import build_opener, HTTPHandler, Request
+          from urllib.parse import urlencode
 
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
@@ -157,9 +150,10 @@ Resources:
           			api_key = event['ResourceProperties']['APIKey']
           			app_key = event['ResourceProperties']['APPKey']
           			api_url = event['ResourceProperties'].get('ApiURL')
+          			region = context.invoked_function_arn.split(":")[3]
 
           			credentials_dict = {
-          				"DatadogCredentials":{
+          				"DatadogCredentials": {
           					"ApiKey": api_key,
           					"ApplicationKey": app_key,
           				}
@@ -167,7 +161,6 @@ Resources:
           			if api_url is not None:
           				credentials_dict["DatadogCredentials"]["ApiURL"] = api_url
 
-          			region = context.invoked_function_arn.split(":")[3]
           			client = boto3.client("cloudformation", region_name=region)
           			client.set_type_configuration(
           				TypeArn=resource_type_arn,
@@ -243,14 +236,16 @@ Resources:
       Handler: "index.handler"
       Role: !Ref LambdaExecutionRoleAPICall
       Runtime: "python3.8"
-      Timeout: 30
+      Timeout: 60
       Code:
         ZipFile: |
           import boto3
+          from botocore.exceptions import ClientError
 
           import json
           import logging
           import signal
+          from time import sleep
           from urllib.request import build_opener, HTTPHandler, Request
 
           LOGGER = logging.getLogger()
@@ -278,6 +273,8 @@ Resources:
                 HostTags: !Ref HostTags
           """
 
+          BACKOFFS = [5, 10, 15, 20]
+
 
           def handler(event, context):
               '''Handle Lambda event from AWS'''
@@ -299,13 +296,22 @@ Resources:
                               {"ParameterKey": "HostTags", "ParameterValue": host_tags},
                           ]
                       )
-                      secretsmanager_client = boto3.client("secretsmanager", region_name=region)
-                      secret_json = secretsmanager_client.get_secret_value(
-                          SecretId="DatadogIntegrationExternalID"
-                      )["SecretString"]
 
+                      # Wait for cloudformation template to finish running
+                      for backoff in BACKOFFS:
+                          sleep(backoff)
+
+                          secretsmanager_client = boto3.client("secretsmanager", region_name=region)
+                          try:
+                              secret_json = secretsmanager_client.get_secret_value(
+                                  SecretId="DatadogIntegrationExternalID"
+                              )["SecretString"]
+                          except ClientError as e:
+                              if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                                  continue
+                              raise e
                       send_response(event, context, "SUCCESS",
-                                    {"Message": "Type Configuration set correctly.",
+                                    {"Message": "Datadog AWS Integration made successfully.",
                                      "ExternalID": json.loads(secret_json)["external_id"]})
                   elif event['RequestType'] == 'Update':
                       LOGGER.info('Received Update request.')
@@ -321,7 +327,7 @@ Resources:
                       )
 
                       send_response(event, context, "SUCCESS",
-                                    {"Message": "Delete not supported, no operation performed."})
+                                    {"Message": "Datadog AWS Integration deleted successfully."})
                   else:
                       LOGGER.info('Failed - received unexpected request.')
                       send_response(event, context, "FAILED",
@@ -379,9 +385,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub
-                - 'arn:aws:iam::${DdAWSAccountId}:root'
-                - { DdAWSAccountId: !Ref DdAWSAccountId }
+              AWS: !Sub "arn:${AWS::Partition}:iam::${DdAWSAccountId}:root"
             Action:
               - 'sts:AssumeRole'
             Condition:
@@ -389,7 +393,7 @@ Resources:
                 'sts:ExternalId': !GetAtt DatadogAPICallResource.ExternalID
       Path: /
       RoleName: !Ref IAMRoleName
-      ManagedPolicyArns: !If [ ShouldInstallCSPMPolicy, [ 'arn:aws:iam::aws:policy/SecurityAudit' ], !Ref AWS::NoValue ]
+      ManagedPolicyArns: !If [ ShouldInstallCSPMPolicy, [ !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit" ], !Ref AWS::NoValue ]
       Policies:
         - PolicyName: DatadogAWSIntegrationPolicy
           PolicyDocument:
@@ -398,9 +402,7 @@ Resources:
               - !If
                 - GrantFullPermissions
                 - Effect: Allow
-                  Resource: !Sub
-                    - 'arn:aws:iam::${account}:role/${role}'
-                    - { account: !Ref AWS::AccountId, role: !Ref IAMRoleName }
+                  Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${IAMRoleName}'
                   Action:
                     - 'iam:List*'
                     - 'iam:Get*'
