@@ -9,6 +9,12 @@ Parameters:
     Description: >-
       The region used for the Datadog API Call Resource
     Type: String
+Conditions:
+  SecretNameProvided:
+    !Not
+      - !Equals
+        - !Ref SecretName
+        - ""
 Resources:
   DatadogStackSetAdministrationRole:
     Type: AWS::IAM::Role
@@ -188,6 +194,7 @@ Resources:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
   LambdaExecutionRoleSecretsRetrieval:
     Type: AWS::IAM::Role
+    Condition: SecretNameProvided
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -232,3 +239,4 @@ Outputs:
   LambdaExecutionRoleSecretsRetrieval:
     Description: "AWS IAM Role used for the custom lambda that retrieves secrets from Datadog"
     Value: !GetAtt LambdaExecutionRoleSecretsRetrieval.Arn
+    Condition: SecretNameProvided

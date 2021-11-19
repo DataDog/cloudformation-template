@@ -92,6 +92,11 @@ Conditions:
     !Equals
       - !Select [0, !Split ["-", !Ref AWS::Region]]
       - "eu"
+  SecretNameProvided:
+    !Not
+      - !Equals
+        - !Ref SecretName
+        - ""
 Rules:
   MustSetKeysOrSecretArn:
     Assertions:
@@ -123,6 +128,7 @@ Resources:
   # Retrieving secrets passed in via SecretsManager Arn
   SecretsRetrieval:
     Type: "Custom::SecretsRetrieval"
+    Condition: SecretNameProvided
     Properties:
       ServiceToken: !GetAtt SecretsRetrievalFunction.Arn
       SecretName: !Ref SecretName
@@ -131,6 +137,7 @@ Resources:
       ApiURL: !Ref DatadogSite
   SecretsRetrievalFunction:
     Type: "AWS::Lambda::Function"
+    Condition: SecretNameProvided
     Properties:
       Description: "A function to retrieve secrets from a provided secrets arn."
       Role: !GetAtt DatadogAWSIntegrationStackSetRoles.Outputs.LambdaExecutionRoleSecretsRetrieval
@@ -274,15 +281,15 @@ Resources:
       TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_integration_type_config.yaml"
       Parameters:
         - ParameterKey: ApiKey
-          ParameterValue: !GetAtt SecretsRetrieval.ApiKey
+          ParameterValue: !If [SecretNameProvided, !GetAtt SecretsRetrieval.ApiKey, !Ref DatadogApiKey]
         - ParameterKey: AppKey
-          ParameterValue: !GetAtt SecretsRetrieval.AppKey
+          ParameterValue: !If [SecretNameProvided, !GetAtt SecretsRetrieval.AppKey, !Ref DatadogAppKey]
         - ParameterKey: IAMRoleName
           ParameterValue: !Ref IAMRoleName
         - ParameterKey: HostTags
           ParameterValue: !Join [ ",", !Ref HostTags ]
         - ParameterKey: ApiUrl
-          ParameterValue: !GetAtt SecretsRetrieval.ApiUrl
+          ParameterValue: !If [SecretNameProvided, !GetAtt SecretsRetrieval.ApiUrl, !Ref DatadogSite]
         - ParameterKey: CloudFormationTypeActivationRole
           ParameterValue: !GetAtt DatadogAWSIntegrationStackSetRoles.Outputs.CloudFormationTypeActivationRole
         - ParameterKey: TypeActivationLoggingRole
@@ -311,8 +318,8 @@ Resources:
     Properties:
       TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_forwarder.yaml"
       Parameters:
-        DdApiKey: !GetAtt SecretsRetrieval.ApiKey
-        DdSite: !GetAtt SecretsRetrieval.ApiUrl
+        DdApiKey: !If [SecretNameProvided, !GetAtt SecretsRetrieval.ApiKey, !Ref DatadogApiKey]
+        DdSite: !If [SecretNameProvided, !GetAtt SecretsRetrieval.ApiUrl, !Ref DatadogSite]
         FunctionName: !Ref DdForwarderName
 Outputs:
   IAMRoleName:
