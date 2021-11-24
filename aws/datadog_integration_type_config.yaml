@@ -376,9 +376,12 @@ Resources:
       cfn-lint:
         config:
           # cfn-lint does not yet support "Fn::Transform"
+          # This policy needs broad read permissions to allow Datadog to collect metrics and metadata
           ignore_checks:
             - E3002
             - E3003
+            - EIAMPolicyActionWildcard
+            - EIAMPolicyWildcardResource
     Properties:
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -494,8 +497,10 @@ Resources:
               Parameters:
                 PolicyType: LogArchive
                 LogArchives: !Ref LogArchives
+                Partition: !Ref AWS::Partition
         - Fn::Transform:
             - Name: 'DatadogPolicy'
               Parameters:
                 PolicyType: CloudTrail
                 CloudTrails: !Ref CloudTrails
+                Partition: !Ref AWS::Partition

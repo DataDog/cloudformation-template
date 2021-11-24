@@ -215,6 +215,10 @@ Resources:
                 Action:
                   - "secretsmanager:GetSecretValue"
                 Resource: !Ref SecretName
+              - Effect: "Allow"
+                Action:
+                  - "kms:Decrypt"
+                Resource: "*"
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 Outputs:

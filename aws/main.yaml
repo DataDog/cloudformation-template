@@ -1,9 +1,10 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Datadog AWS Integration
+Description: Datadog AWS Integration (qs-1sfrgofam)
 Parameters:
   SecretName:
     Description: >-
-      An AWS SecretsManager ARN of a secret containing your API Key, APP Key, and Datadog Site.
+      An AWS SecretsManager ARN of a secret containing your API Key, APP Key, and Datadog Site. Either provide
+      this ARN, or ApiKey, AppKey, and Site below.
     Type: String
     Default: ""
   DatadogApiKey:
@@ -353,16 +354,18 @@ Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
     - Label:
-        default: Required
+        default: Datadog API Configuration (Required)
       Parameters:
+        - SecretName
         - DatadogApiKey
         - DatadogAppKey
         - DatadogSite
     - Label:
-        default: Advanced
+        default: Additional Configuration (Optional)
       Parameters:
         - HostTags
         - LogArchives
+        - CloudTrails
         - ObservabilityPermissions
         - CloudSecurityPostureManagementPermissions
         - IAMRoleName
