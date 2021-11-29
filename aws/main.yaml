@@ -86,6 +86,10 @@ Conditions:
     Fn::Equals:
       - Ref: InstallDatadogPolicyMacro
       - true
+  EmptyDdApiKeySecretArn:
+    Fn::Equals:
+      - Ref: DdApiKeySecretArn
+      - ""
 Rules:
   MustSetDdApiKey:
     Assertions:
@@ -133,7 +137,7 @@ Resources:
       TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/latest.yaml"
       Parameters:
         DdApiKey: !Ref DdApiKey
-        DdApiKeySecretArn: !Ref DdApiKeySecretArn
+        DdApiKeySecretArn: !If [EmptyDdApiKeySecretArn, "arn:aws:secretsmanager:DEFAULT", !Ref DdApiKeySecretArn]
         DdSite: !Ref DdSite
         FunctionName: !Ref DdForwarderName
 Outputs:
