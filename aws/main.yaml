@@ -18,8 +18,8 @@ Parameters:
     Default: ""
   DdApiKeySecretArn:
     Type: String
-    AllowedPattern: "arn:.*:secretsmanager:.*"
-    Default: "arn:aws:secretsmanager:DEFAULT"
+    AllowedPattern: "(arn:.*:secretsmanager:.*)?"
+    Default: ""
     Description: The ARN of the secret storing the Datadog API key, if you already have it stored in Secrets Manager. You must store the secret as a plaintext, rather than a key-value pair.
   DdSite:
     Type: String
@@ -98,7 +98,7 @@ Rules:
             - Fn::Not:
                 - Fn::Equals:
                     - Ref: DdApiKeySecretArn
-                    - "arn:aws:secretsmanager:DEFAULT"
+                    - ""
         AssertDescription: DdApiKey or DdApiKeySecretArn must be set
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
