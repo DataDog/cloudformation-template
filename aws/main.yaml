@@ -86,7 +86,7 @@ Conditions:
     Fn::Equals:
       - Ref: InstallDatadogPolicyMacro
       - true
-  EmptyDdApiKeySecretArn:
+  WillCreateDdApiKeySecretArn:
     Fn::Equals:
       - Ref: DdApiKeySecretArn
       - ""
@@ -137,7 +137,7 @@ Resources:
       TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/latest.yaml"
       Parameters:
         DdApiKey: !Ref DdApiKey
-        DdApiKeySecretArn: !If [EmptyDdApiKeySecretArn, "arn:aws:secretsmanager:DEFAULT", !Ref DdApiKeySecretArn]
+        DdApiKeySecretArn: !If [WillCreateDdApiKeySecretArn, "arn:aws:secretsmanager:DEFAULT", !Ref DdApiKeySecretArn]
         DdSite: !Ref DdSite
         FunctionName: !Ref DdForwarderName
 Outputs:
@@ -168,6 +168,7 @@ Outputs:
     Export:
       Name:
         Fn::Sub: ${AWS::StackName}-ApiKeySecretArn
+    Condition: WillCreateDdApiKeySecretArn
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
