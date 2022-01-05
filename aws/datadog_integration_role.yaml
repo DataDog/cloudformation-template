@@ -143,7 +143,6 @@ Resources:
                   - 'rds:List*'
                   - 'redshift:DescribeClusters'
                   - 'redshift:DescribeLoggingStatus'
-                  - 'route53:GetDNSSEC'
                   - 'route53:List*'
                   - 's3:GetBucketLogging'
                   - 's3:GetBucketLocation'
