@@ -8,7 +8,7 @@ Parameters:
     Type: String
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
-    Type: String  
+    Type: String
     Default: DatadogIntegrationRole
   BasePermissions:
     Description: >-
@@ -96,6 +96,7 @@ Resources:
                 Action:
                   - 'apigateway:GET'
                   - 'autoscaling:Describe*'
+                  - 'backup:List*'
                   - 'budgets:ViewBudget'
                   - 'cloudfront:GetDistributionConfig'
                   - 'cloudfront:ListDistributions'
@@ -142,6 +143,7 @@ Resources:
                   - 'rds:List*'
                   - 'redshift:DescribeClusters'
                   - 'redshift:DescribeLoggingStatus'
+                  - 'route53:GetDNSSEC'
                   - 'route53:List*'
                   - 's3:GetBucketLogging'
                   - 's3:GetBucketLocation'
