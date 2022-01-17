@@ -34,12 +34,8 @@ fi
 cp main.yaml main.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main.yaml
 
-cp datadog_integration_type_config.yaml datadog_integration_type_config.yaml.bak
-perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" datadog_integration_type_config.yaml
-
 function cleanup {
   mv main.yaml.bak main.yaml
-  mv datadog_integration_type_config.yaml.bak datadog_integration_type_config.yaml
 }
 
 trap cleanup EXIT

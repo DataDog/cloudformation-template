@@ -1,6 +1,12 @@
 AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
-Description: CloudFormation macro that dynamically generates the IAM policy for the Datadog integration role
+Description: CloudFormation macro that dynamically generates the IAM policy for the Datadog integration role (qs-1sfrgofa9)
+Metadata:
+  # cfn-lint incorrectly finds ARNs that are not partition-agnostic
+  cfn-lint:
+    config:
+      ignore_checks:
+        - E9007
 Resources:
   DatadogPolicyMacro:
     Type: AWS::CloudFormation::Macro

@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Pushes logs, metrics and traces from AWS to Datadog.
+Description: Pushes logs, metrics and traces from AWS to Datadog. (qs-1sfrgof7h)
 Mappings:
   Constants:
     DdForwarder:
@@ -597,6 +597,12 @@ Resources:
 
   ForwarderRole:
     Type: AWS::IAM::Role
+    Metadata:
+      cfn-lint:
+        config:
+          # The Lambda Log Forwarder role requires broad permissions to access logs in any bucket the customer may use
+          ignore_checks:
+            - EIAMPolicyWildcardResource
     Properties:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -608,8 +614,8 @@ Resources:
               Service:
                 - lambda.amazonaws.com
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
       PermissionsBoundary:
         Fn::If:
           - SetPermissionsBoundary
@@ -883,8 +889,8 @@ Resources:
               Service:
                 - lambda.amazonaws.com
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
       PermissionsBoundary:
         Fn::If:
           - SetPermissionsBoundary

@@ -9,13 +9,13 @@ Parameters:
     Default: ""
   DatadogApiKey:
     Description: >-
-      API key for the Datadog account
+      API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys)
     Type: String
     NoEcho: true
     Default: ""
   DatadogAppKey:
     Description: >-
-      APP key for the Datadog account
+      APP key for the Datadog account (find at https://app.datadoghq.com/organization-settings/application-keys)
     Type: String
     NoEcho: true
     Default: ""
@@ -30,69 +30,26 @@ Parameters:
       - us5.datadoghq.com
       - ddog-gov.com
   IAMRoleName:
-    Description: Customize the name of IAM role for Datadog AWS integration
+    Description: >-
+      Customize the name of the IAM role for the Datadog AWS Integration.
+      PLEASE NOTE THAT TO ADEQUATELY MONITOR YOUR ENVIRONMENT,
+      THIS CLOUDFORMATION TEMPLATE WILL CREATE AN IDENTITY AND ACCESS MANAGEMENT (IAM)
+      ROLE THAT WILL DELEGATE DATADOG’S AWS ACCOUNT ACCESS TO YOUR AWS ACCOUNT
+      WITH THE FOLLOWING PERMISSIONS
+      (https://docs.datadoghq.com/integrations/amazon_web_services/?tab=roledelegation#datadog-aws-iam-policy)
     Type: String
     Default: DatadogIntegrationRole
-  ObservabilityPermissions:
-    Description: >-
-      Customize the observability permissions for the Datadog IAM role.
-      Select "Limited Permissions" to only grant Datadog permissions to monitor a limited set of metrics and metadata
-      (not recommended).
-    Type: String
-    Default: Standard Permissions
-    AllowedValues:
-      - Standard Permissions
-      - Limited Permissions
-  LogArchives:
-    Description: >-
-      S3 paths to store log archives for log rehydration. Separate multiple paths with comma, e.g.,
-      "my-bucket,my-bucket-with-path/path". Permissions will be automatically added to the Datadog integration IAM role
-      so that Datadog can store log archives in these buckets.
-      https://docs.datadoghq.com/logs/archives/rehydrating/?tab=awss3
-    Type: String
-    Default: ''
-  CloudTrails:
-    Description: >-
-      S3 buckets for Datadog CloudTrail integration. Separate multiple buckets with comma,
-      e.g., "bucket1,bucket2". Permissions will be automatically added to the Datadog integration IAM role.
-      https://docs.datadoghq.com/integrations/amazon_cloudtrail/
-    Type: String
-    Default: ''
-  DdForwarderName:
-    Type: String
-    Default: DatadogForwarder
-    Description: >-
-      The Datadog Forwarder Lambda function name. DO NOT change when updating an existing CloudFormation stack,
-      otherwise the current forwarder function will be replaced and all the triggers will be lost.
-  InstallDatadogPolicyMacro:
-    Type: String
-    Default: "true"
-    AllowedValues:
-      - "true"
-      - "false"
-    Description: If you already deployed a stack using this template, set this parameter to "false" to skip the installation of the DatadogPolicy Macro again.
-  CloudSecurityPostureManagementPermissions:
+  CloudSecurityPostureManagement:
     Type: String
     Default: "false"
     AllowedValues:
       - "true"
       - "false"
     Description: >-
-      Set this value to "true" to add the IAM permissions necessary to use Cloud Security Posture Management.
-  HostTags:
-    Type: CommaDelimitedList
-    Default: ""
-    Description: >-
-      A comma separated list of tags to add to hosts and metrics. Example: "aws_account:123456789123,account:prod"
+      Set this value to "true" to enable Datadog’s Cloud Security Posture Management product.
+      It will add additional IAM permissions to your Datadog IAM role
+      (https://docs.datadoghq.com/security_platform/cspm/).
 Conditions:
-  ShouldInstallDatadogPolicyMacro:
-    !Equals
-      - Ref: InstallDatadogPolicyMacro
-      - true
-  EURegion:
-    !Equals
-      - !Select [0, !Split ["-", !Ref AWS::Region]]
-      - "eu"
   SecretNameProvided:
     !Not
       - !Equals
@@ -118,200 +75,36 @@ Rules:
                     - ""
         AssertDescription: SecretName must be set or DatadogApiKey and DatadogAppKey must be set
 Resources:
-  # Creating roles used in StackSets
-  DatadogAWSIntegrationStackSetRoles:
+  # Retrieve secrets in provided secret ARN
+  SecretsRetrieval:
+    Type: AWS::CloudFormation::Stack
+    Condition: SecretNameProvided
+    Properties:
+      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_secrets_retrieval.yaml"
+      Parameters:
+        SecretName: !Ref SecretName
+        DatadogApiKey: !Ref DatadogApiKey
+        DatadogAppKey: !Ref DatadogAppKey
+        DatadogSite: !Ref DatadogSite
+  DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_integration_stack_set_roles.yaml"
+      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_integration_api_call.yaml"
       Parameters:
-        Region: !If [ EURegion, "eu-west-1", "us-east-1" ]
-        SecretName: !Ref SecretName
-  # Retrieving secrets passed in via SecretsManager Arn
-  SecretsRetrieval:
-    Type: "Custom::SecretsRetrieval"
-    Condition: SecretNameProvided
+        DatadogApiKey: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiKey, !Ref DatadogApiKey]
+        DatadogAppKey: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.AppKey, !Ref DatadogAppKey]
+        DatadogSite: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiUrl, !Ref DatadogSite]
+        RoleName: !Ref IAMRoleName
+        CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
+  DatadogIntegrationRoleStack:
+    Type: AWS::CloudFormation::Stack
     Properties:
-      ServiceToken: !GetAtt SecretsRetrievalFunction.Arn
-      SecretName: !Ref SecretName
-      APIKey: !Ref DatadogApiKey
-      APPKey: !Ref DatadogAppKey
-      ApiURL: !Ref DatadogSite
-  SecretsRetrievalFunction:
-    Type: "AWS::Lambda::Function"
-    Condition: SecretNameProvided
-    Properties:
-      Description: "A function to retrieve secrets from a provided secrets arn."
-      Role: !GetAtt DatadogAWSIntegrationStackSetRoles.Outputs.LambdaExecutionRoleSecretsRetrieval
-      Handler: "index.handler"
-      Runtime: "python3.8"
-      Timeout: 30
-      Code:
-        ZipFile: |
-          import boto3
-
-          import json
-          import logging
-          import signal
-          from urllib.request import build_opener, HTTPHandler, Request
-
-          LOGGER = logging.getLogger()
-          LOGGER.setLevel(logging.INFO)
-
-
-          def handler(event, context):
-              '''Handle Lambda event from AWS'''
-              try:
-                  LOGGER.info('REQUEST RECEIVED:\n %s', event)
-                  LOGGER.info('REQUEST RECEIVED:\n %s', context)
-                  if event['RequestType'] == 'Create':
-                      LOGGER.info('Received Create request.')
-                      secret_name = event['ResourceProperties']['SecretName']
-                      api_key = event['ResourceProperties']['APIKey']
-                      app_key = event['ResourceProperties']['APPKey']
-                      api_url = event['ResourceProperties']['ApiURL']
-                      region = context.invoked_function_arn.split(":")[3]
-
-                      if secret_name:
-                          dc_to_apiurl = {
-                              "us1.prod.dog": "datadoghq.com",
-                              "eu1.prod.dog": "datadoghq.eu",
-                              "us3.prod.dog": "us3.datadoghq.com",
-                              "us5.prod.dog": "us5.datadoghq.com",
-                              "us1.fed.dog": "ddog-gov.com",
-                          }
-                          client = boto3.client("secretsmanager", region_name=region)
-                          secret_json = client.get_secret_value(SecretId=secret_name)
-                          secret_content = json.loads(secret_json["SecretString"])
-                          api_key = secret_content["apiKey"]
-                          app_key = secret_content["applicationKey"]
-                          api_url = dc_to_apiurl[secret_content["datacenter"]]
-
-                      send_response(event, context, "SUCCESS",
-                                    {
-                                        "Message": "Type Configuration set correctly.",
-                                        "ApiKey": api_key,
-                                        "AppKey": app_key,
-                                        "ApiUrl": api_url,
-                                    })
-                  elif event['RequestType'] == 'Update':
-                      LOGGER.info('Received Update request.')
-                      send_response(event, context, "SUCCESS",
-                                    {"Message": "Update not supported, no operation performed."})
-                  elif event['RequestType'] == 'Delete':
-                      LOGGER.info('Received Delete request.')
-                      send_response(event, context, "SUCCESS",
-                                    {"Message": "Delete not supported, no operation performed."})
-                  else:
-                      LOGGER.info('Failed - received unexpected request.')
-                      send_response(event, context, "FAILED",
-                                    {"Message": "Unexpected event received from CloudFormation"})
-              except Exception as e:  # pylint: disable=W0702
-                  LOGGER.info('Failed - exception thrown during processing.')
-                  send_response(event, context, "FAILED", {
-                      "Message": "Exception during processing: {}".format(e)})
-
-
-          def send_response(event, context, response_status, response_data):
-              '''Send a resource manipulation status response to CloudFormation'''
-              response_body = json.dumps({
-                  "Status": response_status,
-                  "Reason": "See the details in CloudWatch Log Stream: " + context.log_stream_name,
-                  "PhysicalResourceId": context.log_stream_name,
-                  "StackId": event['StackId'],
-                  "RequestId": event['RequestId'],
-                  "LogicalResourceId": event['LogicalResourceId'],
-                  "Data": response_data
-              })
-              formatted_response = response_body.encode("utf-8")
-
-              LOGGER.info('ResponseURL: %s', event['ResponseURL'])
-              LOGGER.info('ResponseBody: %s', response_body)
-
-              opener = build_opener(HTTPHandler)
-              request = Request(event['ResponseURL'], data=formatted_response)
-              request.add_header('Content-Type', 'application/json; charset=utf-8')
-              request.add_header('Content-Length', len(formatted_response))
-              request.get_method = lambda: 'PUT'
-              response = opener.open(request)
-              LOGGER.info("Status code: %s", response.getcode())
-              LOGGER.info("Status message: %s", response.msg)
-
-
-          def timeout_handler(_signal, _frame):
-              '''Handle SIGALRM'''
-              raise Exception('Time exceeded')
-
-
-          signal.signal(signal.SIGALRM, timeout_handler)
-  # A Macro used to generate policies for the integration IAM role based on user inputs
-  DatadogPolicyMacroStack:
-    Type: AWS::CloudFormation::StackSet
-    Condition: ShouldInstallDatadogPolicyMacro
-    Properties:
-      StackSetName: DatadogPolicyMacro
-      PermissionModel: SELF_MANAGED
-      AdministrationRoleARN: !GetAtt DatadogAWSIntegrationStackSetRoles.Outputs.AdministrationRole
-      ExecutionRoleName: !GetAtt DatadogAWSIntegrationStackSetRoles.Outputs.ExecutionRole
-      Capabilities:
-        - CAPABILITY_AUTO_EXPAND
-        - CAPABILITY_IAM
-      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_policy_macro.yaml"
-      StackInstancesGroup:
-        - DeploymentTargets:
-            Accounts:
-              - !Ref "AWS::AccountId"
-          Regions:
-            - !If [ EURegion, "eu-west-1", "us-east-1" ]
-  # Creating the Datadog-AWS Integrations
-  DatadogAWSIntegrationTypeConfig:
-    Type: AWS::CloudFormation::StackSet
-    Properties:
-      StackSetName: DatadogAWSIntegrationTypeConfig
-      PermissionModel: SELF_MANAGED
-      AdministrationRoleARN: !GetAtt DatadogAWSIntegrationStackSetRoles.Outputs.AdministrationRole
-      ExecutionRoleName: !GetAtt DatadogAWSIntegrationStackSetRoles.Outputs.ExecutionRole
-      Capabilities:
-        - CAPABILITY_AUTO_EXPAND
-        - CAPABILITY_NAMED_IAM
-      StackInstancesGroup:
-        - DeploymentTargets:
-            Accounts:
-              - !Ref "AWS::AccountId"
-          Regions:
-            - !If [EURegion, "eu-west-1", "us-east-1"]
-      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_integration_type_config.yaml"
+      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_integration_role.yaml"
       Parameters:
-        - ParameterKey: ApiKey
-          ParameterValue: !If [SecretNameProvided, !GetAtt SecretsRetrieval.ApiKey, !Ref DatadogApiKey]
-        - ParameterKey: AppKey
-          ParameterValue: !If [SecretNameProvided, !GetAtt SecretsRetrieval.AppKey, !Ref DatadogAppKey]
-        - ParameterKey: IAMRoleName
-          ParameterValue: !Ref IAMRoleName
-        - ParameterKey: HostTags
-          ParameterValue: !Join [ ",", !Ref HostTags ]
-        - ParameterKey: ApiUrl
-          ParameterValue: !If [SecretNameProvided, !GetAtt SecretsRetrieval.ApiUrl, !Ref DatadogSite]
-        - ParameterKey: CloudFormationTypeActivationRole
-          ParameterValue: !GetAtt DatadogAWSIntegrationStackSetRoles.Outputs.CloudFormationTypeActivationRole
-        - ParameterKey: TypeActivationLoggingRole
-          ParameterValue: !GetAtt DatadogAWSIntegrationStackSetRoles.Outputs.TypeActivationLoggingRole
-        - ParameterKey: LambdaExecutionRoleTypeConfig
-          ParameterValue: !GetAtt DatadogAWSIntegrationStackSetRoles.Outputs.LambdaExecutionRoleTypeConfig
-        - ParameterKey: LambdaExecutionRoleAPICall
-          ParameterValue: !GetAtt DatadogAWSIntegrationStackSetRoles.Outputs.LambdaExecutionRoleAPICall
-        - ParameterKey: ObservabilityPermissions
-          ParameterValue: !Ref ObservabilityPermissions
-        - ParameterKey: LogArchives
-          ParameterValue: !Ref LogArchives
-        - ParameterKey: CloudTrails
-          ParameterValue: !Ref CloudTrails
-        - ParameterKey: CloudSecurityPostureManagementPermissions
-          ParameterValue: !Ref CloudSecurityPostureManagementPermissions
-      Tags:
-        - # A trick to create a conditional dependency on DatadogPolicyMacroStack
-          # https://stackoverflow.com/questions/34607476/cloudformation-apply-condition-on-dependson
-          Key: "DatadogPolicyMacroStackId"
-          Value: !If [ ShouldInstallDatadogPolicyMacro, !Ref DatadogPolicyMacroStack, "null" ]
+        ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
+        IAMRoleName: !Ref IAMRoleName
+        CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
+        DdAWSAccountId: "464622532012"
   # The Lambda function to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
   # https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring
   ForwarderStack:
@@ -319,9 +112,9 @@ Resources:
     Properties:
       TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_forwarder.yaml"
       Parameters:
-        DdApiKey: !If [SecretNameProvided, !GetAtt SecretsRetrieval.ApiKey, !Ref DatadogApiKey]
-        DdSite: !If [SecretNameProvided, !GetAtt SecretsRetrieval.ApiUrl, !Ref DatadogSite]
-        FunctionName: !Ref DdForwarderName
+        DdApiKey: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiKey, !Ref DatadogApiKey]
+        DdSite: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiUrl, !Ref DatadogSite]
+        FunctionName: DatadogForwarder
 Outputs:
   IAMRoleName:
     Description: AWS IAM Role named to be used with the DataDog AWS Integration
@@ -361,13 +154,7 @@ Metadata:
         - DatadogAppKey
         - DatadogSite
     - Label:
-        default: Additional Configuration (Optional)
+        default: Optional Configuration
       Parameters:
-        - HostTags
-        - LogArchives
-        - CloudTrails
-        - ObservabilityPermissions
-        - CloudSecurityPostureManagementPermissions
         - IAMRoleName
-        - DdForwarderName
-        - InstallDatadogPolicyMacro
+        - CloudSecurityPostureManagement
