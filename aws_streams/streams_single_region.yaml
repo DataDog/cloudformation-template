@@ -37,7 +37,8 @@ Parameters:
   ThirdNamespace:
     Description: >-
       A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
-      If you need additional namespaces follow this link for additional templates.
+      If you need to filter more than 3 namespaces, manually edit the settings for the streams
+      within the AWS CloudWatch Console after the stack is created successfully.
     Type: String
     Default: ''
   DdSite:
