@@ -165,3 +165,85 @@ Resources:
           - Namespace:
               !Ref ThirdNamespace
           - Ref: 'AWS::NoValue'
+      StatisticsConfigurations:
+        - IncludeMetrics:
+            - Namespace: 'AWS/ApplicationELB'
+              MetricName: 'TargetResponseTime'
+          AdditionalStatistics:
+            - 'p50'
+            - 'p90'
+            - 'p95'
+            - 'p99'
+        - IncludeMetrics:
+            - Namespace: 'AWS/ELB'
+              MetricName: 'Latency'
+            - Namespace: 'AWS/ELB'
+              MetricName: 'TargetResponseTime'
+          AdditionalStatistics:
+            - 'p95'
+            - 'p99'
+        - IncludeMetrics:
+            - Namespace: 'AWS/S3'
+              MetricName: 'FirstByteLatency'
+            - Namespace: 'AWS/S3'
+              MetricName: 'TotalRequestLatency'
+          AdditionalStatistics:
+            - 'p50'
+            - 'p90'
+            - 'p95'
+            - 'p99'
+            - 'p99.9'
+        - IncludeMetrics:
+            - Namespace: 'AWS/ApiGateway'
+              MetricName: 'IntegrationLatency'
+            - Namespace: 'AWS/ApiGateway'
+              MetricName: 'Latency'
+          AdditionalStatistics:
+            - 'p90'
+            - 'p95'
+            - 'p99'
+        - IncludeMetrics:
+            - Namespace: 'AWS/States'
+              MetricName: 'ExecutionTime'
+            - Namespace: 'AWS/States'
+              MetricName: 'LambdaFunctionRunTime'
+            - Namespace: 'AWS/States'
+              MetricName: 'LambdaFunctionScheduleTime'
+            - Namespace: 'AWS/States'
+              MetricName: 'LambdaFunctionTime'
+            - Namespace: 'AWS/States'
+              MetricName: 'ActivityRunTime'
+            - Namespace: 'AWS/States'
+              MetricName: 'ActivityScheduleTime'
+            - Namespace: 'AWS/States'
+              MetricName: 'ActivityTime'
+          AdditionalStatistics:
+            - 'p95'
+            - 'p99'
+        - IncludeMetrics:
+            - Namespace: 'AWS/Lambda'
+              MetricName: 'Duration'
+          AdditionalStatistics:
+            - 'p50'
+            - 'p80'
+            - 'p95'
+            - 'p99'
+            - 'p99.9'
+        - IncludeMetrics:
+            - Namespace: 'AWS/Lambda'
+              MetricName: 'PostRuntimeExtensionsDuration'
+          AdditionalStatistics:
+            - 'p50'
+            - 'p99'
+        - IncludeMetrics:
+            - Namespace: 'AWS/AppSync'
+              MetricName: 'Latency'
+          AdditionalStatistics:
+            - 'p90'
+        - IncludeMetrics:
+            - Namespace: 'AWS/AppRunner'
+              MetricName: 'RequestLatency'
+          AdditionalStatistics:
+            - 'p50'
+            - 'p95'
+            - 'p99'
