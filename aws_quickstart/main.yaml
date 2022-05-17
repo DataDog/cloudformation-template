@@ -45,6 +45,14 @@ Parameters:
       or send logs using AWS PrivateLink should select “no” and install this independently
       (https://docs.datadoghq.com/serverless/libraries_integrations/forwarder/#installation).
     Default: true
+  LogSources:
+    Type: String
+    Description: >-
+      A comma separated list of AWS Log Sources to forward to Datadog.
+      Chose from: API Gateway Access, API Gateway Execution, Application ELB Access, Classic ELB Access, 
+      Cloudfront Access, Lambda Cloudwatch, Redshift, S3 Access
+      (Only used if InstallLambdaLogForwarder set to "true")
+    Default: ""
 Conditions:
   InstallForwarder:
     Fn::Equals:
@@ -90,17 +98,34 @@ Conditions:
               - { ProductIds: !Join [',', !Split [",", !Ref Products]] }
         - "Cloud Security Posture Management"
 Resources:
+  # Shared IAM Role for making Datadog API calls
+  LambdaExecutionRoleDatadogAPICall:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
   # A Macro used to generate policies for the integration IAM role based on user inputs
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_integration_api_call.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_api_call.yaml"
       Parameters:
         DatadogApiKey: !Ref APIKey
         DatadogAppKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
         RoleName: !Ref IAMRoleName
         Products: !Ref Products
+        LambdaExecutionRole: !GetAtt LambdaExecutionRoleDatadogAPICall.Arn
   # The IAM role for Datadog integration
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
@@ -121,6 +146,22 @@ Resources:
       Parameters:
         DdApiKey: !Ref APIKey
         DdSite: !Ref DatadogSite
+  # Create the lambda log forwarder triggers by registering them with datadog
+  SyncLogSources:
+    Type: AWS::CloudFormation::Stack
+    Condition: InstallForwarder
+    DependsOn:
+      - ForwarderStack
+      - DatadogIntegrationRoleStack
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_log_sources.yaml"
+      Parameters:
+        DatadogApiKey: !Ref APIKey
+        DatadogAppKey: !Ref APPKey
+        DatadogSite: !Ref DatadogSite
+        LogSources: !Ref LogSources
+        ForwarderArn: !GetAtt [ForwarderStack, Outputs.DatadogForwarderArn]
+        LambdaExecutionRole: !GetAtt LambdaExecutionRoleDatadogAPICall.Arn
 Outputs:
   IAMRoleName:
     Description: AWS IAM Role named to be used with the DataDog AWS Integration 
@@ -151,6 +192,7 @@ Metadata:
         - DatadogSite
         - IAMRoleName
         - InstallLambdaLogForwarder
+        - LogSources
     ParameterLabels:
       APIKey:
         default: "DatadogApiKey *"

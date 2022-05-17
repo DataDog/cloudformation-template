@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Datadog AWS Integration API Call (qs-1sfrgof99)
+Description: AWS Log Sources Sync
 Parameters:
   DatadogApiKey:
     Description: >-
@@ -23,37 +23,36 @@ Parameters:
       - us3.datadoghq.com
       - us5.datadoghq.com
       - ddog-gov.com
-  RoleName:
-    Description: >-
-      The name of the IAM role created for Datadog's use.
-    Type: String
-  Products:
+  LogSources:
     Type: CommaDelimitedList
     Description: >-
-      A comma separated list of relevant Datadog products you want to use with this account.
-      Chose from: Infrastructure Monitoring, Serverless, Log Management, Cloud Security Posture Management
-    Default: "Infrastructure Monitoring,Serverless,Log Management"
+      A comma separated list of AWS Log Sources to forward to Datadog. 
+      (Only used if InstallLambdaLogForwarder set to "true")
+    Default: "s3,elb,elbv2,cloudfront,redshift,lambda,apigw-access-logs,apigw-execution-logs"
+  ForwarderArn:
+    Type: String
+    Description: >-
+      The ARN of the forwarder created for sending logs to Datadog
+    Default: ""
   LambdaExecutionRole:
     Description: >-
       The role used by lambdas created for calling the Datadog API.
     Type: String
 Resources:
-  # Retrieving secrets passed in via SecretsManager Arn
-  DatadogAPICall:
-    Type: "Custom::DatadogAPICall"
+  DatadogAPISyncLogSourcesCall:
+    Type: "Custom::DatadogAPISyncLogSourcesCall"
     Properties:
-      ServiceToken: !GetAtt DatadogAPICallFunction.Arn
+      ServiceToken: !GetAtt DatadogLogSourcesSyncFunction.Arn
       APIKey: !Ref DatadogApiKey
       APPKey: !Ref DatadogAppKey
       ApiURL: !Ref DatadogSite
       AccountId: !Ref AWS::AccountId
-      RoleName: !Ref RoleName
-      HostTags: [!Sub "aws_account:${AWS::AccountId}"]
-      Products: !Ref Products
-  DatadogAPICallFunction:
+      ForwarderArn: !Ref ForwarderArn
+      LogSources: !Ref LogSources
+  DatadogLogSourcesSyncFunction:
     Type: "AWS::Lambda::Function"
     Properties:
-      Description: "A function to call the Datadog API."
+      Description: "A function to call the Datadog API for syncing log sources."
       Role: !Ref LambdaExecutionRole
       Handler: "index.handler"
       Runtime: "python3.8"
@@ -61,56 +60,39 @@ Resources:
       Code:
         ZipFile: |
           import boto3
-
           import json
           import logging
           import signal
           from urllib.request import build_opener, HTTPHandler, Request
           import urllib.parse
-
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
+
+          log_source_names = {
+              "API Gateway Access": "apigw-access-logs",
+              "API Gateway Execution": "apigw-execution-logs",
+              "Application ELB Access": "elbv2",
+              "Classic ELB Access": "elb",
+              "Cloudfront Access": "cloudfront",
+              "Lambda Cloudwatch": "lambda",
+              "Redshift": "redshift",
+              "S3 Access": "s3",
+          }
 
           def call_datadog_api(event, method):
               api_key = event['ResourceProperties']['APIKey']
               app_key = event['ResourceProperties']['APPKey']
               api_url = event['ResourceProperties']['ApiURL']
               account_id = event['ResourceProperties']['AccountId']
-              role_name = event['ResourceProperties']['RoleName']
-              host_tags = event['ResourceProperties']['HostTags']
-              products = event['ResourceProperties']['Products']
+              forwarder_arn = event['ResourceProperties']['ForwarderArn']
+              log_sources = event['ResourceProperties']['LogSources']
 
-              # Make the url Request
-              url = 'https://api.' + api_url + '/api/v1/integration/aws'
+              # Make the url Request for the create call
+              url = 'https://api.' + api_url + '/api/v1/integration/aws/logs'
               values = {
                   'account_id': account_id,
-                  'role_name': role_name,
+                  'lambda_arn': forwarder_arn
               }
-              if method != "DELETE":
-                  products = [p.strip() for p in products]
-                  values["host_tags"] = host_tags
-                  values["cspm_resource_collection_enabled"] = "Cloud Security Posture Management" in products
-                  infra_monitoring = "Infrastructure Monitoring" in products
-                  serverless = "Serverless Monitoring" in products
-                  if infra_monitoring:
-                      values["metrics_collection_enabled"] = True
-                      if not serverless:
-                          values["account_specific_namespace_rules"] = {"lambda": False, "xray": False}
-                  else:
-                      if serverless:
-                          values["metrics_collection_enabled"] = True
-                          values["account_specific_namespace_rules"] = {
-                              "application_elb": False,
-                              "ebs": False,
-                              "ec2": False,
-                              "elb": False,
-                              "network_elb": False,
-                              "ec2api": False,
-                              "ec2spot": False,
-                          }
-                      else:
-                          values["metrics_collection_enabled"] = False
-
               headers = {
                   'DD-API-KEY': api_key,
                   'DD-APPLICATION-KEY': app_key,
@@ -124,6 +106,23 @@ Resources:
 
               # Send the url Request, store external_id
               response = urllib.request.urlopen(request)
+              if response.getcode() != 200 or method != "POST":
+                  return response
+
+              # Make the request to set the log services for the account
+              url = 'https://api.' + api_url + '/api/v1/integration/aws/logs/services'
+              values = {
+                  'account_id': account_id,
+                  'services': [log_source_names[source.strip()] for source in log_sources]
+              }
+              data = json.dumps(values)
+              data = data.encode('utf-8')  # data should be bytes
+              request = Request(url, data=data, headers=headers)
+              request.add_header('Content-Type', 'application/json; charset=utf-8')
+              request.add_header('Content-Length', len(data))
+              request.get_method = lambda: method
+              response = urllib.request.urlopen(request)
+
               return response
 
           def handler(event, context):
@@ -135,11 +134,9 @@ Resources:
                       LOGGER.info('Received Create request.')
                       response = call_datadog_api(event, 'POST')
                       if response.getcode() == 200:
-                          json_response = json.loads(response.read().decode("utf-8"))
                           send_response(event, context, "SUCCESS",
                                         {
-                                            "Message": "Datadog AWS Integration created successfully.",
-                                            "ExternalId": json_response["external_id"],
+                                            "Message": "Datadog AWS Log Config created successfully.",
                                         })
                       else:
                           LOGGER.info('Failed - exception thrown during processing.')
@@ -157,7 +154,7 @@ Resources:
                       if response.getcode() == 200:
                           send_response(event, context, "SUCCESS",
                                         {
-                                            "Message": "Datadog AWS Integration deleted successfully.",
+                                            "Message": "Datadog AWS Log Config deleted successfully.",
                                         })
                       else:
                           LOGGER.info('Failed - exception thrown during processing.')
@@ -199,14 +196,8 @@ Resources:
               LOGGER.info("Status code: %s", response.getcode())
               LOGGER.info("Status message: %s", response.msg)
 
-
           def timeout_handler(_signal, _frame):
               '''Handle SIGALRM'''
               raise Exception('Time exceeded')
 
-
           signal.signal(signal.SIGALRM, timeout_handler)
-Outputs:
-  ExternalId:
-    Description: Datadog AWS Integration ExternalId
-    Value: !GetAtt DatadogAPICall.ExternalId
