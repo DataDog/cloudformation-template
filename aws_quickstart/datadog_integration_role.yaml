@@ -10,19 +10,6 @@ Parameters:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
     Default: DatadogIntegrationRole
-  LogArchives:
-    Description: >-
-      S3 paths to store log archives for log rehydration. Separate multiple paths with comma,
-      e.g., "my-bucket,my-bucket-with-path/path".
-    Type: String
-    Default: ''
-  CloudTrails:
-    Description: >-
-      S3 buckets for the Datadog CloudTrail integration. Separate multiple buckets with commas,
-      e.g., "bucket1,bucket2". Permissions will be automatically added to the Datadog integration IAM role.
-      https://docs.datadoghq.com/integrations/amazon_cloudtrail/
-    Type: String
-    Default: ''
   CloudSecurityPostureManagementPermissions:
     Type: String
     Default: false
@@ -155,10 +142,8 @@ Metadata:
       Parameters:
         - ExternalId
         - IAMRoleName
-        - BasePermissions
     - Label:
         default: Optional
       Parameters:
-        - LogArchives
-        - CloudTrails
         - CloudSecurityPostureManagementPermissions
+        - DdAWSAccountId
