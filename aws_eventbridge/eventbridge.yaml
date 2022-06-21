@@ -20,10 +20,10 @@ Parameters:
     AllowedPattern: .+
     ConstraintDescription: DdSite is required
 Resources:
-  DatadogEventbridgeStackSetAdministrationRole:
+  DatadogCloudtrailEventbridgeStackSetAdministrationRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "DatadogEventbridgeStackSetAdministrationRole"
+      RoleName: "DatadogCloudtrailEventbridgeStackSetAdministrationRole"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -42,16 +42,16 @@ Resources:
                 Action:
                   - cloudformation:*
                 Resource: "*"
-  DatadogEventbridgeStackSetExecutionRole:
+  DatadogCloudtrailEventbridgeStackSetExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "DatadogEventbridgeStackSetExecutionRole"
+      RoleName: "DatadogCloudtrailEventbridgeStackSetExecutionRole"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !GetAtt DatadogEventbridgeStackSetAdministrationRole.Arn
+              AWS: !GetAtt DatadogCloudtrailEventbridgeStackSetAdministrationRole.Arn
             Action: sts:AssumeRole
       Path: /
       Policies:
@@ -112,7 +112,7 @@ Resources:
                   - events:RemoveTargets
                 Resource:
                   - !Sub "arn:aws:events:*:${AWS::AccountId}:rule/datadog-cloudtrail"
-  ServiceRole:
+  DatadogCloudtrailServiceRole:
     Type: "AWS::IAM::Role"
     Properties:
       RoleName: "DatadogCloudtrailServiceRole"
@@ -142,10 +142,10 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-stream-backup-${AWS::AccountId}-*"
                   - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-stream-backup-${AWS::AccountId}-*/*"
-  DatadogEventbridgeRole:
+  DatadogCloudtrailEventbridgeRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "DatadogEventbridgeRole"
+      RoleName: "DatadogCloudtrailEventbridgeRole"
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -168,13 +168,13 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-cloudtrail-stream"
       Description: A cloudtrail stream role
-  DatadogEventbridgeStackSet:
+  DatadogCloudtrailEventbridgeStackSet:
     Type: AWS::CloudFormation::StackSet
     Properties:
       StackSetName: DatadogEventbridge
       PermissionModel: SELF_MANAGED
-      AdministrationRoleARN: !GetAtt DatadogEventbridgeStackSetAdministrationRole.Arn
-      ExecutionRoleName: !Ref DatadogEventbridgeStackSetExecutionRole
+      AdministrationRoleARN: !GetAtt DatadogCloudtrailEventbridgeStackSetAdministrationRole.Arn
+      ExecutionRoleName: !Ref DatadogCloudtrailEventbridgeStackSetExecutionRole
       StackInstancesGroup:
         - DeploymentTargets:
             Accounts:
@@ -184,10 +184,10 @@ Resources:
       Parameters:
         - ParameterKey: ApiKey
           ParameterValue: !Ref ApiKey
-        - ParameterKey: ServiceRoleArn
-          ParameterValue: !GetAtt ServiceRole.Arn
-        - ParameterKey: EventbridgeRoleArn
-          ParameterValue: !GetAtt DatadogEventbridgeRole.Arn
+        - ParameterKey: DatadogCloudtrailServiceRoleArn
+          ParameterValue: !GetAtt DatadogCloudtrailServiceRole.Arn
+        - ParameterKey: DatadogCloudtrailEventbridgeRoleArn
+          ParameterValue: !GetAtt DatadogCloudtrailEventbridgeRole.Arn
         - ParameterKey: DdSite
           ParameterValue: !Ref DdSite
 Metadata:

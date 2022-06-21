@@ -7,13 +7,13 @@ Parameters:
     Type: String
     AllowedPattern: .+
     ConstraintDescription: ApiKey is required
-  ServiceRoleArn:
+  DatadogCloudtrailServiceRoleArn:
     Description: >-
       The arn for the service role used by kinesis firehose
     Type: String
     AllowedPattern: .+
-    ConstraintDescription: ServiceRoleArn is required
-  EventbridgeRoleArn:
+    ConstraintDescription: DatadogCloudtrailServiceRoleArn is required
+  DatadogCloudtrailEventbridgeRoleArn:
     Description: >-
       The arn for the eventbridge used by the eventbridge
     Type: String
@@ -81,12 +81,12 @@ Resources:
           Enabled: True
           LogGroupName: !Ref DatadogCloudtrailLogs
           LogStreamName: "http_endpoint_delivery"
-        RoleARN: !Ref ServiceRoleArn
+        RoleARN: !Ref DatadogCloudtrailServiceRoleArn
         RetryOptions:
           DurationInSeconds: 60
         S3BackupMode: "FailedDataOnly"
         S3Configuration:
-          RoleARN: !Ref ServiceRoleArn
+          RoleARN: !Ref DatadogCloudtrailServiceRoleArn
           BucketARN: !GetAtt DatadogCloudtrailBackupBucket.Arn
           ErrorOutputPrefix: "datadog_cloudtrail"
           BufferingHints:
@@ -111,11 +111,11 @@ Resources:
         detail-type:
           - AWS API Call via CloudTrail
       Name: "datadog-cloudtrail"
-      RoleArn: !Ref EventbridgeRoleArn
+      RoleArn: !Ref DatadogCloudtrailEventbridgeRoleArn
       State: ENABLED
       Targets:
         - Arn: !GetAtt
             - DatadogCloudtrailKinesisFirehose
             - Arn
           Id: Id123
-          RoleArn: !Ref EventbridgeRoleArn
+          RoleArn: !Ref DatadogCloudtrailEventbridgeRoleArn
