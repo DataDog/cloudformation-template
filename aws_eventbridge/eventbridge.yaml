@@ -68,8 +68,8 @@ Resources:
                 Action:
                   - "cloudformation:*"
                 Resource:
-                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stack/StackSet-DatadogEventbridge-*"
-                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stackset/DatadogEventbridge*"
+                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stack/StackSet-DatadogCloudtrailEventbridge-*"
+                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stackset/DatadogCloudtrailEventbridge*"
               - Effect: Allow
                 Action:
                   - "sns:Publish"
@@ -85,7 +85,7 @@ Resources:
                   - s3:CreateBucket
                   - s3:DeleteBucket
                 Resource:
-                  - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-stream-backup-${AWS::AccountId}-*"
+                  - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-backup-${AWS::AccountId}-*"
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
@@ -95,14 +95,14 @@ Resources:
                   - logs:DeleteLogStream
                   - logs:DescribeLogStreams
                 Resource:
-                  - !Sub "arn:aws:logs:*:${AWS::AccountId}:log-group:datadog-cloudtrail-stream*"
+                  - !Sub "arn:aws:logs:*:${AWS::AccountId}:log-group:datadog-eventbridge-cloudtrail-stream*"
               - Effect: Allow
                 Action:
                   - firehose:CreateDeliveryStream
                   - firehose:DescribeDeliveryStream
                   - firehose:DeleteDeliveryStream
                 Resource:
-                  - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-cloudtrail-stream"
+                  - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-eventbridge-cloudtrail-stream"
               - Effect: Allow
                 Action:
                   - events:DescribeRule
@@ -111,7 +111,7 @@ Resources:
                   - events:PutTargets
                   - events:RemoveTargets
                 Resource:
-                  - !Sub "arn:aws:events:*:${AWS::AccountId}:rule/datadog-cloudtrail"
+                  - !Sub "arn:aws:events:*:${AWS::AccountId}:rule/datadog-eventbridge-cloudtrail"
   DatadogCloudtrailServiceRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -140,8 +140,8 @@ Resources:
                   - "s3:ListBucketMultipartUploads"
                   - "s3:PutObject"
                 Resource:
-                  - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-stream-backup-${AWS::AccountId}-*"
-                  - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-stream-backup-${AWS::AccountId}-*/*"
+                  - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-backup-${AWS::AccountId}-*"
+                  - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-backup-${AWS::AccountId}-*/*"
   DatadogCloudtrailEventbridgeRole:
     Type: AWS::IAM::Role
     Properties:
@@ -166,12 +166,12 @@ Resources:
                   - "firehose:PutRecord"
                   - "firehose:PutRecordBatch"
                 Resource:
-                  - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-cloudtrail-stream"
+                  - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-eventbridge-cloudtrail-stream"
       Description: A cloudtrail stream role
   DatadogCloudtrailEventbridgeStackSet:
     Type: AWS::CloudFormation::StackSet
     Properties:
-      StackSetName: DatadogEventbridge
+      StackSetName: DatadogCloudtrailEventbridge
       PermissionModel: SELF_MANAGED
       AdministrationRoleARN: !GetAtt DatadogCloudtrailEventbridgeStackSetAdministrationRole.Arn
       ExecutionRoleName: !Ref DatadogCloudtrailEventbridgeStackSetExecutionRole

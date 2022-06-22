@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Datadog AWS Streams
+Description: Datadog AWS Cloudtrail Eventbright Logs Integration
 Parameters:
   ApiKey:
     Description: >-
@@ -35,7 +35,7 @@ Resources:
   DatadogCloudtrailLogs:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: "datadog-cloudtrail-stream"
+      LogGroupName: "datadog-eventbridge-cloudtrail-stream"
       RetentionInDays: 14
   HTTPLogStream:
     Type: AWS::Logs::LogStream
@@ -50,11 +50,11 @@ Resources:
   DatadogCloudtrailBackupBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "datadog-aws-cloudtrail-stream-backup-${AWS::AccountId}-${AWS::Region}"
+      BucketName: !Sub "datadog-aws-cloudtrail-backup-${AWS::AccountId}-${AWS::Region}"
   DatadogCloudtrailKinesisFirehose:
     Type: AWS::KinesisFirehose::DeliveryStream
     Properties:
-      DeliveryStreamName: "datadog-cloudtrail-stream"
+      DeliveryStreamName: "datadog-eventbridge-cloudtrail-stream"
       DeliveryStreamType: "DirectPut"
       HttpEndpointDestinationConfiguration:
         BufferingHints:
@@ -110,7 +110,11 @@ Resources:
       EventPattern:
         detail-type:
           - AWS API Call via CloudTrail
-      Name: "datadog-cloudtrail"
+          - AWS Insight via CloudTrail
+          - AWS Console Sign In via CloudTrail
+          - AWS Console Action via CloudTrail
+          - AWS Service Event via CloudTrail
+      Name: "datadog-eventbridge-cloudtrail"
       RoleArn: !Ref DatadogCloudtrailEventbridgeRoleArn
       State: ENABLED
       Targets:
