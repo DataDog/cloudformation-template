@@ -31,11 +31,6 @@ Parameters:
       - us3.datadoghq.com
       - us5.datadoghq.com
       - ddog-gov.com
-Conditions:
-  EUDatacenter: !Equals [ !Ref DatadogSite, 'datadoghq.eu' ]
-  US5Datacenter: !Equals [ !Ref DatadogSite, 'us5.datadoghq.com' ]
-  US3Datacenter: !Equals [ !Ref DatadogSite, 'us3.datadoghq.com' ]
-  Staging: !Equals [ !Ref DatadogSite, 'datad0g.com' ]
 Resources:
   DatadogCloudtrailLogs:
     Type: AWS::Logs::LogGroup
