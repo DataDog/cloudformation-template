@@ -13,12 +13,17 @@ Parameters:
     Type: CommaDelimitedList
     ConstraintDescription: Regions is required
     Default: ''
-  DdSite:
+  DatadogSite:
     Type: String
     Default: datadoghq.com
-    Description: Define your Datadog Site to send data to. For example, datadoghq.eu or us5.datadoghq.com
-    AllowedPattern: .+
-    ConstraintDescription: DdSite is required
+    Description: Define your Datadog Site to send data to.
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ddog-gov.com
+    ConstraintDescription: DatadogSite is required
 Resources:
   DatadogCloudtrailEventbridgeStackSetAdministrationRole:
     Type: AWS::IAM::Role
@@ -188,8 +193,8 @@ Resources:
           ParameterValue: !GetAtt DatadogCloudtrailServiceRole.Arn
         - ParameterKey: DatadogCloudtrailEventbridgeRoleArn
           ParameterValue: !GetAtt DatadogCloudtrailEventbridgeRole.Arn
-        - ParameterKey: DdSite
-          ParameterValue: !Ref DdSite
+        - ParameterKey: DatadogSite
+          ParameterValue: !Ref DatadogSite
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -197,7 +202,5 @@ Metadata:
         default: Required
       Parameters:
         - ApiKey
-        - DdSite
+        - DatadogSite
         - Regions
-    - Label:
-        default: Optional

@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Datadog AWS Cloudtrail Eventbright Logs Integration
+Description: Datadog AWS Cloudtrail Eventbridge Logs Integration
 Parameters:
   ApiKey:
     Description: >-
@@ -19,18 +19,23 @@ Parameters:
     Type: String
     AllowedPattern: .+
     ConstraintDescription: StreamRoleArn is required
-  DdSite:
+  DatadogSite:
     Description: >-
-      Define your Datadog Site to send data to. For the Datadog EU site, set to datadoghq.eu
+      Define your Datadog Site to send data to.
     Type: String
-    AllowedPattern: .+
     Default: 'datadoghq.com'
-    ConstraintDescription: DdSite is required
+    ConstraintDescription: DatadogSite is required
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ddog-gov.com
 Conditions:
-  EUDatacenter: !Equals [ !Ref DdSite, 'datadoghq.eu' ]
-  US5Datacenter: !Equals [ !Ref DdSite, 'us5.datadoghq.com' ]
-  US3Datacenter: !Equals [ !Ref DdSite, 'us3.datadoghq.com' ]
-  Staging: !Equals [ !Ref DdSite, 'datad0g.com' ]
+  EUDatacenter: !Equals [ !Ref DatadogSite, 'datadoghq.eu' ]
+  US5Datacenter: !Equals [ !Ref DatadogSite, 'us5.datadoghq.com' ]
+  US3Datacenter: !Equals [ !Ref DatadogSite, 'us3.datadoghq.com' ]
+  Staging: !Equals [ !Ref DatadogSite, 'datad0g.com' ]
 Resources:
   DatadogCloudtrailLogs:
     Type: AWS::Logs::LogGroup
@@ -61,20 +66,7 @@ Resources:
           SizeInMBs: 4
           IntervalInSeconds: 60
         EndpointConfiguration:
-          Url:
-            !If
-            - Staging
-            - "https://aws-kinesis-http-intake.logs.datad0g.com/v1/input"
-            - !If
-              - EUDatacenter
-              - "https://aws-kinesis-http-intake.logs.datadoghq.eu/v1/input"
-              - !If
-                - US5Datacenter
-                - "https://aws-kinesis-http-intake.logs.us5.datadoghq.com/v1/input"
-                - !If
-                  - US3Datacenter
-                  - "https://aws-kinesis-http-intake.logs.us3.datadoghq.com/v1/input"
-                  - "https://aws-kinesis-http-intake.logs.datadoghq.com/v1/input"
+          Url: !Sub "https://aws-kinesis-http-intake.logs.${DatadogSite}/v1/input"
           Name: "Kinesis intake"
           AccessKey: !Ref ApiKey
         CloudWatchLoggingOptions:
