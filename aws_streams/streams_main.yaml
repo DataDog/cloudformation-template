@@ -165,12 +165,6 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
                   - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*/*"
-              # To get object from encrypted s3 buckets. Use PermissionsBoundaryArn to limit access if needed.
-              # https://aws.amazon.com/premiumsupport/knowledge-center/s3-troubleshoot-403/#AWS_KMS_encryption
-              - Effect: Allow
-                Action:
-                  - "kms:Decrypt"
-                Resource: "*"
   DatadogMetricStreamRole:
     Type: AWS::IAM::Role
     Properties:
