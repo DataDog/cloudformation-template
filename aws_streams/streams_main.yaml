@@ -106,6 +106,8 @@ Resources:
                 Action:
                   - s3:CreateBucket
                   - s3:DeleteBucket
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutEncryptionConfiguration
                 Resource:
                   - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
               - Effect: Allow
