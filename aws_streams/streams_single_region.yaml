@@ -78,6 +78,15 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "datadog-aws-metric-stream-backup-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "aws:kms"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
   DatadogMetricKinesisFirehose:
     Type: AWS::KinesisFirehose::DeliveryStream
     Properties:

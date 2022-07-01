@@ -106,6 +106,8 @@ Resources:
                 Action:
                   - s3:CreateBucket
                   - s3:DeleteBucket
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutEncryptionConfiguration
                 Resource:
                   - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
               - Effect: Allow
@@ -163,6 +165,12 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
                   - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*/*"
+              # To get object from encrypted s3 buckets. Use PermissionsBoundaryArn to limit access if needed.
+              # https://aws.amazon.com/premiumsupport/knowledge-center/s3-troubleshoot-403/#AWS_KMS_encryption
+              - Effect: Allow
+                Action:
+                  - "kms:Decrypt"
+                Resource: "*"
   DatadogMetricStreamRole:
     Type: AWS::IAM::Role
     Properties:
