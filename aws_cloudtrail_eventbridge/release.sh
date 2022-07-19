@@ -32,9 +32,9 @@ fi
 
 # Update bucket placeholder
 # Use datadog-cloudformation-template as the s3 template for production
-cp eventbridge.yaml eventbridge.yaml.bak
-perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" eventbridge.yaml
-trap 'mv eventbridge.yaml.bak eventbridge.yaml' EXIT
+cp cloudtrail-eventbridge.yaml cloudtrail-eventbridge.yaml.bak
+perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" cloudtrail-eventbridge.yaml
+trap 'mv cloudtrail-eventbridge.yaml.bak cloudtrail-eventbridge.yaml' EXIT
 
 # Upload
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
@@ -44,6 +44,6 @@ else
         --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 fi
 echo "Done uploading the template, and here is the CloudFormation quick launch URL"
-echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-cloudtrail-eventbridge&templateURL=https://${BUCKET}.s3.amazonaws.com/aws/eventbridge.yaml"
+echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-cloudtrail-eventbridge&templateURL=https://${BUCKET}.s3.amazonaws.com/aws/cloudtrail-eventbridge.yaml"
 
 echo "Done!"

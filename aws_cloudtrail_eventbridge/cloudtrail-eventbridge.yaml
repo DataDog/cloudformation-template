@@ -1,4 +1,5 @@
-AWSTemplateFormatVersion: "2010-09-09"
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Cloudtrail Eventbridge Logs Integration
 Parameters:
   ApiKey:
     Description: >-
@@ -6,123 +7,89 @@ Parameters:
     Type: String
     AllowedPattern: .+
     ConstraintDescription: ApiKey is required
-    NoEcho: true
-  Regions:
-    Description: >-
-      Comma separated list of regions to enable metric streaming
-    Type: CommaDelimitedList
-    ConstraintDescription: Regions is required
-    Default: ''
   DatadogSite:
+    Description: >-
+      Define your Datadog Site to send data to.
     Type: String
-    Default: datadoghq.com
-    Description: Define your Datadog Site to send data to.
+    Default: 'datadoghq.com'
+    ConstraintDescription: DatadogSite is required
     AllowedValues:
       - datadoghq.com
       - datadoghq.eu
       - us3.datadoghq.com
       - us5.datadoghq.com
       - ddog-gov.com
-    ConstraintDescription: DatadogSite is required
 Resources:
-  DatadogCloudtrailEventbridgeStackSetAdministrationRole:
+  DatadogCloudtrailLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "datadog-eventbridge-cloudtrail-stream"
+      RetentionInDays: 14
+  HTTPLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref DatadogCloudtrailLogs
+      LogStreamName: "http_endpoint_delivery"
+  S3Backup:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref DatadogCloudtrailLogs
+      LogStreamName: "s3_backup"
+  DatadogCloudtrailBackupBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "datadog-aws-cloudtrail-backup-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "aws:kms"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  DatadogCloudtrailEventbridgeRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "DatadogCloudtrailEventbridgeStackSetAdministrationRole"
+      RoleName: !Sub "DatadogCloudtrailEventbridgeRole-${AWS::Region}"
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: 2012-10-17
         Statement:
           - Effect: Allow
             Principal:
               Service:
-                - "cloudformation.amazonaws.com"
-            Action: sts:AssumeRole
+                - events.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
       Path: /
       Policies:
-        - PolicyName: DatadogEventbridgeCfnStackSetAssumeRole
+        - PolicyName: "datadog_eventbridge_invoke_firehose_policy"
           PolicyDocument:
-            Version: '2012-10-17'
+            Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action:
-                  - cloudformation:*
-                Resource: "*"
-  DatadogCloudtrailEventbridgeStackSetExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "DatadogCloudtrailEventbridgeStackSetExecutionRole"
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !GetAtt DatadogCloudtrailEventbridgeStackSetAdministrationRole.Arn
-            Action: sts:AssumeRole
-      Path: /
-      Policies:
-        - PolicyName: DatadogEventbridgeCfnStackAssumeRole
+                  - "firehose:PutRecord"
+                  - "firehose:PutRecordBatch"
+                Resource:
+                  - !Sub "arn:aws:firehose:${AWS::Region}:${AWS::AccountId}:deliverystream/datadog-eventbridge-cloudtrail-stream"
+        - PolicyName: "datadog_eventbridge_log_policy"
           PolicyDocument:
-            Version: '2012-10-17'
+            Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action:
-                  - "s3:*"
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "logs:DescribeLogStreams"
                 Resource:
-                  - "arn:aws:s3:::cf-templates-*"
-              - Effect: Allow
-                Action:
-                  - "cloudformation:*"
-                Resource:
-                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stack/StackSet-DatadogCloudtrailEventbridge-*"
-                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stackset/DatadogCloudtrailEventbridge*"
-              - Effect: Allow
-                Action:
-                  - "sns:Publish"
-                Resource:
-                  - "arn:aws:sns:*:*:CfnNotificationSNSTopic"
-              - Effect: Allow
-                Action:
-                  - iam:GetRole
-                  - iam:PassRole
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - s3:CreateBucket
-                  - s3:DeleteBucket
-                  - s3:PutBucketPublicAccessBlock
-                  - s3:PutEncryptionConfiguration
-                Resource:
-                  - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-backup-${AWS::AccountId}-*"
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:DeleteLogGroup
-                  - logs:PutRetentionPolicy
-                  - logs:CreateLogStream
-                  - logs:DeleteLogStream
-                  - logs:DescribeLogStreams
-                Resource:
-                  - !Sub "arn:aws:logs:*:${AWS::AccountId}:log-group:datadog-eventbridge-cloudtrail-stream*"
-              - Effect: Allow
-                Action:
-                  - firehose:CreateDeliveryStream
-                  - firehose:DescribeDeliveryStream
-                  - firehose:DeleteDeliveryStream
-                Resource:
-                  - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-eventbridge-cloudtrail-stream"
-              - Effect: Allow
-                Action:
-                  - events:DescribeRule
-                  - events:PutRule
-                  - events:DeleteRule
-                  - events:PutTargets
-                  - events:RemoveTargets
-                Resource:
-                  - !Sub "arn:aws:events:*:${AWS::AccountId}:rule/datadog-eventbridge-cloudtrail"
+                  - !Sub "arn:aws:firehose:${AWS::Region}:${AWS::AccountId}:deliverystream/datadog-eventbridge-cloudtrail-stream"
+      Description: A cloudtrail stream role
   DatadogCloudtrailServiceRole:
     Type: "AWS::IAM::Role"
     Properties:
-      RoleName: "DatadogCloudtrailServiceRole"
+      RoleName: !Sub "DatadogCloudtrailServiceRole-${AWS::Region}"
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -147,62 +114,64 @@ Resources:
                   - "s3:ListBucketMultipartUploads"
                   - "s3:PutObject"
                 Resource:
-                  - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-backup-${AWS::AccountId}-*"
-                  - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-backup-${AWS::AccountId}-*/*"
-  DatadogCloudtrailEventbridgeRole:
-    Type: AWS::IAM::Role
+                  - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-backup-${AWS::AccountId}-${AWS::Region}"
+                  - !Sub "arn:aws:s3:::datadog-aws-cloudtrail-backup-${AWS::AccountId}-${AWS::Region}/*"
+  DatadogCloudtrailKinesisFirehose:
+    Type: AWS::KinesisFirehose::DeliveryStream
     Properties:
-      RoleName: "DatadogCloudtrailEventbridgeRole"
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - events.amazonaws.com
-            Action:
-              - "sts:AssumeRole"
-      Path: /
-      Policies:
-        - PolicyName: "datadog_eventbridge_invoke_firehose_policy"
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - "firehose:PutRecord"
-                  - "firehose:PutRecordBatch"
-                Resource:
-                  - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-eventbridge-cloudtrail-stream"
-      Description: A cloudtrail stream role
-  DatadogCloudtrailEventbridgeStackSet:
-    Type: AWS::CloudFormation::StackSet
+      DeliveryStreamName: "datadog-eventbridge-cloudtrail-stream"
+      DeliveryStreamType: "DirectPut"
+      HttpEndpointDestinationConfiguration:
+        BufferingHints:
+          SizeInMBs: 4
+          IntervalInSeconds: 60
+        EndpointConfiguration:
+          Url: !Sub "https://aws-kinesis-http-intake.logs.${DatadogSite}/v1/input"
+          Name: "Kinesis intake"
+          AccessKey: !Ref ApiKey
+        CloudWatchLoggingOptions:
+          Enabled: True
+          LogGroupName: !Ref DatadogCloudtrailLogs
+          LogStreamName: "http_endpoint_delivery"
+        RoleARN: !GetAtt DatadogCloudtrailServiceRole.Arn
+        RetryOptions:
+          DurationInSeconds: 60
+        S3BackupMode: "FailedDataOnly"
+        S3Configuration:
+          RoleARN: !GetAtt DatadogCloudtrailServiceRole.Arn
+          BucketARN: !GetAtt DatadogCloudtrailBackupBucket.Arn
+          ErrorOutputPrefix: "datadog_cloudtrail"
+          BufferingHints:
+            SizeInMBs: 4
+            IntervalInSeconds: 60
+          CompressionFormat: "GZIP"
+          CloudWatchLoggingOptions:
+            Enabled: True
+            LogGroupName: !Ref DatadogCloudtrailLogs
+            LogStreamName: "s3_backup"
+      Tags:
+        - Key: "Team"
+          Value: "aws-integration"
+        - Key: "StreamAccountID"
+          Value: !Ref "AWS::AccountId"
+  DatadogCloudtrailEventbridgeRule:
+    Type: AWS::Events::Rule
     Properties:
-      StackSetName: DatadogCloudtrailEventbridge
-      PermissionModel: SELF_MANAGED
-      AdministrationRoleARN: !GetAtt DatadogCloudtrailEventbridgeStackSetAdministrationRole.Arn
-      ExecutionRoleName: !Ref DatadogCloudtrailEventbridgeStackSetExecutionRole
-      StackInstancesGroup:
-        - DeploymentTargets:
-            Accounts:
-              - !Ref "AWS::AccountId"
-          Regions: !Ref Regions
-      TemplateURL: "https://s3.amazonaws.com/<BUCKET_PLACEHOLDER>/aws/eventbridge-single-region.yaml"
-      Parameters:
-        - ParameterKey: ApiKey
-          ParameterValue: !Ref ApiKey
-        - ParameterKey: DatadogCloudtrailServiceRoleArn
-          ParameterValue: !GetAtt DatadogCloudtrailServiceRole.Arn
-        - ParameterKey: DatadogCloudtrailEventbridgeRoleArn
-          ParameterValue: !GetAtt DatadogCloudtrailEventbridgeRole.Arn
-        - ParameterKey: DatadogSite
-          ParameterValue: !Ref DatadogSite
-Metadata:
-  AWS::CloudFormation::Interface:
-    ParameterGroups:
-    - Label:
-        default: Required
-      Parameters:
-        - ApiKey
-        - DatadogSite
-        - Regions
+      Description: "Eventbridge Rule to Forward Cloudtrail Events to Datadog"
+      EventBusName: "default"
+      EventPattern:
+        detail-type:
+          - AWS API Call via CloudTrail
+          - AWS Insight via CloudTrail
+          - AWS Console Sign In via CloudTrail
+          - AWS Console Action via CloudTrail
+          - AWS Service Event via CloudTrail
+      Name: "datadog-eventbridge-cloudtrail"
+      RoleArn: !GetAtt DatadogCloudtrailEventbridgeRole.Arn
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt
+            - DatadogCloudtrailKinesisFirehose
+            - Arn
+          Id: Id123
+          RoleArn: !GetAtt DatadogCloudtrailEventbridgeRole.Arn
