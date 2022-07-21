@@ -7,6 +7,7 @@ Parameters:
     Type: String
     AllowedPattern: .+
     ConstraintDescription: ApiKey is required
+    NoEcho: true
   DatadogSite:
     Description: >-
       Define your Datadog Site to send data to.
