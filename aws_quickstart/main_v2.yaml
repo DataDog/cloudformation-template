@@ -126,13 +126,17 @@ Outputs:
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
-    - Required:
+    - Label:
+        default: Required
+      Parameters:
         - APIKey
         - APPKey
         - DatadogSite
         - InstallLambdaLogForwarder
         - CloudSecurityPostureManagement
-    - Advanced:
+    - Label:
+        default: Advanced
+      Parameters:
         - IAMRoleName
         - DisableMetricCollection
     ParameterLabels:
