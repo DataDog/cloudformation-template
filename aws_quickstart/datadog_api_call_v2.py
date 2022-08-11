@@ -17,7 +17,7 @@ def call_datadog_api(event, method):
     role_name = event['ResourceProperties']['RoleName']
     host_tags = event['ResourceProperties']['HostTags']
     cspm = event['ResourceProperties']['CloudSecurityPostureManagement']
-    metrics_enabled = event['ResourceProperties']['DisableMetricCollection']
+    metrics_disabled = event['ResourceProperties']['DisableMetricCollection']
 
     # Make the url Request
     url = 'https://api.' + api_url + '/api/v1/integration/aws'
@@ -28,7 +28,7 @@ def call_datadog_api(event, method):
     if method != "DELETE":
         values["host_tags"] = host_tags
         values["cspm_resource_collection_enabled"] = cspm == "true"
-        values["metrics_collection_enabled"] = metrics_enabled == "false"
+        values["metrics_collection_enabled"] = metrics_disabled == "false"
 
     headers = {
         'DD-API-KEY': api_key,
