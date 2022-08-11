@@ -65,7 +65,6 @@ Conditions:
     Fn::Equals:
       - !Ref InstallLambdaLogForwarder
       - true
-  # A workaround for being unable to check list contains
   CloudSecurityPostureManagementPermissions:
     Fn::Equals:
       - !Ref CloudSecurityPostureManagement
@@ -75,7 +74,7 @@ Resources:
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_integration_api_call_v2.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_api_call_v2.yaml"
       Parameters:
         DatadogApiKey: !Ref APIKey
         DatadogAppKey: !Ref APPKey
