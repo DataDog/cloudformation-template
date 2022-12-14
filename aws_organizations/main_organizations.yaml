@@ -1,0 +1,401 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Integration
+Parameters:
+  OrganizationId:
+    Description: >-
+      The ID for the organization
+    Type: String
+    Default: ""
+  AccountId:
+    Description: >-
+      Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
+    Type: String
+    Default: "464622532012"
+  APIKey:
+    Description: >-
+      API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys)
+    Type: String
+    Default: ""
+  APPKey:
+    Description: >-
+      APP key for the Datadog account (find at https://app.datadoghq.com/organization-settings/application-keys). 
+      If this template was launched from the Datadog app, this key is tied to the user that launched the template,
+      and is a key specifically generated for this integration.
+    Type: String
+    Default: ""
+  DatadogSite:
+    Type: String
+    Default: datadoghq.com
+    Description: Define your Datadog Site to send data to.
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ddog-gov.com
+  IAMRoleName:
+    Description: Customize the name of IAM role for Datadog AWS integration
+    Type: String
+    Default: DatadogIntegrationRole
+  DisableMetricCollection:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Disabling metric collection for this account will lead to a loss in visibility into your AWS services. 
+      Disable this if you only want to collect tags or resource configuration information from this AWS account, 
+      and do not want to use Datadog Infrastructure Monitoring.
+    Default: false
+  CloudSecurityPostureManagement:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Add the AWS Managed SecurityAudit policy to your Datadog AWS Integration role, and enable 
+      Datadog Cloud Security Posture Management (CSPM) to start performing configuration checks across your AWS account.
+      Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to 
+      industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
+    Default: false
+  Products:
+    Type: CommaDelimitedList
+    Description: >-
+      A comma separated list of relevant Datadog products you want to use with this account.
+      Chose from: Infrastructure Monitoring, Serverless, Log Management, Cloud Security Posture Management
+    Default: "Infrastructure Monitoring,Serverless,Log Management"
+Conditions:
+  ShouldInstallCSPMPolicy:
+    Fn::Equals:
+      - Ref: CloudSecurityPostureManagement
+      - true
+
+Resources:
+  LambdaExecutionRoleDatadogAPICall:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  # Retrieving secrets passed in via SecretsManager Arn
+  DatadogAPICall:
+    Type: "Custom::DatadogAPICall"
+    Properties:
+      ServiceToken: !GetAtt DatadogAPICallFunction.Arn
+      APIKey: !Ref APIKey
+      APPKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      AccountId: !Ref AWS::AccountId
+      RoleName: !Ref IAMRoleName
+      HostTags: [ !Sub "aws_account:${AWS::AccountId}" ]
+      Products: !Ref Products
+  DatadogAPICallFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "A function to call the Datadog API."
+      Role: !GetAtt LambdaExecutionRoleDatadogAPICall.Arn
+      Handler: "index.handler"
+      Runtime: "python3.8"
+      Timeout: 30
+      Code:
+        ZipFile: |
+          import boto3
+
+          import json
+          import logging
+          import signal
+          from urllib.request import build_opener, HTTPHandler, Request
+          import urllib.parse
+
+          LOGGER = logging.getLogger()
+          LOGGER.setLevel(logging.INFO)
+
+          def call_datadog_api(event, method):
+              api_key = event['ResourceProperties']['APIKey']
+              app_key = event['ResourceProperties']['APPKey']
+              api_url = event['ResourceProperties']['ApiURL']
+              account_id = event['ResourceProperties']['AccountId']
+              role_name = event['ResourceProperties']['RoleName']
+              host_tags = event['ResourceProperties']['HostTags']
+              products = event['ResourceProperties']['Products']
+
+              # Make the url Request
+              url = 'https://api.' + api_url + '/api/v1/integration/aws'
+              values = {
+                  'account_id': account_id,
+                  'role_name': role_name,
+              }
+              if method != "DELETE":
+                  products = [p.strip() for p in products]
+                  values["host_tags"] = host_tags
+                  values["cspm_resource_collection_enabled"] = "Cloud Security Posture Management" in products
+                  infra_monitoring = "Infrastructure Monitoring" in products
+                  serverless = "Serverless Monitoring" in products
+                  if infra_monitoring:
+                      values["metrics_collection_enabled"] = True
+                      if not serverless:
+                          values["account_specific_namespace_rules"] = {"lambda": False, "xray": False}
+                  else:
+                      if serverless:
+                          values["metrics_collection_enabled"] = True
+                          values["account_specific_namespace_rules"] = {
+                              "application_elb": False,
+                              "ebs": False,
+                              "ec2": False,
+                              "elb": False,
+                              "network_elb": False,
+                              "ec2api": False,
+                              "ec2spot": False,
+                          }
+                      else:
+                          values["metrics_collection_enabled"] = False
+
+              headers = {
+                  'DD-API-KEY': api_key,
+                  'DD-APPLICATION-KEY': app_key,
+              }
+              data = json.dumps(values)
+              data = data.encode('utf-8')  # data should be bytes
+              request = Request(url, data=data, headers=headers)
+              request.add_header('Content-Type', 'application/json; charset=utf-8')
+              request.add_header('Content-Length', len(data))
+              request.get_method = lambda: method
+
+              # Send the url Request, store external_id
+              response = urllib.request.urlopen(request)
+              return response
+
+          def handler(event, context):
+              '''Handle Lambda event from AWS'''
+              try:
+                  LOGGER.info('REQUEST RECEIVED:\n %s', event)
+                  LOGGER.info('REQUEST RECEIVED:\n %s', context)
+                  if event['RequestType'] == 'Create':
+                      LOGGER.info('Received Create request.')
+                      response = call_datadog_api(event, 'POST')
+                      if response.getcode() == 200:
+                          json_response = json.loads(response.read().decode("utf-8"))
+                          send_response(event, context, "SUCCESS",
+                                        {
+                                            "Message": "Datadog AWS Integration created successfully.",
+                                            "ExternalId": json_response["external_id"],
+                                        })
+                      else:
+                          LOGGER.info('Failed - exception thrown during processing.')
+                          send_response(event, context, "FAILED", {
+                              "Message": "Http response: {}".format(response.msg)})
+
+                  elif event['RequestType'] == 'Update':
+                      LOGGER.info('Received Update request.')
+                      send_response(event, context, "SUCCESS",
+                                    {"Message": "Update not supported, no operation performed."})
+                  elif event['RequestType'] == 'Delete':
+                      LOGGER.info('Received Delete request.')
+                      response = call_datadog_api(event, 'DELETE')
+
+                      if response.getcode() == 200:
+                          send_response(event, context, "SUCCESS",
+                                        {
+                                            "Message": "Datadog AWS Integration deleted successfully.",
+                                        })
+                      else:
+                          LOGGER.info('Failed - exception thrown during processing.')
+                          send_response(event, context, "FAILED", {
+                              "Message": "Http response: {}".format(response.msg)})
+
+                  else:
+                      LOGGER.info('Failed - received unexpected request.')
+                      send_response(event, context, "FAILED",
+                                    {"Message": "Unexpected event received from CloudFormation"})
+              except Exception as e:  # pylint: disable=W0702
+                  LOGGER.info('Failed - exception thrown during processing.')
+                  send_response(event, context, "FAILED", {
+                      "Message": "Exception during processing: {}".format(e)})
+
+
+          def send_response(event, context, response_status, response_data):
+              '''Send a resource manipulation status response to CloudFormation'''
+              response_body = json.dumps({
+                  "Status": response_status,
+                  "Reason": "See the details in CloudWatch Log Stream: " + context.log_stream_name,
+                  "PhysicalResourceId": context.log_stream_name,
+                  "StackId": event['StackId'],
+                  "RequestId": event['RequestId'],
+                  "LogicalResourceId": event['LogicalResourceId'],
+                  "Data": response_data
+              })
+              formatted_response = response_body.encode("utf-8")
+
+              LOGGER.info('ResponseURL: %s', event['ResponseURL'])
+              LOGGER.info('ResponseBody: %s', response_body)
+
+              opener = build_opener(HTTPHandler)
+              request = Request(event['ResponseURL'], data=formatted_response)
+              request.add_header('Content-Type', 'application/json; charset=utf-8')
+              request.add_header('Content-Length', len(formatted_response))
+              request.get_method = lambda: 'PUT'
+              response = opener.open(request)
+              LOGGER.info("Status code: %s", response.getcode())
+              LOGGER.info("Status message: %s", response.msg)
+
+
+          def timeout_handler(_signal, _frame):
+              '''Handle SIGALRM'''
+              raise Exception('Time exceeded')
+
+
+          signal.signal(signal.SIGALRM, timeout_handler)
+
+  DatadogIntegrationRole:
+    Type: 'AWS::IAM::Role'
+    Metadata:
+      cfn-lint:
+        config:
+          # cfn-lint does not yet support "Fn::Transform"
+          # This policy needs broad read permissions to allow Datadog to collect metrics and metadata
+          ignore_checks:
+            - E3002
+            - E3003
+            - EIAMPolicyActionWildcard
+            - EIAMPolicyWildcardResource
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::464622532012:root"
+            Action:
+              - 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !GetAtt DatadogAPICall.Outputs.ExternalId
+      Path: /
+      RoleName: !Ref IAMRoleName
+      ManagedPolicyArns: !If [ ShouldInstallCSPMPolicy, [ !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit" ], !Ref AWS::NoValue ]
+      Policies:
+        - PolicyName: DatadogAWSIntegrationPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource: '*'
+                Action:
+                  - 'apigateway:GET'
+                  - 'autoscaling:Describe*'
+                  - 'backup:List*'
+                  - 'budgets:ViewBudget'
+                  - 'cloudfront:GetDistributionConfig'
+                  - 'cloudfront:ListDistributions'
+                  - 'cloudtrail:DescribeTrails'
+                  - 'cloudtrail:GetTrailStatus'
+                  - 'cloudtrail:LookupEvents'
+                  - 'cloudwatch:Describe*'
+                  - 'cloudwatch:Get*'
+                  - 'cloudwatch:List*'
+                  - 'codedeploy:List*'
+                  - 'codedeploy:BatchGet*'
+                  - 'directconnect:Describe*'
+                  - 'dynamodb:List*'
+                  - 'dynamodb:Describe*'
+                  - 'ec2:Describe*'
+                  - 'ecs:Describe*'
+                  - 'ecs:List*'
+                  - 'elasticache:Describe*'
+                  - 'elasticache:List*'
+                  - 'elasticfilesystem:DescribeAccessPoints'
+                  - 'elasticfilesystem:DescribeFileSystems'
+                  - 'elasticfilesystem:DescribeTags'
+                  - 'elasticloadbalancing:Describe*'
+                  - 'elasticmapreduce:List*'
+                  - 'elasticmapreduce:Describe*'
+                  - 'es:ListTags'
+                  - 'es:ListDomainNames'
+                  - 'es:DescribeElasticsearchDomains'
+                  - 'events:CreateEventBus'
+                  - 'fsx:DescribeFileSystems'
+                  - 'fsx:ListTagsForResource'
+                  - 'health:DescribeEvents'
+                  - 'health:DescribeEventDetails'
+                  - 'health:DescribeAffectedEntities'
+                  - 'kinesis:List*'
+                  - 'kinesis:Describe*'
+                  - 'lambda:GetPolicy'
+                  - 'lambda:List*'
+                  - 'logs:TestMetricFilter'
+                  - 'logs:PutSubscriptionFilter'
+                  - 'logs:DeleteSubscriptionFilter'
+                  - 'logs:DescribeSubscriptionFilters'
+                  - 'organizations:Describe*'
+                  - 'organizations:List*'
+                  - 'rds:Describe*'
+                  - 'rds:List*'
+                  - 'redshift:DescribeClusters'
+                  - 'redshift:DescribeLoggingStatus'
+                  - 'route53:List*'
+                  - 's3:GetBucketLogging'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetBucketNotification'
+                  - 's3:GetBucketTagging'
+                  - 's3:ListAllMyBuckets'
+                  - 's3:PutBucketNotification'
+                  - 'ses:Get*'
+                  - 'sns:List*'
+                  - 'sns:Publish'
+                  - 'sqs:ListQueues'
+                  - 'states:ListStateMachines'
+                  - 'states:DescribeStateMachine'
+                  - 'support:DescribeTrustedAdvisor*'
+                  - 'support:RefreshTrustedAdvisorCheck'
+                  - 'tag:GetResources'
+                  - 'tag:GetTagKeys'
+                  - 'tag:GetTagValues'
+                  - 'xray:BatchGetTraces'
+                  - 'xray:GetTraceSummaries'
+Outputs:
+  IAMRoleName:
+    Description: AWS IAM Role named to be used with the DataDog AWS Integration 
+    Value: !Ref IAMRoleName
+  AccountId:
+    Description: AWS Account number
+    Value: !Ref "AWS::AccountId"
+  Region:
+    Description: AWS Region
+    Value: !Ref "AWS::Region"
+  ExternalId:
+    Description: Datadog AWS Integration ExternalId
+    Value: !GetAtt DatadogAPICall.ExternalId
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Required
+      Parameters:
+        - APIKey
+        - APPKey
+        - DatadogSite
+        - CloudSecurityPostureManagement
+        - IAMRoleName
+    - Label:
+        default: Advanced
+      Parameters:
+        - IAMRoleName
+        - DisableMetricCollection
+    ParameterLabels:
+      APIKey:
+        default: "DatadogApiKey *"
+      APPKey:
+        default: "DatadogAppKey *"
+      DatadogSite:
+        default: "DatadogSite *"
+      CloudSecurityPostureManagement:
+        default: "CloudSecurityPostureManagement *"
