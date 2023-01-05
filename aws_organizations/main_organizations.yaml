@@ -278,7 +278,7 @@ Resources:
               - 'sts:AssumeRole'
             Condition:
               StringEquals:
-                'sts:ExternalId': !GetAtt DatadogAPICall.Outputs.ExternalId
+                'sts:ExternalId': !GetAtt DatadogAPICall.ExternalId
       Path: /
       RoleName: !Ref IAMRoleName
       ManagedPolicyArns: !If [ ShouldInstallCSPMPolicy, [ !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit" ], !Ref AWS::NoValue ]
@@ -371,9 +371,6 @@ Outputs:
   Region:
     Description: AWS Region
     Value: !Ref "AWS::Region"
-  ExternalId:
-    Description: Datadog AWS Integration ExternalId
-    Value: !GetAtt DatadogAPICall.ExternalId
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
