@@ -84,6 +84,7 @@ Resources:
       APIKey: !Ref APIKey
       APPKey: !Ref APPKey
       ApiURL: !Ref DatadogSite
+      DisableMetricCollection: !Ref DisableMetricCollection
       AccountId: !Ref AWS::AccountId
       RoleName: !Ref IAMRoleName
       HostTags: [ !Sub "aws_account:${AWS::AccountId}" ]
@@ -354,19 +355,19 @@ Resources:
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
-    - Label:
-        default: Required
-      Parameters:
-        - APIKey
-        - APPKey
-        - DatadogSite
-        - CloudSecurityPostureManagement
-        - IAMRoleName
-    - Label:
-        default: Advanced
-      Parameters:
-        - IAMRoleName
-        - DisableMetricCollection
+      - Label:
+          default: Required
+        Parameters:
+          - APIKey
+          - APPKey
+          - DatadogSite
+          - InstallLambdaLogForwarder
+          - CloudSecurityPostureManagement
+      - Label:
+          default: Advanced
+        Parameters:
+          - IAMRoleName
+          - DisableMetricCollection
     ParameterLabels:
       APIKey:
         default: "DatadogApiKey *"
@@ -376,3 +377,5 @@ Metadata:
         default: "DatadogSite *"
       CloudSecurityPostureManagement:
         default: "CloudSecurityPostureManagement *"
+      InstallLambdaLogForwarder:
+        default: "InstallLambdaLogForwarder *"
