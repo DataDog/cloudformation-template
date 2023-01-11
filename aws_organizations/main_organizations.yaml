@@ -27,6 +27,18 @@ Parameters:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
     Default: DatadogIntegrationRole
+  InstallLambdaLogForwarder:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Determines whether the default configuration for the Datadog Lambda Log Forwarder is installed 
+      as part of this stack. This is useful for sending logs to Datadog for use in Log Management or Cloud SIEM. 
+      Customers who want to customize this setup to include specific custom tags, data scrubbing or redaction rules,
+      or send logs using AWS PrivateLink should select “no” and install this independently
+      (https://docs.datadoghq.com/serverless/libraries_integrations/forwarder/#installation).
+    Default: true
   DisableMetricCollection:
     Type: String
     AllowedValues:
