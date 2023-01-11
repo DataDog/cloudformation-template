@@ -1,16 +1,6 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: Datadog AWS Integration
 Parameters:
-  OrganizationId:
-    Description: >-
-      The ID for the organization
-    Type: String
-    Default: ""
-  AccountId:
-    Description: >-
-      Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
-    Type: String
-    Default: "464622532012"
   APIKey:
     Description: >-
       API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys)
@@ -361,16 +351,6 @@ Resources:
                   - 'tag:GetTagValues'
                   - 'xray:BatchGetTraces'
                   - 'xray:GetTraceSummaries'
-Outputs:
-  IAMRoleName:
-    Description: AWS IAM Role named to be used with the DataDog AWS Integration 
-    Value: !Ref IAMRoleName
-  AccountId:
-    Description: AWS Account number
-    Value: !Ref "AWS::AccountId"
-  Region:
-    Description: AWS Region
-    Value: !Ref "AWS::Region"
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
