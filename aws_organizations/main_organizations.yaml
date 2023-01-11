@@ -67,6 +67,10 @@ Parameters:
       Chose from: Infrastructure Monitoring, Serverless, Log Management, Cloud Security Posture Management
     Default: "Infrastructure Monitoring,Serverless,Log Management"
 Conditions:
+  InstallForwarder:
+    Fn::Equals:
+      - !Ref InstallLambdaLogForwarder
+      - true
   ShouldInstallCSPMPolicy:
     Fn::Equals:
       - Ref: CloudSecurityPostureManagement
