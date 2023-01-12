@@ -42,7 +42,7 @@ else
     aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml" \
         --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 fi
-echo "Done uploading the template, and here is the CloudFormation quick launch URL"
-echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-integration&templateURL=https://${BUCKET}.s3.amazonaws.com/aws/main.yaml"
+echo "Done uploading the template. Navigate to https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacksets/create and use the template URL below."
+echo "https://${BUCKET}.s3.amazonaws.com/aws/main_organizations.yaml"
 
 echo "Done!"
