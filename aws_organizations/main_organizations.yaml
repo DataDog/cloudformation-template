@@ -66,6 +66,7 @@ Parameters:
       A comma separated list of relevant Datadog products you want to use with this account.
       Chose from: Infrastructure Monitoring, Serverless, Log Management, Cloud Security Posture Management
     Default: "Infrastructure Monitoring,Serverless,Log Management"
+
 Conditions:
   InstallForwarder:
     Fn::Equals:
@@ -368,6 +369,574 @@ Resources:
                   - 'tag:GetTagValues'
                   - 'xray:BatchGetTraces'
                   - 'xray:GetTraceSummaries'
+  Forwarder:
+    Type: AWS::Lambda::Function
+    DependsOn: ForwarderZipReady
+    Properties:
+      FunctionName:
+        Fn::If:
+          - SetFunctionName
+          - Ref: FunctionName
+          - Ref: AWS::NoValue
+      Description: Pushes logs, metrics and traces from AWS to Datadog.
+      Role: !GetAtt "ForwarderRole.Arn"
+      Handler: lambda_function.lambda_handler
+      Layers:
+        Fn::If:
+          - UseZipCopier
+          - [ ]
+          - - Fn::If:
+                - SetLayerARN
+                - !Ref LayerARN
+                - Fn::Join:
+                    - ":"
+                    - - arn
+                      - !Ref AWS::Partition
+                      - lambda
+                      - !Ref AWS::Region
+                      - Fn::If: [ IsGovCloud, "002406178527", "464622532012" ]
+                      - layer
+                      - Datadog-Forwarder
+                      - Fn::FindInMap: [ Constants, DdForwarder, LayerVersion ]
+
+      Code:
+        Fn::If:
+          - UseZipCopier
+          - S3Bucket: !Ref ForwarderBucket
+            S3Key:
+              Fn::Sub:
+                - "aws-dd-forwarder-${DdForwarderVersion}.zip"
+                - {
+                  DdForwarderVersion:
+                    !FindInMap [ Constants, DdForwarder, Version ],
+                }
+          - ZipFile: " "
+
+      MemorySize:
+        Ref: MemorySize
+      Runtime: python3.8
+      Timeout:
+        Ref: Timeout
+      Tags:
+        - Key: "dd_forwarder_version"
+          Value: !FindInMap [ Constants, DdForwarder, Version ]
+      Environment:
+        Variables:
+          DD_ENHANCED_METRICS: "false"
+          DD_API_KEY_SECRET_ARN:
+            Fn::If:
+              - CreateDdApiKeySecret
+              - Ref: DdApiKeySecret
+              - Ref: DdApiKeySecretArn
+          DD_S3_BUCKET_NAME:
+            Fn::If:
+              - CreateS3BucketForTags
+              - Ref: ForwarderBucket
+              - Ref: AWS::NoValue
+          DD_SITE:
+            Ref: DdSite
+          DD_TAGS:
+            Fn::If:
+              - SetDdTags
+              - Ref: DdTags
+              - Ref: AWS::NoValue
+          DD_TAGS_CACHE_TTL_SECONDS:
+            Ref: TagsCacheTTLSeconds
+          DD_FETCH_LAMBDA_TAGS:
+            Fn::If:
+              - SetDdFetchLambdaTags
+              - Ref: DdFetchLambdaTags
+              - Ref: AWS::NoValue
+          DD_FETCH_LOG_GROUP_TAGS:
+            Fn::If:
+              - SetDdFetchLogGroupTags
+              - Ref: DdFetchLogGroupTags
+              - Ref: AWS::NoValue
+          DD_FETCH_STEP_FUNCTIONS_TAGS:
+            Fn::If:
+              - SetDdFetchStepFunctionsTags
+              - Ref: DdFetchStepFunctionsTags
+              - Ref: AWS::NoValue
+          DD_USE_TCP:
+            Fn::If:
+              - SetDdUseTcp
+              - Ref: DdUseTcp
+              - Ref: AWS::NoValue
+          DD_NO_SSL:
+            Fn::If:
+              - SetDdNoSsl
+              - Ref: DdNoSsl
+              - Ref: AWS::NoValue
+          DD_URL:
+            Fn::If:
+              - SetDdUrl
+              - Ref: DdUrl
+              - Ref: AWS::NoValue
+          DD_PORT:
+            Fn::If:
+              - SetDdPort
+              - Ref: DdPort
+              - Ref: AWS::NoValue
+          REDACT_IP:
+            Fn::If:
+              - SetRedactIp
+              - Ref: RedactIp
+              - Ref: AWS::NoValue
+          REDACT_EMAIL:
+            Fn::If:
+              - SetRedactEmail
+              - Ref: RedactEmail
+              - Ref: AWS::NoValue
+          DD_SCRUBBING_RULE:
+            Fn::If:
+              - SetDdScrubbingRule
+              - Ref: DdScrubbingRule
+              - Ref: AWS::NoValue
+          DD_SCRUBBING_RULE_REPLACEMENT:
+            Fn::If:
+              - SetDdScrubbingRuleReplacement
+              - Ref: DdScrubbingRuleReplacement
+              - Ref: AWS::NoValue
+          EXCLUDE_AT_MATCH:
+            Fn::If:
+              - SetExcludeAtMatch
+              - Ref: ExcludeAtMatch
+              - Ref: AWS::NoValue
+          INCLUDE_AT_MATCH:
+            Fn::If:
+              - SetIncludeAtMatch
+              - Ref: IncludeAtMatch
+              - Ref: AWS::NoValue
+          DD_MULTILINE_LOG_REGEX_PATTERN:
+            Fn::If:
+              - SetDdMultilineLogRegexPattern
+              - Ref: DdMultilineLogRegexPattern
+              - Ref: AWS::NoValue
+          DD_SKIP_SSL_VALIDATION:
+            Fn::If:
+              - SetDdSkipSslValidation
+              - Ref: DdSkipSslValidation
+              - Ref: AWS::NoValue
+          DD_FORWARD_LOG:
+            Fn::If:
+              - SetDdForwardLog
+              - Ref: DdForwardLog
+              - Ref: AWS::NoValue
+          DD_USE_COMPRESSION:
+            Fn::If:
+              - SetDdUseCompression
+              - Ref: DdUseCompression
+              - Ref: AWS::NoValue
+          DD_COMPRESSION_LEVEL:
+            Fn::If:
+              - SetDdCompressionLevel
+              - Ref: DdCompressionLevel
+              - Ref: AWS::NoValue
+          DD_MAX_WORKERS:
+            Fn::If:
+              - SetDdMaxWorkers
+              - Ref: DdMaxWorkers
+              - Ref: AWS::NoValue
+          DD_USE_PRIVATE_LINK:
+            Fn::If:
+              - SetDdUsePrivateLink
+              - true
+              - false
+          DD_USE_VPC:
+            Fn::If:
+              - UseVPC
+              - true
+              - false
+          HTTP_PROXY:
+            Fn::If:
+              - SetDdHttpProxyURL
+              - Ref: DdHttpProxyURL
+              - Ref: AWS::NoValue
+          HTTPS_PROXY:
+            Fn::If:
+              - SetDdHttpProxyURL
+              - Ref: DdHttpProxyURL
+              - Ref: AWS::NoValue
+          NO_PROXY:
+            Fn::If:
+              - SetDdNoProxy
+              - Ref: DdNoProxy
+              - Ref: AWS::NoValue
+          DD_ADDITIONAL_TARGET_LAMBDAS:
+            Fn::If:
+              - SetAdditionalTargetLambdas
+              - !Join
+                - ","
+                - !Ref AdditionalTargetLambdaArns
+              - !Ref AWS::NoValue
+          DD_API_URL:
+            Fn::If:
+              - SetDdApiUrl
+              - Ref: DdApiUrl
+              - Ref: AWS::NoValue
+          DD_TRACE_INTAKE_URL:
+            Fn::If:
+              - SetDdTraceIntakeUrl
+              - Ref: DdTraceIntakeUrl
+              - Ref: AWS::NoValue
+      ReservedConcurrentExecutions:
+        Fn::If:
+          - SetReservedConcurrentExecutions
+          - Ref: ReservedConcurrency
+          - Ref: AWS::NoValue
+      VpcConfig:
+        Fn::If:
+          - UseVPC
+          - SecurityGroupIds: !Ref VPCSecurityGroupIds
+            SubnetIds: !Ref VPCSubnetIds
+          - Ref: AWS::NoValue
+
+    ForwarderRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Action:
+                - sts:AssumeRole
+              Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        PermissionsBoundary:
+          Fn::If:
+            - SetPermissionsBoundary
+            - Ref: PermissionsBoundaryArn
+            - Ref: AWS::NoValue
+        Policies:
+          - PolicyName: ForwarderRolePolicy0
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                # Access the s3 bucket that is used by the forwarder as a datastore
+                - Action:
+                    - s3:GetObject
+                    - s3:PutObject
+                    - s3:DeleteObject
+                    - s3:ListBucket
+                  Resource:
+                    - Fn::Join:
+                        - "/"
+                        - - Fn::GetAtt: ForwarderBucket.Arn
+                          - "*"
+                  Effect: Allow
+                # Get the actual log content from the s3 bucket based on the received s3 event.
+                # Use PermissionsBoundaryArn to limit (allow/deny) access if needed.
+                - Action:
+                    - s3:GetObject
+                  Resource: "*"
+                  Effect: Allow
+                # To get object from encrypted s3 buckets. Use PermissionsBoundaryArn to limit access if needed.
+                # https://aws.amazon.com/premiumsupport/knowledge-center/s3-troubleshoot-403/#AWS_KMS_encryption
+                - Action:
+                    - kms:Decrypt
+                  Resource: "*"
+                  Effect: Allow
+                # Access the Datadog API key from Secrets Manager
+                - Action:
+                    - secretsmanager:GetSecretValue
+                  Resource:
+                    Fn::If:
+                      - CreateDdApiKeySecret
+                      - Ref: DdApiKeySecret
+                      - Fn::Sub: "${DdApiKeySecretArn}*"
+                  Effect: Allow
+                # Fetch Lambda resource tags for data enrichment
+                - Fn::If:
+                    - SetDdFetchLambdaTags
+                    - Action:
+                        - tag:GetResources
+                      Resource: "*"
+                      Effect: Allow
+                    - Ref: AWS::NoValue
+                # Get tags for log groups and attach them to the logs sent to Datadog
+                - Fn::If:
+                    - SetDdFetchLogGroupTags
+                    - Action:
+                        - logs:ListTagsLogGroup
+                      Resource: "*"
+                      Effect: Allow
+                    - Ref: AWS::NoValue
+                # Fetch Step Functions resource tags for data enrichment
+                - Fn::If:
+                    - SetDdFetchStepFunctionsTags
+                    - Action:
+                        - tag:GetResources
+                      Resource: "*"
+                      Effect: Allow
+                    - Ref: AWS::NoValue
+                # Required for Lambda deployed in VPC
+                - Fn::If:
+                    - UseVPC
+                    - Action:
+                        - ec2:CreateNetworkInterface
+                        - ec2:DescribeNetworkInterfaces
+                        - ec2:DeleteNetworkInterface
+                      Resource: "*"
+                      Effect: Allow
+                    - Ref: AWS::NoValue
+                # To invoke a follower Lambda with the same event received by the forwarder for dual-shipping
+                - Fn::If:
+                    - SetAdditionalTargetLambdas
+                    - Action:
+                        - lambda:InvokeFunction
+                      Resource:
+                        Ref: AdditionalTargetLambdaArns
+                      Effect: Allow
+                    - Ref: AWS::NoValue
+        Tags:
+          - Value:
+              Fn::FindInMap:
+                - Constants
+                - DdForwarder
+                - Version
+            Key: dd_forwarder_version
+
+    CloudWatchLogsPermission:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !Ref "Forwarder"
+        Action: lambda:InvokeFunction
+        Principal:
+          Fn::If:
+            - IsAWSChina
+            - !Sub "logs.${AWS::Region}.amazonaws.com.cn"
+            - !Sub "logs.${AWS::Region}.amazonaws.com"
+        SourceAccount: !Ref "AWS::AccountId"
+    S3Permission:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !Ref "Forwarder"
+        Action: lambda:InvokeFunction
+        Principal: "s3.amazonaws.com"
+        SourceAccount: !Ref "AWS::AccountId"
+    SNSPermission:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !Ref "Forwarder"
+        Action: lambda:InvokeFunction
+        Principal: "sns.amazonaws.com"
+        SourceAccount: !Ref "AWS::AccountId"
+    CloudWatchEventsPermission:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !Ref "Forwarder"
+        Action: lambda:InvokeFunction
+        Principal:
+          Fn::If:
+            - IsAWSChina
+            - "events.amazonaws.com.cn"
+            - "events.amazonaws.com"
+        SourceAccount: !Ref "AWS::AccountId"
+    LogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName:
+          Fn::Sub: /aws/lambda/${Forwarder}
+        RetentionInDays:
+          Ref: LogRetentionInDays
+    DdApiKeySecret:
+      Type: AWS::SecretsManager::Secret
+      Condition: CreateDdApiKeySecret
+      Properties:
+        Description: Datadog API Key
+        SecretString:
+          Ref: DdApiKey
+    # A s3 bucket used by the Forwarder as a datastore
+    ForwarderBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName:
+          Fn::If:
+            - SetDdForwarderBucketName
+            - Ref: DdForwarderBucketName
+            - Ref: AWS::NoValue
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: "aws:kms"
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+    ForwarderBucketPolicy:
+      Type: "AWS::S3::BucketPolicy"
+      Properties:
+        Bucket: !Ref ForwarderBucket
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: AllowSSLRequestsOnly
+              Action:
+                - s3:*
+              Effect: Deny
+              Resource:
+                - !Sub "${ForwarderBucket.Arn}"
+                - !Sub "${ForwarderBucket.Arn}/*"
+              Condition:
+                Bool:
+                  "aws:SecureTransport": "false"
+              Principal: "*"
+    ForwarderZip:
+      Type: Custom::ForwarderZip
+      Condition: UseZipCopier
+      Properties:
+        ServiceToken: !GetAtt "ForwarderZipCopier.Arn"
+        DestZipsBucket: !Ref "ForwarderBucket"
+        SourceZipUrl:
+          Fn::If:
+            - SetSourceZipUrl
+            - !Ref SourceZipUrl
+            - Fn::Sub:
+                - "https://github.com/DataDog/datadog-serverless-functions/releases/download/aws-dd-forwarder-${DdForwarderVersion}/aws-dd-forwarder-${DdForwarderVersion}.zip"
+                - {
+                  DdForwarderVersion:
+                    !FindInMap [ Constants, DdForwarder, Version ],
+                }
+    # The Forwarder's source code is too big to fit the inline code size limit for CloudFormation. In most of AWS
+    # partitions and regions, the Forwarder is able to load its source code from a Lambda layer attached to it.
+    # In places where Datadog can't/doesn't yet publish Lambda layers, use another Lambda to copy the source code
+    # from github to a s3 bucket in the partition & region where the forwarder is deployed to.
+    ForwarderZipCopier:
+      Type: AWS::Lambda::Function
+      Condition: UseZipCopier
+      Properties:
+        Description: Copies Datadog Forwarder zip to the destination S3 bucket
+        Handler: index.handler
+        Runtime: python3.8
+        Timeout: 300
+        Code:
+          ZipFile: |
+            import json
+            import logging
+            import threading
+            import boto3
+            import urllib.request
+            import os
+
+            def send_cfn_resp(event, context, response_status):
+                resp_body = json.dumps({
+                    'Status': response_status,
+                    'Reason': f'See reasons in CloudWatch Logs - group: {context.log_group_name}, stream:{context.log_stream_name}',
+                    'PhysicalResourceId': context.log_stream_name,
+                    'StackId': event['StackId'],
+                    'RequestId': event['RequestId'],
+                    'LogicalResourceId': event['LogicalResourceId'],
+                    'Data': {}
+                }).encode('utf-8')
+                req = urllib.request.Request(url=event['ResponseURL'], data=resp_body, method='PUT')
+                with urllib.request.urlopen(req) as f:
+                    logging.info(f'Sent response to CloudFormation: {f.status}, {f.reason}')
+            def delete_zips(bucket):
+                s3 = boto3.resource('s3')
+                bucket = s3.Bucket(bucket)
+                bucket.objects.all().delete()
+            def copy_zip(source_zip_url, dest_zips_bucket):
+                s3 = boto3.client('s3')
+                s3_prelude = "s3://"
+                filename = "aws-dd-forwarder-{}.zip".format(os.environ.get("DD_FORWARDER_VERSION"))
+                if source_zip_url.startswith(s3_prelude):
+                    parts = source_zip_url[len(s3_prelude):].split('/')
+                    bucket = parts[0]
+                    key = '/'.join(parts[1:])
+                    response = s3.get_object(Bucket=bucket, Key=key)
+                    data = response["Body"]
+                    s3.upload_fileobj(data, dest_zips_bucket, filename)
+                else:
+                    with urllib.request.urlopen(source_zip_url) as data:
+                        s3.upload_fileobj(data, dest_zips_bucket, filename)
+            def timeout(event, context):
+                logging.error('Execution is about to time out, sending failure response to CloudFormation')
+                send_cfn_resp(event, context, 'FAILED')
+            def handler(event, context):
+                # make sure we send a failure to CloudFormation if the function
+                # is going to timeout
+                timer = threading.Timer((context.get_remaining_time_in_millis()
+                          / 1000.00) - 0.5, timeout, args=[event, context])
+                timer.start()
+                logging.info(f'Received event: {json.dumps(event)}')
+                try:
+                    source_zip_url = event['ResourceProperties']['SourceZipUrl']
+                    dest_zips_bucket = event['ResourceProperties']['DestZipsBucket']
+                    if event['RequestType'] == 'Delete':
+                        delete_zips(dest_zips_bucket)
+                    else:
+                        copy_zip(source_zip_url, dest_zips_bucket)
+                except Exception as e:
+                    logging.exception(f'Exception when copying zip from {source_zip_url} to {dest_zips_bucket}')
+                    send_cfn_resp(event, context, 'FAILED')
+                else:
+                    send_cfn_resp(event, context, 'SUCCESS')
+                finally:
+                    timer.cancel()
+        Environment:
+          Variables:
+            DD_FORWARDER_VERSION: !FindInMap [ Constants, DdForwarder, Version ]
+        Role: !GetAtt "ForwarderZipCopierRole.Arn"
+    ForwarderZipReady:
+      Type: AWS::CloudFormation::WaitConditionHandle
+      Metadata:
+        ForwarderZipCopierReady: !If [ UseZipCopier, !Ref ForwarderZip, "" ]
+    ForwarderZipCopierRole:
+      Type: AWS::IAM::Role
+      Condition: UseZipCopier
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Action:
+                - sts:AssumeRole
+              Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        PermissionsBoundary:
+          Fn::If:
+            - SetPermissionsBoundary
+            - Ref: PermissionsBoundaryArn
+            - Ref: AWS::NoValue
+        Policies:
+          - PolicyName: ForwarderZipCopierRolePolicy0
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - s3:PutObject
+                    - s3:DeleteObject
+                  Resource:
+                    - Fn::Join:
+                        - "/"
+                        - - Fn::GetAtt: "ForwarderBucket.Arn"
+                          - "*"
+                - Effect: Allow
+                  Action:
+                    - s3:ListBucket
+                  Resource:
+                    - Fn::GetAtt: "ForwarderBucket.Arn"
+                - !If
+                  - SetS3SourceZip
+                  - Effect: Allow
+                    Action:
+                      - s3:GetObject
+                    Resource:
+                      - Fn::Join:
+                          - ""
+                          - - "arn:*:s3:::"
+                            - !Select [ 1, !Split [ "s3://", !Ref SourceZipUrl ] ]
+                  - Ref: AWS::NoValue
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
