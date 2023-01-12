@@ -1,33 +1,41 @@
-# Datadog AWS Integration
+# Datadog AWS Integration with Organizations
 
-[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog&templateURL=https://datadog-cloudformation-template.s3.amazonaws.com/aws/main.yaml)
+This guide provides an overview of the process for integrating multiple accounts within your AWS Organization or Organizational Unit with Datadog.
+
+The Cloudformation StackSet template provided by Datadog automates the creation of the required IAM role and associated policy in every AWS account under an Organization or Organizational Unit (OU), eliminating the need for manual setup and configuration.
+
+The Datadog Cloudformation StackSet performs the following steps:
+
+- Deploys the Datadog AWS integration CloudFormation StackSet template in the root account of an AWS Organization or Organization Unit.
+- Automatically creates the necessary IAM role and policies in the target accounts.
+- Automatically initiates ingestion of AWS CloudWatch metrics and events from the AWS resources in the accounts.
+- Optionally configures Datadog Cloud Security Management to monitor resource misconfigurations in your AWS accounts.
+
+## Prerequisites
+
+Before getting started, ensure you have the following prerequisites:
+- Access to the management account: Your AWS user needs to be able to access the management account.
+- An account administrator has enabled Trusted access with AWS Organizations: Refer to AWS Docs on how to enable trusted access between StackSets and Organizations to create & deploy stacks using service-managed permissions.
   
 ## Installation
 
-1. Open the [AWS integration tile](https://app.datadoghq.com/account/settings#integrations/amazon-web-services) within the Datadog platform.
-   1. Click "Add an account".
-   1. Enter your AWS Account ID, e.g., 123456789012.
-   1. Enter IAM Role name `DatadogIntegrationRole` (needs to match the value of `IAMRoleName` in the next step).
-   1. Copy the External ID for the next step to use.
-1. Log into your admin AWS account/role and deploy the CloudFormation Stack with the button above.
-   1. Fill in all the `Required` parameters.
-   1. Optinally edit `LogArchives` and `CloudTrails` to configure [Log Archives](https://docs.datadoghq.com/logs/archives/?tab=awss3) and [CloudTrail](https://docs.datadoghq.com/integrations/amazon_cloudtrail/) integration.
-   1. On a rare occasion, if you already have a stack deployed in the same AWS account using this template (e.g., monitor the same AWS account in multiple Datadog accounts), You MUST use a different role name for `IAMRoleName` and set `InstallDatadogPolicyMacro` to `false`.
-   1. Click **Create stack**.
-
-## AWS Resources
-
-This template creates the following AWS resources required by the Datadog AWS integration:
-
-- An IAM role for Datadog to assume for data collection (e.g., CloudWatch metrics)
-- The [Datadog Forwarder Lambda function](https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring) to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
-  - The Datadog Forwarder only deploy to the AWS region where the AWS integration CloudFormation stack is launched. If you operate in multiple AWS regions, you can deploy the Forwarder stack (without the rest of the AWS integration stack) directly to other regions as needed.
-  - The Datadog Forwarder is installed with default settings as a nested stack, edit the nested stack directly to update the forwarder specific settings.
+1. Go to the AWS integration configuration page in Datadog and click "Add AWS Account".
+2. Select the integration’s settings under the “Add Multiple AWS Accounts” option. You will need these in Step 3.
+   1. Use the template specified in this step in the newly created Cloudformation Stackset.
+   2. Select your Datadog API key.
+   3. Select your Datadog APP key.
+3. Click [Launch CloudFormation Template](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacksets/create). This opens the AWS Console and loads the CloudFormation StackSet.
+4. Keep the default choice of "Service-managed permissions".
+5. Under Specify template, paste the template URL from Step 2 and click Next.
+6. Name your StackSet and fill in the API and APP keys you selected in Step 2.
+   1. Optionally, enable Cloud Security Posture Management (CSPM) to scan your cloud environment, hosts, and containers for misconfigurations and security risks.
+7. In Step 3 of the StackSet template, choose to either deploy the Datadog integration across an Organization or a specific Organizational Unit.
+8. Keep Automatic deployment enabled in order to automatically deploy the Datadog AWS Integration in new accounts that are added to the Organization or OU.
+9. Select which regions in which you’d like to deploy the integration. Note that you can modify regions to monitor from the Datadog AWS configuration page after deploying the stack.
+10. Move to the Review page and Click Submit. This launches the creation process for the Datadog StackSet. This could take a while depending on how many accounts need to be integrated. Ensure that the StackSet successfully creates all resources before proceeding.
+11. After the stack is created, go back to the AWS integration tile in Datadog and click Ready!
 
 ## Datadog::Integrations::AWS
 
-This CloudFormation stack only manages *AWS* resources required by the Datadog AWS integration. The actual integration configuration within Datadog platform can also be managed in CloudFormation using the custom resource [Datadog::Integrations::AWS](https://github.com/DataDog/datadog-cloudformation-resources/tree/master/datadog-integrations-aws-handler) if you like.
+This CloudFormation StackSet only manages *AWS* resources required by the Datadog AWS integration. The actual integration configuration within Datadog platform can also be managed in CloudFormation using the custom resource [Datadog::Integrations::AWS](https://github.com/DataDog/datadog-cloudformation-resources/tree/master/datadog-integrations-aws-handler) if you like.
 
-## Terraform
-
-If you prefer managing the AWS resources using Terraform, check out the sample Terraform configuration [datadog_aws_integration.tf](datadog_aws_integration.tf).
