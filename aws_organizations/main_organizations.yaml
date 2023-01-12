@@ -332,21 +332,21 @@ Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: Required
+          default: "Required"
         Parameters:
-          - APIKey
-          - APPKey
+          - DatadogApiKey
+          - DatadogAppKey
           - DatadogSite
           - CloudSecurityPostureManagement
       - Label:
-          default: Advanced
+          default: "Advanced"
         Parameters:
           - IAMRoleName
           - DisableMetricCollection
     ParameterLabels:
-      APIKey:
+      DatadogApiKey:
         default: "DatadogApiKey *"
-      APPKey:
+      DatadogAppKey:
         default: "DatadogAppKey *"
       DatadogSite:
         default: "DatadogSite *"
