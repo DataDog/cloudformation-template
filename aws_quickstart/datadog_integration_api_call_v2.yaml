@@ -98,7 +98,7 @@ Resources:
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
           
-          API_CALL_SOURCE_HEADER_VALUE = "cfn"
+          API_CALL_SOURCE_HEADER_VALUE = "cfn-quick-start"
 
           def call_datadog_api(event, method):
               api_key = event['ResourceProperties']['APIKey']
