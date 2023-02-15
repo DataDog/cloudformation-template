@@ -97,6 +97,8 @@ Resources:
 
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
+          
+          API_CALL_SOURCE_HEADER_VALUE = "cfn-quick-start"
 
           def call_datadog_api(event, method):
               api_key = event['ResourceProperties']['APIKey']
@@ -122,6 +124,7 @@ Resources:
               headers = {
                   'DD-API-KEY': api_key,
                   'DD-APPLICATION-KEY': app_key,
+                  'Dd-Aws-Api-Call-Source': API_CALL_SOURCE_HEADER_VALUE,
               }
               data = json.dumps(values)
               data = data.encode('utf-8')  # data should be bytes
