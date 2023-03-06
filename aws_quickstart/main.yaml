@@ -23,12 +23,6 @@ Parameters:
       - us3.datadoghq.com
       - us5.datadoghq.com
       - ddog-gov.com
-  Products:
-    Type: String
-    Description: >-
-      A comma separated list of relevant Datadog products you want to use with this account.
-      Chose from: Infrastructure Monitoring, Serverless Monitoring, Log Management, Cloud Security Posture Management
-    Default: "Infrastructure Monitoring,Serverless Monitoring,Log Management"
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
@@ -45,62 +39,49 @@ Parameters:
       or send logs using AWS PrivateLink should select “no” and install this independently
       (https://docs.datadoghq.com/serverless/libraries_integrations/forwarder/#installation).
     Default: true
+  DisableMetricCollection:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Disabling metric collection for this account will lead to a loss in visibility into your AWS services. 
+      Disable this if you only want to collect tags or resource configuration information from this AWS account, 
+      and do not want to use Datadog Infrastructure Monitoring.
+    Default: false
+  CloudSecurityPostureManagement:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Add the AWS Managed SecurityAudit policy to your Datadog AWS Integration role, and enable 
+      Datadog Cloud Security Posture Management (CSPM) to start performing configuration checks across your AWS account.
+      Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to 
+      industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
+    Default: false
 Conditions:
   InstallForwarder:
     Fn::Equals:
       - !Ref InstallLambdaLogForwarder
       - true
-  # A workaround for being unable to check list contains
   CloudSecurityPostureManagementPermissions:
-    Fn::Or:
-      - Fn::Equals:
-        - Fn::Select:
-          - 0
-          - Fn::Split:
-            - ","
-            - Fn::Sub:
-              - ${ProductIds},,,,,
-              - { ProductIds: !Join [',', !Split [",", !Ref Products]] }
-        - "Cloud Security Posture Management"
-      - Fn::Equals:
-        - Fn::Select:
-          - 1
-          - Fn::Split:
-            - ","
-            - Fn::Sub:
-              - ${ProductIds},,,,,
-              - { ProductIds: !Join [',', !Split [",", !Ref Products]] }
-        - "Cloud Security Posture Management"
-      - Fn::Equals:
-        - Fn::Select:
-          - 2
-          - Fn::Split:
-            - ","
-            - Fn::Sub:
-              - ${ProductIds},,,,,
-              - { ProductIds: !Join [',', !Split [",", !Ref Products]] }
-        - "Cloud Security Posture Management"
-      - Fn::Equals:
-        - Fn::Select:
-          - 3
-          - Fn::Split:
-            - ","
-            - Fn::Sub:
-              - ${ProductIds},,,,,
-              - { ProductIds: !Join [',', !Split [",", !Ref Products]] }
-        - "Cloud Security Posture Management"
+    Fn::Equals:
+      - !Ref CloudSecurityPostureManagement
+      - true
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_integration_api_call.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_api_call.yaml"
       Parameters:
         DatadogApiKey: !Ref APIKey
         DatadogAppKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
         RoleName: !Ref IAMRoleName
-        Products: !Ref Products
+        CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
+        DisableMetricCollection: !Ref DisableMetricCollection
   # The IAM role for Datadog integration
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
@@ -144,13 +125,19 @@ Outputs:
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
-    - Parameters:
-        - Products
+    - Label:
+        default: Required
+      Parameters:
         - APIKey
         - APPKey
         - DatadogSite
-        - IAMRoleName
         - InstallLambdaLogForwarder
+        - CloudSecurityPostureManagement
+    - Label:
+        default: Advanced
+      Parameters:
+        - IAMRoleName
+        - DisableMetricCollection
     ParameterLabels:
       APIKey:
         default: "DatadogApiKey *"
@@ -158,3 +145,7 @@ Metadata:
         default: "DatadogAppKey *"
       DatadogSite:
         default: "DatadogSite *"
+      CloudSecurityPostureManagement:
+        default: "CloudSecurityPostureManagement *"
+      InstallLambdaLogForwarder:
+        default: "InstallLambdaLogForwarder *"

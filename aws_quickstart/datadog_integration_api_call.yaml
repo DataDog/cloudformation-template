@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Datadog AWS Integration API Call (qs-1sfrgof99)
+Description: Datadog AWS Integration API Call
 Parameters:
   DatadogApiKey:
     Description: >-
@@ -27,12 +27,27 @@ Parameters:
     Description: >-
       The name of the IAM role created for Datadog's use.
     Type: String
-  Products:
-    Type: CommaDelimitedList
+  DisableMetricCollection:
+    Type: String
+    AllowedValues:
+      - true
+      - false
     Description: >-
-      A comma separated list of relevant Datadog products you want to use with this account.
-      Chose from: Infrastructure Monitoring, Serverless, Log Management, Cloud Security Posture Management
-    Default: "Infrastructure Monitoring,Serverless,Log Management"
+      Disabling metric collection for this account will lead to a loss in visibility into your AWS services. 
+      Disable this if you only want to collect tags or resource configuration information from this AWS account, 
+      and do not want to use Datadog Infrastructure Monitoring.
+    Default: false
+  CloudSecurityPostureManagement:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Add the AWS Managed SecurityAudit policy to your Datadog AWS Integration role, and enable 
+      Datadog Cloud Security Posture Management (CSPM) to start performing configuration checks across your AWS account.
+      Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to 
+      industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
+    Default: false
 Resources:
   LambdaExecutionRoleDatadogAPICall:
     Type: AWS::IAM::Role
@@ -60,7 +75,8 @@ Resources:
       AccountId: !Ref AWS::AccountId
       RoleName: !Ref RoleName
       HostTags: [!Sub "aws_account:${AWS::AccountId}"]
-      Products: !Ref Products
+      CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
+      DisableMetricCollection: !Ref DisableMetricCollection
   DatadogAPICallFunction:
     Type: "AWS::Lambda::Function"
     Properties:
@@ -81,6 +97,8 @@ Resources:
 
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
+          
+          API_CALL_SOURCE_HEADER_VALUE = "cfn-quick-start"
 
           def call_datadog_api(event, method):
               api_key = event['ResourceProperties']['APIKey']
@@ -89,7 +107,8 @@ Resources:
               account_id = event['ResourceProperties']['AccountId']
               role_name = event['ResourceProperties']['RoleName']
               host_tags = event['ResourceProperties']['HostTags']
-              products = event['ResourceProperties']['Products']
+              cspm = event['ResourceProperties']['CloudSecurityPostureManagement']
+              metrics_disabled = event['ResourceProperties']['DisableMetricCollection']
 
               # Make the url Request
               url = 'https://api.' + api_url + '/api/v1/integration/aws'
@@ -98,33 +117,14 @@ Resources:
                   'role_name': role_name,
               }
               if method != "DELETE":
-                  products = [p.strip() for p in products]
                   values["host_tags"] = host_tags
-                  values["cspm_resource_collection_enabled"] = "Cloud Security Posture Management" in products
-                  infra_monitoring = "Infrastructure Monitoring" in products
-                  serverless = "Serverless Monitoring" in products
-                  if infra_monitoring:
-                      values["metrics_collection_enabled"] = True
-                      if not serverless:
-                          values["account_specific_namespace_rules"] = {"lambda": False, "xray": False}
-                  else:
-                      if serverless:
-                          values["metrics_collection_enabled"] = True
-                          values["account_specific_namespace_rules"] = {
-                              "application_elb": False,
-                              "ebs": False,
-                              "ec2": False,
-                              "elb": False,
-                              "network_elb": False,
-                              "ec2api": False,
-                              "ec2spot": False,
-                          }
-                      else:
-                          values["metrics_collection_enabled"] = False
+                  values["cspm_resource_collection_enabled"] = cspm == "true"
+                  values["metrics_collection_enabled"] = metrics_disabled == "false"
 
               headers = {
                   'DD-API-KEY': api_key,
                   'DD-APPLICATION-KEY': app_key,
+                  'Dd-Aws-Api-Call-Source': API_CALL_SOURCE_HEADER_VALUE,
               }
               data = json.dumps(values)
               data = data.encode('utf-8')  # data should be bytes

@@ -35,11 +35,6 @@ cp main.yaml main.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main.yaml
 trap 'mv main.yaml.bak main.yaml' EXIT
 
-cp main_v2.yaml main_v2.yaml.bak
-perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_v2.yaml
-trap 'mv main_v2.yaml.bak main_v2.yaml' EXIT
-
-
 # Upload
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
     aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml"
