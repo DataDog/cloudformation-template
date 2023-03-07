@@ -1,6 +1,6 @@
 # Datadog AWS Integration
 
-[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog&templateURL=https://datadog-cloudformation-template.s3.amazonaws.com/aws/main.yaml)
+[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog&templateURL=https://datadog-cloudformation-template.s3.amazonaws.com/aws/main_v2.yaml)
   
 ## Installation
 
