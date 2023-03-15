@@ -1,4 +1,5 @@
 #!/bin/bash
+# These templates should be deployed to datadog-cloudformation-template-quickstart
 
 # Usage: ./release.sh <S3_Bucket>
 
