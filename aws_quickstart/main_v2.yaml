@@ -22,6 +22,7 @@ Parameters:
       - datadoghq.eu
       - us3.datadoghq.com
       - us5.datadoghq.com
+      - ap1.datadoghq.com
       - ddog-gov.com
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
@@ -69,6 +70,10 @@ Conditions:
     Fn::Equals:
       - !Ref CloudSecurityPostureManagement
       - true
+  IsAP1:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - ap1.datadoghq.com
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
   DatadogAPICall:
@@ -91,7 +96,7 @@ Resources:
         ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
         CloudSecurityPostureManagementPermissions: !If [CloudSecurityPostureManagementPermissions, true, false]
-        DdAWSAccountId: 464622532012
+        DdAWSAccountId: !If [IsAP1, 417141415827, 464622532012]
   # The Lambda function to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
   # https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring
   ForwarderStack:
