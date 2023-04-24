@@ -118,7 +118,7 @@ Resources:
                   - logs:CreateLogStream
                   - logs:DeleteLogStream
                   - logs:DescribeLogStreams
-                  - logs:TagLogGroup
+                  - logs:TagResource
                 Resource:
                   - !Sub "arn:aws:logs:*:${AWS::AccountId}:log-group:datadog-metric-stream*"
               - Effect: Allow
