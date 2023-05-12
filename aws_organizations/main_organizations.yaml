@@ -147,6 +147,13 @@ Resources:
           def handler(event, context):
               '''Handle Lambda event from AWS'''
               try:
+                  sanitized_event = event.copy()
+                  if 'ResourceProperties' in sanitized_event:
+                      if 'APIKey' in sanitized_event['ResourceProperties']:
+                          sanitized_event['ResourceProperties']['APIKey'] = '***'  # replace APIKey value with ***
+                      if 'APPKey' in sanitized_event['ResourceProperties']:
+                          sanitized_event['ResourceProperties']['APPKey'] = '***'  # replace APPKey value with ***
+                  LOGGER.info('REQUEST RECEIVED:\n %s', sanitized_event)
                   LOGGER.info('REQUEST RECEIVED:\n %s', context)
                   if event['RequestType'] == 'Create':
                       LOGGER.info('Received Create request.')
