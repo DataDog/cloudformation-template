@@ -279,6 +279,8 @@ Resources:
                   - 'dynamodb:List*'
                   - 'dynamodb:Describe*'
                   - 'ec2:Describe*'
+                  - 'ec2:GetTransitGatewayPrefixListPreferences'
+                  - 'ec2:SearchTransitGatewayRoutes'
                   - 'ecs:Describe*'
                   - 'ecs:List*'
                   - 'elasticache:Describe*'
