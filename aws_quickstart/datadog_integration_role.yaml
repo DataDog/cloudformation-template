@@ -130,6 +130,7 @@ Resources:
                   - 'ses:Get*'
                   - 'sns:List*'
                   - 'sns:Publish'
+                  - 'sns:GetSubscriptionAttributes'
                   - 'sqs:ListQueues'
                   - 'states:ListStateMachines'
                   - 'states:DescribeStateMachine'
