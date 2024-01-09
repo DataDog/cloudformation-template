@@ -140,8 +140,6 @@ Resources:
           def handler(event, context):
               '''Handle Lambda event from AWS'''
               try:
-                  LOGGER.info('REQUEST RECEIVED:\n %s', event)
-                  LOGGER.info('REQUEST RECEIVED:\n %s', context)
                   if event['RequestType'] == 'Create':
                       LOGGER.info('Received Create request.')
                       response = call_datadog_api(event, 'POST')
