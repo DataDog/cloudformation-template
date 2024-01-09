@@ -13,6 +13,15 @@ Parameters:
       and is a key specifically generated for this integration.
     Type: String
     Default: ""
+  AWSAccountType:
+    Description: >-
+      Select the type of AWS account you are integrating with Datadog. 
+      If you are integrating with a GovCloud account, select "GovCloud", otherwise select "Standard".
+    Type: String
+    Default: Standard
+    AllowedValues:
+      - Standard
+      - GovCloud
   DatadogSite:
     Type: String
     Default: datadoghq.com
@@ -74,12 +83,20 @@ Conditions:
     Fn::Equals:
       - !Ref DatadogSite
       - ap1.datadoghq.com
+  IsGov:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - ddog-gov.com
+  IsAWSGovCloud:
+    Fn::Equals:
+      - !Ref AWSAccountType
+      - GovCloud
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_api_call_v2.yaml"
+      TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/datadog_integration_api_call_v2.yaml"
       Parameters:
         DatadogApiKey: !Ref APIKey
         DatadogAppKey: !Ref APPKey
@@ -91,12 +108,21 @@ Resources:
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml"
+      TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/datadog_integration_role.yaml"
       Parameters:
         ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
         CloudSecurityPostureManagementPermissions: !If [CloudSecurityPostureManagementPermissions, true, false]
-        DdAWSAccountId: !If [IsAP1, 417141415827, 464622532012]
+        DdAWSAccountId: !If
+          - IsAP1
+          - 417141415827
+          - !If
+            - IsGov
+            - !If
+              - IsAWSGovCloud
+              - 002406178527
+              - 392588925713
+            - 464622532012
   # The Lambda function to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
   # https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring
   ForwarderStack:
