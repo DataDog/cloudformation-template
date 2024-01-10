@@ -141,6 +141,8 @@ Resources:
                   - 'logs:PutSubscriptionFilter'
                   - 'logs:DeleteSubscriptionFilter'
                   - 'logs:DescribeSubscriptionFilters'
+                  - 'oam:ListSinks'
+                  - 'oam:ListAttachedLinks'
                   - 'organizations:Describe*'
                   - 'organizations:List*'
                   - 'rds:Describe*'
