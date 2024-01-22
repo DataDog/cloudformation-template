@@ -5,6 +5,7 @@ Parameters:
     Description: >-
       API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys)
     Type: String
+    NoEcho: true
     Default: ""
   APPKey:
     Description: >-
@@ -12,6 +13,7 @@ Parameters:
       If this template was launched from the Datadog app, this key is tied to the user that launched the template,
       and is a key specifically generated for this integration.
     Type: String
+    NoEcho: true
     Default: ""
   DatadogSite:
     Type: String
