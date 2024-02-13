@@ -51,6 +51,46 @@ Parameters:
       Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to 
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
+  lambdaFilter:
+    Type: String
+    Description: >-
+      Filters for AWS Lambda
+    Default: ""
+  sqsFilter:
+    Type: String
+    Description: >-
+      Filters for AWS SQS
+    Default: ""
+  rdsFilter:
+    Type: String
+    Description: >-
+      Filters for AWS RDS
+    Default: ""
+  applicationelbFilter:
+    Type: String
+    Description: >-
+      Filters for AWS Application LB
+    Default: ""
+  elbFilter:
+    Type: String
+    Description: >-
+      Filters for AWS ELB
+    Default: ""
+  networkelbFilter:
+    Type: String
+    Description: >-
+      Filters for AWS Network LB
+    Default: ""
+  ec2Filter:
+    Type: String
+    Description: >-
+      Filters for AWS EC2
+    Default: ""
+  customFilter:
+    Type: String
+    Description: >-
+      Filters for Custom Resources
+    Default: ""
 
 Conditions:
   ShouldInstallCSPMPolicy:
@@ -87,6 +127,14 @@ Resources:
       HostTags: [ !Sub "aws_account:${AWS::AccountId}" ]
       CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
       DisableMetricCollection: !Ref DisableMetricCollection
+      lambdaFilter: !Ref lambdaFilter
+      sqsFilter: !Ref sqsFilter
+      rdsFilter: !Ref rdsFilter
+      applicationelbFilter: !Ref applicationelbFilter
+      elbFilter: !Ref elbFilter
+      networkelbFilter: !Ref networkelbFilter
+      ec2Filter: !Ref ec2Filter
+      customFilter: !Ref customFilter
   DatadogAPICallFunction:
     Type: "AWS::Lambda::Function"
     Properties:
@@ -104,10 +152,11 @@ Resources:
           import signal
           from urllib.request import build_opener, HTTPHandler, Request
           import urllib.parse
+          import traceback
 
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
-          
+
           API_CALL_SOURCE_HEADER_VALUE = "cfn-organizations"
 
           def call_datadog_api(event, method):
@@ -117,6 +166,7 @@ Resources:
               account_id = event['ResourceProperties']['AccountId']
               role_name = event['ResourceProperties']['RoleName']
               host_tags = event['ResourceProperties']['HostTags']
+              filter_tags = event['ResourceProperties']['ec2Filter']
               cspm = event['ResourceProperties']['CloudSecurityPostureManagement']
               metrics_disabled = event['ResourceProperties']['DisableMetricCollection']
 
@@ -128,6 +178,7 @@ Resources:
               }
               if method != "DELETE":
                   values["host_tags"] = host_tags
+                  values["filter_tags"] = filter_tags.split(',')
                   values["cspm_resource_collection_enabled"] = cspm == "true"
                   values["metrics_collection_enabled"] = metrics_disabled == "false"
 
@@ -148,51 +199,53 @@ Resources:
               return response
 
           def handler(event, context):
-              '''Handle Lambda event from AWS'''
-              try:
-                  LOGGER.info('REQUEST RECEIVED:\n %s', event)
-                  LOGGER.info('REQUEST RECEIVED:\n %s', context)
-                  if event['RequestType'] == 'Create':
-                      LOGGER.info('Received Create request.')
-                      response = call_datadog_api(event, 'POST')
-                      if response.getcode() == 200:
-                          json_response = json.loads(response.read().decode("utf-8"))
-                          send_response(event, context, "SUCCESS",
-                                        {
-                                            "Message": "Datadog AWS Integration created successfully.",
-                                            "ExternalId": json_response["external_id"],
-                                        })
-                      else:
-                          LOGGER.info('Failed - exception thrown during processing.')
-                          send_response(event, context, "FAILED", {
-                              "Message": "Http response: {}".format(response.msg)})
+            '''Handle Lambda event from AWS'''
+            try:
+                LOGGER.info('REQUEST RECEIVED:\n %s', event)
+                LOGGER.info('REQUEST RECEIVED:\n %s', context)
+                if event['RequestType'] == 'Create':
+                    LOGGER.info('Received Create request.')
+                    response = call_datadog_api(event, 'POST')
+                    if response.getcode() == 200:                        
+                        json_response = json.loads(response.read().decode("utf-8"))
+                        send_response(event, context, "SUCCESS",
+                          {
+                              "Message": "Datadog AWS Integration created successfully.",
+                              "ExternalId": json_response["external_id"],
+                          })
+                        manage_filters(event)
+                    else:
+                        LOGGER.info('Failed - exception thrown during processing.')
+                        send_response(event, context, "FAILED", {
+                            "Message": "Http response: {}".format(response.msg)})
 
-                  elif event['RequestType'] == 'Update':
-                      LOGGER.info('Received Update request.')
-                      send_response(event, context, "SUCCESS",
-                                    {"Message": "Update not supported, no operation performed."})
-                  elif event['RequestType'] == 'Delete':
-                      LOGGER.info('Received Delete request.')
-                      response = call_datadog_api(event, 'DELETE')
+                elif event['RequestType'] == 'Update':
+                    LOGGER.info('Received Update request.')
+                    send_response(event, context, "SUCCESS",
+                                {"Message": "Update not supported, no operation performed."})
 
-                      if response.getcode() == 200:
-                          send_response(event, context, "SUCCESS",
-                                        {
-                                            "Message": "Datadog AWS Integration deleted successfully.",
-                                        })
-                      else:
-                          LOGGER.info('Failed - exception thrown during processing.')
-                          send_response(event, context, "FAILED", {
-                              "Message": "Http response: {}".format(response.msg)})
+                elif event['RequestType'] == 'Delete':
+                    LOGGER.info('Received Delete request.')
+                    response = call_datadog_api(event, 'DELETE')
 
-                  else:
-                      LOGGER.info('Failed - received unexpected request.')
-                      send_response(event, context, "FAILED",
-                                    {"Message": "Unexpected event received from CloudFormation"})
-              except Exception as e:  # pylint: disable=W0702
-                  LOGGER.info('Failed - exception thrown during processing.')
-                  send_response(event, context, "FAILED", {
-                      "Message": "Exception during processing: {}".format(e)})
+                    if response.getcode() == 200:
+                        send_response(event, context, "SUCCESS",
+                                      {
+                                          "Message": "Datadog AWS Integration deleted successfully.",
+                                      })
+                    else:
+                        LOGGER.info('Failed - exception thrown during processing.')
+                        send_response(event, context, "FAILED", {
+                            "Message": "Http response: {}".format(response.msg)})
+
+                else:
+                    LOGGER.info('Failed - received unexpected request.')
+                    send_response(event, context, "FAILED",
+                                  {"Message": "Unexpected event received from CloudFormation"})
+            except Exception as e:  # pylint: disable=W0702
+                LOGGER.info('Failed - exception thrown during processing.')
+                send_response(event, context, "FAILED", {
+                    "Message": "Exception during processing: {}".format(e)})
 
 
           def send_response(event, context, response_status, response_data):
@@ -219,6 +272,56 @@ Resources:
               response = opener.open(request)
               LOGGER.info("Status code: %s", response.getcode())
               LOGGER.info("Status message: %s", response.msg)
+
+
+          def manage_filters(event):
+            api_key = event['ResourceProperties']['APIKey']
+            app_key = event['ResourceProperties']['APPKey']
+            api_url = event['ResourceProperties']['ApiURL']
+            account_id = event['ResourceProperties']['AccountId']
+            url = 'https://api.' + api_url + '/api/v1/integration/aws/filtering'
+            headers = {
+                'DD-API-KEY': api_key,
+                'DD-APPLICATION-KEY': app_key,
+                'Dd-Aws-Api-Call-Source': API_CALL_SOURCE_HEADER_VALUE,
+            }
+
+            filter_types = ['applicationelbFilter', 'elbFilter', 'lambdaFilter', 'networkelbFilter', 'rdsFilter', 'sqsFilter', 'customFilter']
+
+            for filter_type in filter_types:
+                if event['ResourceProperties'].get(filter_type) is not None and event['ResourceProperties'][filter_type] != '' :
+                    tags = event['ResourceProperties'][filter_type]
+
+              
+                    if filter_type == 'applicationelbFilter':
+                        filter_type = 'application_elbFilter'
+                    if filter_type == 'networkelbFilter':
+                        filter_type = 'network_elbFilter'
+                  
+                    values = {
+                        'account_id': account_id,
+                        'namespace': filter_type.replace('Filter', ''),
+                        'tag_filter_str': tags,
+                    }
+              
+                    data = json.dumps(values).encode('utf-8')
+                    request = Request(url, data=data, headers=headers)
+                    request.add_header('Content-Type', 'application/json; charset=utf-8')
+                    request.add_header('Content-Length', len(data))
+                    request.get_method = lambda: 'POST'
+              
+                    try:
+                        response = urllib.request.urlopen(request)
+                        if response.getcode() == 200:
+                            LOGGER.info('Datadog AWS Integration filter  created successfully')
+                        else:
+                            LOGGER.info('Failed - exception thrown during processing.')
+                    except Exception as e:
+                        LOGGER.info(f'Failed - exception thrown during processing: {e}')
+                        traceback.print_exc()
+
+                
+
 
 
           def timeout_handler(_signal, _frame):
