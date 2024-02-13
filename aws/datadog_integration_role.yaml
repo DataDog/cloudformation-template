@@ -168,6 +168,7 @@ Resources:
                   - 'tag:GetResources'
                   - 'tag:GetTagKeys'
                   - 'tag:GetTagValues'
+                  - 'wafv2:ListLoggingConfigurations'
                   - 'wafv2:GetLoggingConfiguration'
                   - 'xray:BatchGetTraces'
                   - 'xray:GetTraceSummaries'
