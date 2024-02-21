@@ -134,6 +134,7 @@ Resources:
                   - cloudwatch:GetMetricStream
                   - cloudwatch:ListMetricStreams
                   - cloudwatch:DeleteMetricStream
+                  - cloudwatch:TagResource
                 Resource:
                   - !Sub "arn:aws:cloudwatch:*:${AWS::AccountId}:metric-stream/datadog-metrics-stream"
   ServiceRole:
