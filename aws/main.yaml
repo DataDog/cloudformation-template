@@ -65,6 +65,10 @@ Parameters:
     Description: >-
       The Datadog Forwarder Lambda function name. DO NOT change when updating an existing CloudFormation stack,
       otherwise the current forwarder function will be replaced and all the triggers will be lost.
+  DdForwarderTags:
+    Type: String
+    Default: ""
+    Description: Add custom tags to forwarded logs, comma-delimited string, no trailing comma, e.g., env:prod,stack:classic
   InstallDatadogPolicyMacro:
     Type: String
     Default: true
@@ -140,6 +144,7 @@ Resources:
         DdApiKeySecretArn: !If [WillCreateDdApiKeySecretArn, "arn:aws:secretsmanager:DEFAULT", !Ref DdApiKeySecretArn]
         DdSite: !Ref DdSite
         FunctionName: !Ref DdForwarderName
+        DdTags: !Ref DdForwarderTags
 Outputs:
   IAMRoleName:
     Description: AWS IAM Role named to be used with the DataDog AWS Integration 
