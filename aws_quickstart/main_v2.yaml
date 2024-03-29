@@ -72,6 +72,30 @@ Parameters:
       Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to 
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
+  ContainersScanningEnabled:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of container vulnerabilities.
+    Default: false
+  HostsScanningEnabled:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of host vulnerabilities.
+    Default: false
+  LambdasScanningEnabled:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of lambda vulnerabilities.
+    Default: false
 Conditions:
   InstallForwarder:
     Fn::Equals:
@@ -81,6 +105,17 @@ Conditions:
     Fn::Equals:
       - !Ref CloudSecurityPostureManagement
       - true
+  EnableAgentlessScanning:
+    Fn::Or:
+      - Fn::Equals:
+        - !Ref ContainersScanningEnabled
+        - true
+      - Fn::Equals:
+        - !Ref HostsScanningEnabled
+        - true
+      - Fn::Equals:
+        - !Ref LambdasScanningEnabled
+        - true
   IsAP1:
     Fn::Equals:
       - !Ref DatadogSite
@@ -95,6 +130,18 @@ Conditions:
       - GovCloud
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
+  DatadogAgentlessScanning:
+    Type: AWS::CloudFormation::Stack
+    Condition: EnableAgentlessScanning
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_agentless_scanning.yaml"
+      Parameters:
+        DatadogAPIKey: !Ref APIKey
+        DatadogAPPKey: !Ref APPKey
+        DatadogSite: !Ref DatadogSite
+        ContainersScanningEnabled: !Ref ContainersScanningEnabled
+        HostsScanningEnabled: !Ref HostsScanningEnabled
+        LambdasScanningEnabled: !Ref LambdasScanningEnabled
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
