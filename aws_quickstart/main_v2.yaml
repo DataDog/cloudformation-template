@@ -72,30 +72,27 @@ Parameters:
       Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to 
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
-  HostsScanningEnabled:
+  HostsScanning:
     Type: String
     AllowedValues:
       - true
       - false
     Description: >-
       Enable Agentless Scanning of host vulnerabilities.
-    Default: false
-  ContainersScanningEnabled:
+  ContainersScanning:
     Type: String
     AllowedValues:
       - true
       - false
     Description: >-
       Enable Agentless Scanning of container vulnerabilities.
-    Default: false
-  LambdasScanningEnabled:
+  LambdasScanning:
     Type: String
     AllowedValues:
       - true
       - false
     Description: >-
       Enable Agentless Scanning of lambda vulnerabilities.
-    Default: false
 Conditions:
   InstallForwarder:
     Fn::Equals:
@@ -112,13 +109,13 @@ Conditions:
         - true
       - Fn::Or:
         - Fn::Equals:
-          - !Ref HostsScanningEnabled
+          - !Ref HostsScanning
           - true
         - Fn::Equals:
-          - !Ref ContainersScanningEnabled
+          - !Ref ContainersScanning
           - true
         - Fn::Equals:
-          - !Ref LambdasScanningEnabled
+          - !Ref LambdasScanning
           - true
   IsAP1:
     Fn::Equals:
@@ -143,9 +140,9 @@ Resources:
         DatadogAPIKey: !Ref APIKey
         DatadogAPPKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
-        ContainersScanningEnabled: !Ref ContainersScanningEnabled
-        HostsScanningEnabled: !Ref HostsScanningEnabled
-        LambdasScanningEnabled: !Ref LambdasScanningEnabled
+        HostsScanning: !Ref HostsScanning
+        ContainersScanning: !Ref ContainersScanning
+        LambdasScanning: !Ref LambdasScanning
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
