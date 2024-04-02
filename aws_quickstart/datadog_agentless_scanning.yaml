@@ -88,26 +88,29 @@ Parameters:
     Description: The number of instances in the Auto Scaling Group
     Default: 1
 
-  ContainersScanningEnabled:
-    Type: String
-    AllowedValues:
-      - "true"
-      - "false"
-    Description: Enable Container scanning.
-
   HostsScanningEnabled:
     Type: String
     AllowedValues:
       - "true"
       - "false"
-    Description: Enable Host Vulnerability scanning.
+    Description: >-
+      Enable Agentless Scanning of host vulnerabilities.
+
+  ContainersScanningEnabled:
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >-
+      Enable Agentless Scanning of containers vulnerabilities.
 
   LambdasScanningEnabled:
     Type: String
     AllowedValues:
       - "true"
       - "false"
-    Description: Enable Lambda Vulnerability scanning.
+    Description: >-
+      Enable Agentless Scanning of lambda vulnerabilities.
 
 Conditions:
   ProvideSshKeyPair: !Not
@@ -845,8 +848,8 @@ Resources:
               app_key = event['ResourceProperties']['APPKey']
               api_url = event['ResourceProperties']['ApiURL']
               account_id = event['ResourceProperties']['AccountId']
-              containers = event['ResourceProperties']['Containers']
               hosts = event['ResourceProperties']['Hosts']
+              containers = event['ResourceProperties']['Containers']
               lambdas = event['ResourceProperties']['Lambdas']
 
               # Make the url Request
