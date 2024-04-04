@@ -14,6 +14,33 @@ Parameters:
     Description: APP key for the Datadog account
     NoEcho: true
 
+  AgentlessHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of host vulnerabilities. "CloudSecurityPostureManagement" must be set to 'true'.
+    Default: false
+
+  AgentlessContainerScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of container vulnerabilities. "CloudSecurityPostureManagement" must be set to 'true'.
+    Default: false
+
+  AgentlessLambdaScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of Lambda vulnerabilities. "CloudSecurityPostureManagement" must be set to 'true'.
+    Default: false
+
   DatadogAPIKeySecretArn:
     Type: String
     Description: The ARN of the secret storing the Datadog API key, if you already have it stored in Secrets Manager. You must store the secret as a plaintext, rather than a key-value pair.
@@ -90,33 +117,6 @@ Parameters:
     Type: Number
     Description: The number of instances in the Auto Scaling Group
     Default: 1
-
-  AgentlessHostScanning:
-    Type: String
-    AllowedValues:
-      - true
-      - false
-    Description: >-
-      Enable Agentless Scanning of host vulnerabilities. "CloudSecurityPostureManagement" must be set to 'true'.
-    Default: false
-
-  AgentlessContainerScanning:
-    Type: String
-    AllowedValues:
-      - true
-      - false
-    Description: >-
-      Enable Agentless Scanning of container vulnerabilities. "CloudSecurityPostureManagement" must be set to 'true'.
-    Default: false
-
-  AgentlessLambdaScanning:
-    Type: String
-    AllowedValues:
-      - true
-      - false
-    Description: >-
-      Enable Agentless Scanning of Lambda vulnerabilities. "CloudSecurityPostureManagement" must be set to 'true'.
-    Default: false
 
 Conditions:
   ProvideSshKeyPair: !Not
@@ -973,3 +973,42 @@ Resources:
 
 
           signal.signal(signal.SIGALRM, timeout_handler)
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Required
+        Parameters:
+          - DatadogAPIKey
+          - DatadogAPPKey
+          - DatadogSite
+          - AgentlessHostScanning
+          - AgentlessContainerScanning
+          - AgentlessLambdaScanning
+      - Label:
+          default: Advanced
+        Parameters:
+          - DatadogAPIKeySecretArn
+          - ScannerAutoScalingGroupSize
+          - ScannerDelegateRoleName
+          - ScannerInstanceMonitoring
+          - ScannerInstanceType
+          - ScannerInstanceVolumeSize
+          - ScannerOfflineModeEnabled
+          - ScannerSSHKeyPairName
+          - ScannerSecurityGroupId
+          - ScannerSubnetId
+          - ScannerVPCId
+    ParameterLabels:
+      DatadogAPIKey:
+        default: "DatadogApiKey *"
+      DatadogAPPKey:
+        default: "DatadogAppKey *"
+      DatadogSite:
+        default: "DatadogSite *"
+      AgentlessHostScanning:
+        default: "AgentlessHostScanning *"
+      AgentlessContainerScanning:
+        default: "AgentlessContainerScanning *"
+      AgentlessLambdaScanning:
+        default: "AgentlessLambdaScanning *"
