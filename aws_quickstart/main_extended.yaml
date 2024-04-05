@@ -36,6 +36,7 @@ Parameters:
       - us3.datadoghq.com
       - us5.datadoghq.com
       - ap1.datadoghq.com
+      - ddog-gov.com
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
@@ -108,6 +109,10 @@ Conditions:
       - true
   EnableAgentlessScanning:
     Fn::And:
+      - Fn::Not:
+        - Fn::Equals:
+          - !Ref DatadogSite
+          - ddog-gov.com
       - Fn::Equals:
         - !Ref CloudSecurityPostureManagement
         - true
