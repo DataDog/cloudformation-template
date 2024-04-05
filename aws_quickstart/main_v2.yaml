@@ -122,7 +122,7 @@ Resources:
             - IsGov
             - !If
               - IsAWSGovCloud
-              - 002406178527
+              - 065115117704
               - 392588925713
             - 464622532012
   # The Lambda function to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
