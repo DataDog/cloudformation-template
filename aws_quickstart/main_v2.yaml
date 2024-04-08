@@ -15,15 +15,6 @@ Parameters:
     Type: String
     NoEcho: true
     Default: ""
-  AWSAccountType:
-    Description: >-
-      Select the type of AWS account you are integrating with Datadog. 
-      If you are integrating with a GovCloud account, select "GovCloud", otherwise select "Standard".
-    Type: String
-    Default: Standard
-    AllowedValues:
-      - Standard
-      - GovCloud
   DatadogSite:
     Type: String
     Default: datadoghq.com
@@ -91,8 +82,8 @@ Conditions:
       - ddog-gov.com
   IsAWSGovCloud:
     Fn::Equals:
-      - !Ref AWSAccountType
-      - GovCloud
+      - AWS::Partition
+      - aws-us-gov
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
   DatadogAPICall:
