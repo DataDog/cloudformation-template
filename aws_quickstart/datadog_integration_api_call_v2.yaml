@@ -75,6 +75,7 @@ Resources:
       ApiURL: !Ref DatadogSite
       AccountId: !Ref AWS::AccountId
       RoleName: !Ref RoleName
+      AWSPartition: !Ref AWS::Partition
       HostTags: [!Sub "aws_account:${AWS::AccountId}"]
       CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
       DisableMetricCollection: !Ref DisableMetricCollection
@@ -107,6 +108,7 @@ Resources:
               api_url = event['ResourceProperties']['ApiURL']
               account_id = event['ResourceProperties']['AccountId']
               role_name = event['ResourceProperties']['RoleName']
+              aws_partition = event['ResourceProperties']['AWSPartition']
               host_tags = event['ResourceProperties']['HostTags']
               cspm = event['ResourceProperties']['CloudSecurityPostureManagement']
               metrics_disabled = event['ResourceProperties']['DisableMetricCollection']
@@ -116,6 +118,7 @@ Resources:
               values = {
                   'account_id': account_id,
                   'role_name': role_name,
+                  'aws_partition': aws_partition
               }
               if method != "DELETE":
                   values["host_tags"] = host_tags
