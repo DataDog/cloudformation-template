@@ -117,11 +117,11 @@ Resources:
               url = 'https://api.' + api_url + '/api/v1/integration/aws'
               values = {
                   'account_id': account_id,
-                  'role_name': role_name,
-                  'aws_partition': aws_partition
+                  'role_name': role_name
               }
               if method != "DELETE":
                   values["host_tags"] = host_tags
+                  values["aws_partition"] = aws_partition
                   values["cspm_resource_collection_enabled"] = cspm == "true"
                   values["metrics_collection_enabled"] = metrics_disabled == "false"
 
