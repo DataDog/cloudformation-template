@@ -119,7 +119,7 @@ Resources:
                   'account_id': account_id,
                   'role_name': role_name
               }
-              if method != "DELETE":
+              if method == "POST":
                   values["host_tags"] = host_tags
                   values["aws_partition"] = aws_partition
                   values["cspm_resource_collection_enabled"] = cspm == "true"
