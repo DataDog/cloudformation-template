@@ -161,7 +161,7 @@ Resources:
 
                   elif event['RequestType'] == 'Update':
                       LOGGER.info('Received Update request.')
-                      send_response(event, context, "SUCCESS",
+                      send_response(event, context, "FAILED",
                                     {"Message": "Update not supported, no operation performed."})
                   elif event['RequestType'] == 'Delete':
                       LOGGER.info('Received Delete request.')
