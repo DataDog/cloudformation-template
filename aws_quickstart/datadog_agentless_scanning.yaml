@@ -4,8 +4,8 @@ Parameters:
   DatadogAPIKey:
     Type: String
     Description: >-
-      API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys). 
-      To enable Agentless Scanning (find at https://docs.datadoghq.com/security/cloud_security_management/agentless_scanning), 
+      API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys).
+      To enable Agentless Scanning (find at https://docs.datadoghq.com/security/cloud_security_management/agentless_scanning),
       you must use a Remote Configuration-enabled API key (find at https://docs.datadoghq.com/security/cloud_security_management/setup/agentless_scanning/)
     NoEcho: true
 
@@ -267,7 +267,7 @@ Resources:
               DD_SITE="${DatadogSite}"
               DD_API_KEY="$(jq -r '.SecretString' <<< "$AWS_SECRET_JSON")"
               DD_AGENT_MINOR_VERSION="52.0"
-              DD_SCANNER_VERSION="7.53.0~agentless~scanner~2024032202"
+              DD_SCANNER_VERSION="0.11.0"
 
               hostnamectl hostname $DD_HOSTNAME
 
@@ -279,7 +279,7 @@ Resources:
                 bash -c "$(curl -L https://s3.amazonaws.com/dd-agent/scripts/install_script_agent7.sh)"
 
               # Install the agentless-scanner
-              curl -sL -o "/tmp/datadog-agentless-scanner_$DD_SCANNER_VERSION-1_arm64.deb" "https://s3.amazonaws.com/apt.datad0g.com/pool/d/da/datadog-agentless-scanner_$DD_SCANNER_VERSION-1_arm64.deb"
+              curl -sL -o "/tmp/datadog-agentless-scanner_$DD_SCANNER_VERSION-1_arm64.deb" "https://apt.datadoghq.com/pool/d/da/datadog-agentless-scanner_$DD_SCANNER_VERSION-1_arm64.deb"
               dpkg -i "/tmp/datadog-agentless-scanner_$DD_SCANNER_VERSION-1_arm64.deb"
 
               # Patch agent configuration
@@ -300,7 +300,8 @@ Resources:
                 - type: file
                   path: "/var/log/datadog/agentless-scanner.log"
                   service: "agentless-scanner"
-                  source: "datadog-agent"
+                  source: go
+                  sourcecategory: sourcecode
               EOF
 
               chown -R dd-agent: /etc/datadog-agent/conf.d/agentless-scanner.d
@@ -313,8 +314,23 @@ Resources:
               EOF
               fi
 
+              cat <<EOF >> /etc/datadog-agent/agentless-scanner.yaml
+              hostname: $DD_HOSTNAME
+              api_key: $DD_API_KEY
+              site: $DD_SITE
+              installation_mode: cloudformation
+              installation_version: 0.11.0
+              default_roles:
+                - "arn:aws:iam::${AWS::AccountId}:role/${ScannerDelegateRoleName}"
+              EOF
+
+              chmod 600 /etc/datadog-agent/agentless-scanner.yaml
+
               # Restart the agent
               service datadog-agent restart
+
+              # Give some room to the agent to start to not miss logs
+              sleep 5
 
               # Enable and start datadog-agentless-scaner
               systemctl enable datadog-agentless-scanner
@@ -420,6 +436,22 @@ Resources:
             Action: 'ec2:DescribeSnapshots'
             Effect: Allow
             Resource: '*'
+          - Sid: DatadogAgentlessScannerEncryptedCopyGrant
+            Action: 'kms:CreateGrant'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+            Condition:
+              'ForAnyValue:StringEquals':
+                'kms:EncryptionContextKeys': 'aws:ebs:id'
+              StringLike:
+                'kms:EncryptionContext:aws:ebs:id': 'snap-*'
+                'kms:ViaService': 'ec2.*.amazonaws.com'
+              Bool:
+                'kms:GrantIsForAWSResource': true
+          - Sid: DatadogAgentlessScannerEncryptedCopyDescribe
+            Action: 'kms:DescribeKey'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
 
   ScannerDelegateRoleWorkerPolicy:
     Type: AWS::IAM::ManagedPolicy
