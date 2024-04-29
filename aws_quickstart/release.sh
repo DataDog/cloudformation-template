@@ -39,6 +39,9 @@ cp main_v2.yaml main_v2.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_v2.yaml
 trap 'mv main_v2.yaml.bak main_v2.yaml' EXIT
 
+cp main_extended.yaml main_extended.yaml.bak
+perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_extended.yaml
+trap 'mv main_extended.yaml.bak main_extended.yaml' EXIT
 
 # Upload
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
