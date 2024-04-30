@@ -139,7 +139,7 @@ Resources:
           LogGroupName: !Ref ConfigDeliveryStreamLogGroup
           LogStreamName: !Ref ConfigDeliveryLogStream
         EndpointConfiguration:
-          AccessKey: !Ref DataDogAPIKey
+          AccessKey: !Ref DatadogAPIKey
           Url: !Ref DataDogDestinationUrl
           Name: Http Endpoint
         BufferingHints:
