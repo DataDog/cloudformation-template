@@ -1,0 +1,241 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Config Changes Stream
+Parameters:
+  DataDogAPIKey:
+    Type: String
+    NoEcho: true
+    Description: API key for the Datadog account (Required - find at https://app.datadoghq.com/organization-settings/api-keys)
+    AllowedPattern : "[a-zA-Z0-9]+"
+    ConstraintDescription: API Key is Required
+  DataDogDestinationUrl:
+    Type: String
+    Default: https://cloudplatform-intake.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
+    Description: Datadog Intake URL for delivering recorded config changes
+    AllowedValues:
+      - https://cloudplatform-intake.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.us3.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.us5.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.ddog-gov.com/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.datadoghq.eu/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.ap1.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
+Resources:
+  ConfigurationRecorder:
+    Type: AWS::Config::ConfigurationRecorder
+    Properties:
+      RoleARN: !GetAtt ConfigRole.Arn
+      RecordingGroup:
+        AllSupported: true
+      RecordingMode:
+        RecordingFrequency: CONTINUOUS
+  ConfigDeliveryChannel:
+    Type: AWS::Config::DeliveryChannel
+    Properties:
+      ConfigSnapshotDeliveryProperties:
+        DeliveryFrequency: One_Hour
+      S3BucketName: !Ref ConfigBucket
+      SnsTopicARN: !Ref AWSConfigTopic
+  AWSConfigTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: AWSConfigChangesTopic
+  ConfigBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-bucket-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: alias/aws/s3
+      PublicAccessBlockConfiguration:
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  ConfigBucketEncryptionPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ConfigBucket
+      PolicyDocument:
+        Id: RequireEncryptionInTransit
+        Version: '2012-10-17'
+        Statement:
+          - Principal: '*'
+            Action: '*'
+            Effect: Deny
+            Resource:
+              - !GetAtt ConfigBucket.Arn
+              - !Sub ${ConfigBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+  ConfigRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: config.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWS_ConfigRole
+  ConfigSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: firehose
+      TopicArn: !Ref AWSConfigTopic
+      Endpoint: !GetAtt ConfigDeliveryStream.Arn
+      SubscriptionRoleArn: !GetAtt SubscriptionRole.Arn
+  ConfigPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref ConfigRole
+      PolicyName: WriteConfigChangePolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sns:Publish
+            Resource: !Ref AWSConfigTopic
+          - Effect: Allow
+            Action: s3:PutObject
+            Resource: !Sub ${ConfigBucket.Arn}/AWSLogs/${AWS::AccountId}/Config/*
+  FailedConfigsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-failedcon-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: alias/aws/s3
+      PublicAccessBlockConfiguration:
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  FailedConfigBucketEncryptionPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FailedConfigsBucket
+      PolicyDocument:
+        Id: RequireEncryptionInTransit
+        Version: '2012-10-17'
+        Statement:
+          - Principal: '*'
+            Action: '*'
+            Effect: Deny
+            Resource:
+              - !GetAtt FailedConfigsBucket.Arn
+              - !Sub ${FailedConfigsBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+  ConfigDeliveryStream:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamName: ConfigChangesStream
+      HttpEndpointDestinationConfiguration:
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref ConfigDeliveryStreamLogGroup
+          LogStreamName: !Ref ConfigDeliveryLogStream
+        EndpointConfiguration:
+          AccessKey: !Ref DataDogAPIKey
+          Url: !Ref DataDogDestinationUrl
+          Name: Http Endpoint
+        BufferingHints:
+          IntervalInSeconds: 10
+          SizeInMBs: 1
+        S3BackupMode: FailedDataOnly
+        S3Configuration:
+          BucketARN: !GetAtt FailedConfigsBucket.Arn
+          RoleARN: !GetAtt DeliveryStreamRole.Arn
+          BufferingHints:
+            IntervalInSeconds: 300
+            SizeInMBs: 5
+          CloudWatchLoggingOptions:
+            Enabled: true
+            LogGroupName: !Ref ConfigDeliveryStreamLogGroup
+            LogStreamName: !Ref ConfigDeliveryLogStream
+        RetryOptions:
+          DurationInSeconds: 300
+        RequestConfiguration:
+          ContentEncoding: GZIP
+        RoleARN: !GetAtt DeliveryStreamRole.Arn
+  SubscriptionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonSNSRole
+  SubscriptionRolePolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref SubscriptionRole
+      PolicyName: WriteToConfigDataStream
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - firehose:DescribeDeliveryStream
+              - firehose:ListDeliveryStreams
+              - firehose:ListTagsForDeliveryStream
+              - firehose:PutRecord
+              - firehose:PutRecordBatch
+            Resource: !GetAtt ConfigDeliveryStream.Arn
+  DeliveryStreamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: firehose.amazonaws.com
+            Action: sts:AssumeRole
+  DeliveryStreamRolePolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref DeliveryStreamRole
+      PolicyName: DeliveryStreamRolePolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:PutLogEvents
+            Resource: !Join
+              - ''
+              - - !Select
+                  - '0'
+                  - !Split
+                    - ':*'
+                    - !GetAtt ConfigDeliveryStreamLogGroup.Arn
+                - ':log-stream:*'
+          - Effect: Allow
+            Action:
+              - s3:AbortMultipartUpload
+              - s3:GetBucketLocation
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:ListBucketMultipartUploads
+              - s3:PutObject
+            Resource:
+              - !GetAtt FailedConfigsBucket.Arn
+              - !Sub ${FailedConfigsBucket.Arn}/*
+  ConfigDeliveryStreamLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupClass: STANDARD
+      LogGroupName: /aws/kinesisfirehose/configdeliverystream
+      RetentionInDays: 30
+  ConfigDeliveryLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref ConfigDeliveryStreamLogGroup
