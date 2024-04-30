@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: Datadog AWS Config Changes Stream
 Parameters:
-  DataDogAPIKey:
+  DatadogAPIKey:
     Type: String
     NoEcho: true
     Description: API key for the Datadog account (Required - find at https://app.datadoghq.com/organization-settings/api-keys)
