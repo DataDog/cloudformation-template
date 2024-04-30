@@ -6,8 +6,14 @@ Parameters:
     NoEcho: true
     Description: API key for the Datadog account (Required - find at https://app.datadoghq.com/organization-settings/api-keys)
     AllowedPattern : "[a-zA-Z0-9]+"
-    ConstraintDescription: API Key is Required
-  DataDogDestinationUrl:
+    ConstraintDescription: API key is required
+  DatadogIAMRoleName:
+    Type: String
+    NoEcho: true
+    Description: Datadog's existing Integration IAM Role name (Required - will be used to attach a new policy giving Datadog access to the configs bucket)
+    AllowedPattern : ".+"
+    ConstraintDescription: Datadog Integration IAM role name is required
+  DatadogDestinationUrl:
     Type: String
     Default: https://cloudplatform-intake.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
     Description: Datadog Intake URL for delivering recorded config changes
@@ -140,18 +146,18 @@ Resources:
           LogStreamName: !Ref ConfigDeliveryLogStream
         EndpointConfiguration:
           AccessKey: !Ref DatadogAPIKey
-          Url: !Ref DataDogDestinationUrl
+          Url: !Ref DatadogDestinationUrl
           Name: Http Endpoint
         BufferingHints:
           IntervalInSeconds: 10
-          SizeInMBs: 1
+          SizeInMBs: 4
         S3BackupMode: FailedDataOnly
         S3Configuration:
           BucketARN: !GetAtt FailedConfigsBucket.Arn
           RoleARN: !GetAtt DeliveryStreamRole.Arn
           BufferingHints:
             IntervalInSeconds: 300
-            SizeInMBs: 5
+            SizeInMBs: 4
           CloudWatchLoggingOptions:
             Enabled: true
             LogGroupName: !Ref ConfigDeliveryStreamLogGroup
@@ -239,3 +245,17 @@ Resources:
     Type: AWS::Logs::LogStream
     Properties:
       LogGroupName: !Ref ConfigDeliveryStreamLogGroup
+  ConfigBucketReadPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref DatadogIAMRoleName
+      PolicyName: ReadConfigBucketPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource:
+              - !GetAtt ConfigBucket.Arn
+              - !Sub ${ConfigBucket.Arn}/*

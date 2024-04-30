@@ -14,6 +14,7 @@ This template creates the following AWS resources required for streaming config 
 - Firehose stream subscribed to the SNS topic via the created subscription which streams config changes to a predefined DataDog endpoint.
 - S3 bucket to store configs which failed to be sent via the Firehose stream.
 - IAM Role + Policy for the Firehose stream needed to access the failed configs S3 bucket and subscribe to the SNS topic.
+- IAM Policy that will be attached to the current existing Datadog integration role to allow reading pushed configs from S3.
 
 ## Publishing the template
 Use the release script to upload the template to a S3 bucket following the example below. Make sure you have correct access credentials before launching the script.
