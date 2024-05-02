@@ -9,10 +9,18 @@ Parameters:
     ConstraintDescription: API key is required
   DatadogIAMRoleName:
     Type: String
-    NoEcho: true
     Description: Datadog's existing Integration IAM Role name (Required - will be used to attach a new policy giving Datadog access to the configs bucket)
     AllowedPattern : ".+"
     ConstraintDescription: Datadog Integration IAM role name is required
+  DatadogAwsAccountId:
+    Type: String
+    Description: >
+      AWS Account ID
+      Will be used to add a custom header when streaming config changes to Datadog
+      The account ID will be used to authenticate and authorize the request to read config changes from S3
+      Required - find at https://app.datadoghq.com/account/settings#integrations/aws
+    AllowedPattern : "[0-9]+"
+    ConstraintDescription: AWS Account ID is required
   DatadogDestinationUrl:
     Type: String
     Default: https://cloudplatform-intake.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
@@ -165,6 +173,9 @@ Resources:
         RetryOptions:
           DurationInSeconds: 300
         RequestConfiguration:
+          CommonAttributes:
+            - AttributeName: dd-aws-account-id
+              AttributeValue: !Ref DatadogAwsAccountId
           ContentEncoding: GZIP
         RoleARN: !GetAtt DeliveryStreamRole.Arn
   SubscriptionRole:
