@@ -174,7 +174,7 @@ Resources:
           DurationInSeconds: 300
         RequestConfiguration:
           CommonAttributes:
-            - AttributeName: dd-aws-account-id
+            - AttributeName: dd-s3-bucket-auth-account-id
               AttributeValue: !Ref DatadogAwsAccountId
           ContentEncoding: GZIP
         RoleARN: !GetAtt DeliveryStreamRole.Arn
