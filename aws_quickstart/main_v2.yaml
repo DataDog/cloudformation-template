@@ -89,7 +89,7 @@ Resources:
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_integration_api_call_v2.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_api_call_v2.yaml"
       Parameters:
         DatadogApiKey: !Ref APIKey
         DatadogAppKey: !Ref APPKey
@@ -101,7 +101,7 @@ Resources:
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/datadog_integration_role.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml"
       Parameters:
         ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
