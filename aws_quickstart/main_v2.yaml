@@ -82,7 +82,7 @@ Conditions:
       - ddog-gov.com
   IsAWSGovCloud:
     Fn::Equals:
-      - AWS::Partition
+      - !Ref AWS::Partition
       - aws-us-gov
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
