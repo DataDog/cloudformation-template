@@ -130,13 +130,13 @@ Resources:
             - "https://awsmetrics-http-intake.datad0g.com/v1/input"
             - !If
               - AP1Datacenter
-              - "https://awsmetrics-intake.ap1.datadoghq.com/v1/input"
+              - !Sub "https://event-platform-intake.ap1.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose&dd-api-key=${ApiKey}"
               - !If
                 - EUDatacenter
                 - "https://awsmetrics-intake.datadoghq.eu/v1/input"
                 - !If
                   - US5Datacenter
-                  - "https://awsmetrics-intake.us5.datadoghq.com/v1/input"
+                  - !Sub "https://event-platform-intake.us5.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose&dd-api-key=${ApiKey}"
                   - "https://awsmetrics-intake.datadoghq.com/v1/input"
           Name: "Event intake"
           AccessKey: !Ref ApiKey
