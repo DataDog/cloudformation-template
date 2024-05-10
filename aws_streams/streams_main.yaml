@@ -126,6 +126,7 @@ Resources:
                   - firehose:CreateDeliveryStream
                   - firehose:DescribeDeliveryStream
                   - firehose:DeleteDeliveryStream
+                  - firehose:TagDeliveryStream
                 Resource:
                   - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-metrics-stream"
               - Effect: Allow
