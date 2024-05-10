@@ -82,6 +82,7 @@ Conditions:
       !Not [!Equals [!Ref ThirdNamespace, ""]],
       !Not [!Equals [!Ref FilterMethod, "Include"]],
     ]
+  AP1Datacenter: !Equals [!Ref DdSite, "ap1.datadoghq.com"]
   EUDatacenter: !Equals [!Ref DdSite, "datadoghq.eu"]
   US5Datacenter: !Equals [!Ref DdSite, "us5.datadoghq.com"]
   Staging: !Equals [!Ref DdSite, "datad0g.com"]
@@ -128,12 +129,15 @@ Resources:
             - Staging
             - "https://awsmetrics-http-intake.datad0g.com/v1/input"
             - !If
-              - EUDatacenter
-              - "https://awsmetrics-intake.datadoghq.eu/v1/input"
+              - AP1Datacenter
+              - "https://awsmetrics-intake.ap1.datadoghq.com/v1/input"
               - !If
-                - US5Datacenter
-                - !Sub "https://event-platform-intake.us5.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose&dd-api-key=${ApiKey}"
-                - "https://awsmetrics-intake.datadoghq.com/v1/input"
+                - EUDatacenter
+                - "https://awsmetrics-intake.datadoghq.eu/v1/input"
+                - !If
+                  - US5Datacenter
+                  - "https://awsmetrics-intake.us5.datadoghq.com/v1/input"
+                  - "https://awsmetrics-intake.datadoghq.com/v1/input"
           Name: "Event intake"
           AccessKey: !Ref ApiKey
         CloudWatchLoggingOptions:
