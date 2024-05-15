@@ -34,8 +34,8 @@ Parameters:
       - true
       - false
     Description: >-
-      Disabling metric collection for this account will lead to a loss in visibility into your AWS services. 
-      Disable this if you only want to collect tags or resource configuration information from this AWS account, 
+      Disabling metric collection for this account will lead to a loss in visibility into your AWS services.
+      Disable this if you only want to collect tags or resource configuration information from this AWS account,
       and do not want to use Datadog Infrastructure Monitoring.
     Default: false
   CloudSecurityPostureManagement:
@@ -44,9 +44,9 @@ Parameters:
       - true
       - false
     Description: >-
-      Add the AWS Managed SecurityAudit policy to your Datadog AWS Integration role, and enable 
+      Add the AWS Managed SecurityAudit policy to your Datadog AWS Integration role, and enable
       Datadog Cloud Security Posture Management (CSPM) to start performing configuration checks across your AWS account.
-      Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to 
+      Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
 Resources:
@@ -84,7 +84,7 @@ Resources:
       Description: "A function to call the Datadog API."
       Role: !GetAtt LambdaExecutionRoleDatadogAPICall.Arn
       Handler: "index.handler"
-      Runtime: "python3.8"
+      Runtime: "python3.12"
       Timeout: 30
       Code:
         ZipFile: |
@@ -98,7 +98,7 @@ Resources:
 
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
-          
+
           API_CALL_SOURCE_HEADER_VALUE = "cfn-quick-start"
 
           def call_datadog_api(event, method):

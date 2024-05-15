@@ -10,7 +10,7 @@ Resources:
   DatadogPolicyMacroMacroFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Runtime: python3.9
+      Runtime: python3.12
       Handler: index.handler
       InlineCode: |
         import traceback, itertools
