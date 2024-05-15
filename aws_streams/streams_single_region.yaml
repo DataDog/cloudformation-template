@@ -82,10 +82,18 @@ Conditions:
       !Not [!Equals [!Ref ThirdNamespace, ""]],
       !Not [!Equals [!Ref FilterMethod, "Include"]],
     ]
-  AP1Datacenter: !Equals [!Ref DdSite, "ap1.datadoghq.com"]
-  EUDatacenter: !Equals [!Ref DdSite, "datadoghq.eu"]
-  US5Datacenter: !Equals [!Ref DdSite, "us5.datadoghq.com"]
-  Staging: !Equals [!Ref DdSite, "datad0g.com"]
+Mappings:
+    DdSiteToEndpoint:
+        "datad0g.com":
+            Endpoint: "https://awsmetrics-http-intake.datad0g.com/v1/input"
+        "datadoghq.eu":
+            Endpoint: "https://awsmetrics-intake.datadoghq.eu/v1/input"
+        "us5.datadoghq.com":
+            Endpoint: "https://awsmetrics-intake.us5.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+        "ap1.datadoghq.com":
+            Endpoint: "https://awsmetrics-intake.ap1.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+        "datadoghq.com":
+            Endpoint: "https://awsmetrics-intake.datadoghq.com/v1/input"
 Resources:
   DatadogStreamLogs:
     Type: AWS::Logs::LogGroup
@@ -125,19 +133,10 @@ Resources:
           SizeInMBs: 4
           IntervalInSeconds: 60
         EndpointConfiguration:
-          Url: !If
-            - Staging
-            - "https://awsmetrics-http-intake.datad0g.com/v1/input"
-            - !If
-              - AP1Datacenter
-              - !Sub "https://event-platform-intake.ap1.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose&dd-api-key=${ApiKey}"
-              - !If
-                - EUDatacenter
-                - "https://awsmetrics-intake.datadoghq.eu/v1/input"
-                - !If
-                  - US5Datacenter
-                  - !Sub "https://event-platform-intake.us5.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose&dd-api-key=${ApiKey}"
-                  - "https://awsmetrics-intake.datadoghq.com/v1/input"
+          Url: !FindInMap
+            - DdSiteToEndpoint
+            - !Ref DdSite
+            - Endpoint
           Name: "Event intake"
           AccessKey: !Ref ApiKey
         CloudWatchLoggingOptions:
