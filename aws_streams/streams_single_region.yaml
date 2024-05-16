@@ -85,15 +85,15 @@ Conditions:
 Mappings:
     DdSiteToEndpoint:
         "datad0g.com":
-            Endpoint: "https://awsmetrics-http-intake.datad0g.com/v1/input"
+            Endpoint: "https://awsmetrics-http-intake.datad0g.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "datadoghq.eu":
-            Endpoint: "https://awsmetrics-intake.datadoghq.eu/v1/input"
+            Endpoint: "https://awsmetrics-intake.datadoghq.eu/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "us5.datadoghq.com":
             Endpoint: "https://awsmetrics-intake.us5.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "ap1.datadoghq.com":
             Endpoint: "https://awsmetrics-intake.ap1.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "datadoghq.com":
-            Endpoint: "https://awsmetrics-intake.datadoghq.com/v1/input"
+            Endpoint: "https://awsmetrics-intake.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
 Resources:
   DatadogStreamLogs:
     Type: AWS::Logs::LogGroup
