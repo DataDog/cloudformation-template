@@ -13,15 +13,24 @@ else
 fi
 
 # Read the version
-if [ -z "$2" ]; then
-    echo "Must specify the version of the template"
+VERSION=$(head -n 1 version.txt)
+
+
+set +e
+EXIT_CODE=0
+response=$(aws s3api head-object \
+    --bucket "${BUCKET}" \
+    --key "aws/${VERSION}/main_v2.yaml" > /dev/null 2>&1)
+
+if [[ ${?} -eq 0 ]]; then
+    echo "S3 bucket path ${BUCKET}/aws/${VERSION} already exists. Please up the version."
     exit 1
-else
-    VERSION=$2
 fi
 
+set -e
+
 # Upload templates to a private bucket -- useful for testing
-if [[ $# -eq 3 ]] && [[ $3 = "--private" ]]; then
+if [[ $# -eq 2 ]] && [[ $2 = "--private" ]]; then
     PRIVATE_TEMPLATE=true
 else
     PRIVATE_TEMPLATE=false
