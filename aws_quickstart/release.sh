@@ -15,18 +15,17 @@ fi
 # Read the version
 VERSION=$(head -n 1 version.txt)
 
-
+# Confirm the bucket for the current release doesn't already exist so we don't overwrite it
 set +e
 EXIT_CODE=0
 response=$(aws s3api head-object \
     --bucket "${BUCKET}" \
-    --key "aws/${VERSION}/main_v2.yaml" > /dev/null 2>&1)
+    --key "aws/${VERSION}/main.yaml" > /dev/null 2>&1)
 
 if [[ ${?} -eq 0 ]]; then
     echo "S3 bucket path ${BUCKET}/aws/${VERSION} already exists. Please up the version."
     exit 1
 fi
-
 set -e
 
 # Upload templates to a private bucket -- useful for testing
