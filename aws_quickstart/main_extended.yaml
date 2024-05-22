@@ -144,7 +144,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Condition: EnableAgentlessScanning
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_agentless_scanning.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agentless_scanning.yaml"
       Parameters:
         DatadogAPIKey: !Ref APIKey
         DatadogAPPKey: !Ref APPKey
@@ -155,7 +155,7 @@ Resources:
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_api_call_v2.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_api_call_v2.yaml"
       Parameters:
         DatadogApiKey: !Ref APIKey
         DatadogAppKey: !Ref APPKey
@@ -167,7 +167,7 @@ Resources:
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_role.yaml"
       Parameters:
         ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
