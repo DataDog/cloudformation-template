@@ -48,17 +48,14 @@ fi
 
 # Update bucket placeholder
 cp main.yaml main.yaml.bak
-perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main.yaml
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main.yaml
 perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main.yaml
 
 cp main_v2.yaml main_v2.yaml.bak
-perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_v2.yaml
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_v2.yaml
 perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_v2.yaml
 
 cp main_extended.yaml main_extended.yaml.bak
-perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_extended.yaml
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_extended.yaml
 perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_extended.yaml
 
