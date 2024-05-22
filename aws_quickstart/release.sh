@@ -12,6 +12,22 @@ else
     BUCKET=$1
 fi
 
+# Read the version
+VERSION=$(head -n 1 version.txt)
+
+# Confirm the bucket for the current release doesn't already exist so we don't overwrite it
+set +e
+EXIT_CODE=0
+response=$(aws s3api head-object \
+    --bucket "${BUCKET}" \
+    --key "aws/${VERSION}/main.yaml" > /dev/null 2>&1)
+
+if [[ ${?} -eq 0 ]]; then
+    echo "S3 bucket path ${BUCKET}/aws/${VERSION} already exists. Please up the version."
+    exit 1
+fi
+set -e
+
 # Upload templates to a private bucket -- useful for testing
 if [[ $# -eq 2 ]] && [[ $2 = "--private" ]]; then
     PRIVATE_TEMPLATE=true
@@ -22,7 +38,7 @@ fi
 # Confirm to proceed
 for i in *.yaml; do
     [ -f "$i" ] || break
-    echo "About to upload $i to s3://${BUCKET}/aws/$i"
+    echo "About to upload $i to s3://${BUCKET}/aws/${VERSION}/$i"
 done
 read -p "Continue (y/n)?" CONT
 if [ "$CONT" != "y" ]; then
@@ -33,24 +49,26 @@ fi
 # Update bucket placeholder
 cp main.yaml main.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main.yaml
-trap 'mv main.yaml.bak main.yaml' EXIT
+perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main.yaml
 
 cp main_v2.yaml main_v2.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_v2.yaml
-trap 'mv main_v2.yaml.bak main_v2.yaml' EXIT
+perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_v2.yaml
 
 cp main_extended.yaml main_extended.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_extended.yaml
-trap 'mv main_extended.yaml.bak main_extended.yaml' EXIT
+perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_extended.yaml
+
+trap 'mv main.yaml.bak main.yaml; mv main_v2.yaml.bak main_v2.yaml; mv main_extended.yaml.bak main_extended.yaml' EXIT
 
 # Upload
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
-    aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml"
+    aws s3 cp . s3://${BUCKET}/aws/${VERSION} --recursive --exclude "*" --include "*.yaml"
 else
-    aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml" \
+    aws s3 cp . s3://${BUCKET}/aws/${VERSION} --recursive --exclude "*" --include "*.yaml" \
         --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 fi
 echo "Done uploading the template, and here is the CloudFormation quick launch URL"
-echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-integration&templateURL=https://${BUCKET}.s3.amazonaws.com/aws/main.yaml"
+echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-integration&templateURL=https://${BUCKET}.s3.amazonaws.com/aws/${VERSION}/main.yaml"
 
 echo "Done!"
