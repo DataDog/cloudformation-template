@@ -1,3 +1,6 @@
 .DS_Store
 .idea
 *.iml
+**/.taskcat/
+**/taskcat_outputs/
+**/tmp/
