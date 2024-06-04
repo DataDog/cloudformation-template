@@ -93,7 +93,7 @@ Resources:
       Description: "A function to call the Datadog API."
       Role: !GetAtt LambdaExecutionRoleDatadogAPICall.Arn
       Handler: "index.handler"
-      Runtime: "python3.12"
+      Runtime: "python3.11"
       Timeout: 30
       Code:
         ZipFile: |
