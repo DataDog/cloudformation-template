@@ -41,6 +41,15 @@ Parameters:
       Enable Agentless Scanning of Lambda vulnerabilities. "CloudSecurityPostureManagement" must be set to 'true'.
     Default: false
 
+  AgentlessSensitiveDataScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of datastores (S3 buckets, RDS databases). "CloudSecurityPostureManagement" must be set to 'true'.
+    Default: false
+
   DatadogAPIKeySecretArn:
     Type: String
     Description: The ARN of the secret storing the Datadog API key, if you already have it stored in Secrets Manager. You must store the secret as a plaintext, rather than a key-value pair.
@@ -117,6 +126,20 @@ Parameters:
     Description: The number of instances in the Auto Scaling Group
     Default: 1
 
+  ScannerVersion:
+    Type: String
+    Description: The version of the Agentless Scanner to install
+    Default: 0.11
+    AllowedPattern: "^[0-9]+\\.[0-9]+$"
+
+  ScannerChannel:
+    Type: String
+    Description: The channel of the Agentless Scanner to install from
+    Default: stable
+    AllowedValues:
+      - stable
+      - beta
+
 Conditions:
   ProvideSshKeyPair: !Not
     - !Equals
@@ -133,6 +156,9 @@ Conditions:
     - ''
   OfflineModeEnabled: !Equals
     - !Ref 'ScannerOfflineModeEnabled'
+    - 'true'
+  DSPMEnabled: !Equals
+    - !Ref 'AgentlessSensitiveDataScanning'
     - 'true'
 
 Rules:
@@ -267,7 +293,8 @@ Resources:
               DD_SITE="${DatadogSite}"
               DD_API_KEY="$(jq -r '.SecretString' <<< "$AWS_SECRET_JSON")"
               DD_AGENT_MINOR_VERSION="53.0"
-              DD_AGENTLESS_VERSION="0.11"
+              DD_AGENTLESS_VERSION="${ScannerVersion}"
+              DD_AGENTLESS_CHANNEL="${ScannerChannel}"
 
               hostnamectl hostname "$DD_HOSTNAME"
 
@@ -283,9 +310,9 @@ Resources:
               sed -i '/.*ec2_prefer_imdsv2:.*/a ec2_prefer_imdsv2: true' /etc/datadog-agent/datadog.yaml
 
               # Install the agentless-scanner
-              echo "deb [signed-by=/usr/share/keyrings/datadog-archive-keyring.gpg] https://apt.datadoghq.com/ stable agentless-scanner" >> /etc/apt/sources.list.d/datadog.list
+              echo "deb [signed-by=/usr/share/keyrings/datadog-archive-keyring.gpg] https://apt.datadoghq.com/ $DD_AGENTLESS_CHANNEL agentless-scanner" >> /etc/apt/sources.list.d/datadog.list
               apt update
-              agentless_pkg_pattern="([[:digit:]]:)?$DD_AGENTLESS_VERSION(\.[[:digit:]]+){0,1}(-[[:digit:]])?"
+              agentless_pkg_pattern="([[:digit:]]:)?$DD_AGENTLESS_VERSION(\.[[:digit:]]+){0,1}(~rc\.[[:digit:]]+)?(-[[:digit:]])?"
               agentless_version_custom="$(apt-cache madison datadog-agentless-scanner | grep -E "$agentless_pkg_pattern" -om1)" || true
               if [ -z "$agentless_version_custom" ]; then
                 printf "Could not find a version of datadog-agentless-scanner from %s" "$DD_AGENTLESS_VERSION"
@@ -313,20 +340,12 @@ Resources:
 
               chown -R dd-agent: /etc/datadog-agent/conf.d/agentless-scanner.d
 
-              if [ "${ScannerOfflineModeEnabled}" = "true" ]; then
-                cat <<EOF >> /etc/datadog-agent/datadog.yaml
-              agentless_scanner:
-                default_roles:
-                  - "arn:aws:iam::${AWS::AccountId}:role/${ScannerDelegateRoleName}"
-              EOF
-              fi
-
               cat <<EOF >> /etc/datadog-agent/agentless-scanner.yaml
               hostname: $DD_HOSTNAME
               api_key: $DD_API_KEY
               site: $DD_SITE
               installation_mode: cloudformation
-              installation_version: 0.11.1
+              installation_version: 0.11.2
               default_roles:
                 - "arn:aws:iam::${AWS::AccountId}:role/${ScannerDelegateRoleName}"
               EOF
@@ -343,6 +362,8 @@ Resources:
               systemctl enable datadog-agentless-scanner
               systemctl start datadog-agentless-scanner
             - SecretAPIKeyArn: !If [CreateDatadogApiKeySecret, !Ref 'ScannerAPIKeySecret', !Ref 'DatadogAPIKeySecretArn']
+              ScannerVersion: !Ref 'ScannerVersion'
+              ScannerChannel: !Ref 'ScannerChannel'
 
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -350,10 +371,10 @@ Resources:
               Encrypted: true
               DeleteOnTermination: true
               VolumeSize: !Ref 'ScannerInstanceVolumeSize'
-              VolumeType: gp2
+              VolumeType: gp3
         IamInstanceProfile:
           Name: !Ref 'ScannerAgentInstanceProfile'
-        ImageId: resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id
+        ImageId: resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id
         InstanceType: !Ref 'ScannerInstanceType'
         Monitoring:
           Enabled: !Ref 'ScannerInstanceMonitoring'
@@ -503,6 +524,42 @@ Resources:
             Action: 'lambda:GetFunction'
             Effect: Allow
             Resource: 'arn:aws:lambda:*:*:function:*'
+            Condition:
+              StringNotEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+          - Sid: DatadogAgentlessScannerGetLambdaLayerDetails
+            Action: 'lambda:GetLayerVersion'
+            Effect: Allow
+            Resource: 'arn:aws:lambda:*:*:layer:*:*'
+            Condition:
+              StringNotEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+
+  ScannerDelegateRoleWorkerDSPMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: DSPMEnabled
+    Properties:
+      Description: Policy for the Datadog Agentless Scanner worker allowing the listing and reading of S3 buckets.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DatadogAgentlessScannerAccessS3Objects
+            Action: 's3:GetObject'
+            Effect: Allow
+            Resource: 'arn:aws:s3:::*/*'
+          - Sid: DatadogAgentlessScannerListS3Buckets
+            Action: 's3:ListBucket'
+            Effect: Allow
+            Resource: 'arn:aws:s3:::*'
+          - Sid: DatadogAgentlessScannerDecryptS3Objects
+            Action:
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+            Condition:
+              StringLike:
+                'kms:ViaService': 's3.*.amazonaws.com'
 
   ScannerDelegateOfflineRolePolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -529,6 +586,14 @@ Resources:
             Resource: '*'
           - Sid: DatadogAgentlessScannerOfflineModeListImages
             Action: ec2:DescribeImages
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerOfflineModeListAllMyBuckets
+            Action: s3:ListAllMyBuckets
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerOfflineModeGetBucketTags
+            Action: s3:GetBucketTagging
             Effect: Allow
             Resource: '*'
 
@@ -574,6 +639,7 @@ Resources:
       ManagedPolicyArns:
         - !Ref 'ScannerDelegateRoleOrchestratorPolicy'
         - !Ref 'ScannerDelegateRoleWorkerPolicy'
+        - !If [DSPMEnabled, !Ref 'ScannerDelegateRoleWorkerDSPMPolicy', !Ref 'AWS::NoValue']
         - !If [OfflineModeEnabled, !Ref 'ScannerDelegateOfflineRolePolicy', !Ref 'AWS::NoValue']
       Description: Role assumed by the Datadog Agentless scanner agent to perform scans
       Tags:
@@ -863,6 +929,7 @@ Resources:
       Hosts: !Ref AgentlessHostScanning
       Containers: !Ref AgentlessContainerScanning
       Lambdas: !Ref AgentlessLambdaScanning
+      SensitiveData: !Ref AgentlessSensitiveDataScanning
 
   DatadogAgentlessAPICallFunction:
     Type: "AWS::Lambda::Function"
@@ -895,6 +962,7 @@ Resources:
               hosts = event['ResourceProperties']['Hosts']
               containers = event['ResourceProperties']['Containers']
               lambdas = event['ResourceProperties']['Lambdas']
+              sensitive_data = event['ResourceProperties']['SensitiveData']
 
               # Make the url Request
               url = 'https://api.' + api_url + '/api/v2/agentless_scanning/accounts/aws'
@@ -919,6 +987,7 @@ Resources:
                               "vuln_containers_os": containers == 'true',
                               "vuln_host_os": hosts == 'true',
                               "lambda": lambdas == 'true',
+                              "sensitive_data": sensitive_data == 'true',
                           }
                       }
                   }
@@ -1023,6 +1092,7 @@ Metadata:
           - AgentlessHostScanning
           - AgentlessContainerScanning
           - AgentlessLambdaScanning
+          - AgentlessSensitiveDataScanning
       - Label:
           default: Advanced
         Parameters:
@@ -1050,3 +1120,5 @@ Metadata:
         default: "AgentlessContainerScanning *"
       AgentlessLambdaScanning:
         default: "AgentlessLambdaScanning *"
+      AgentlessSensitiveDataScanning:
+        default: "AgentlessSensitiveDataScanning *"
