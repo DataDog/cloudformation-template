@@ -26,12 +26,12 @@ Parameters:
     Default: https://cloudplatform-intake.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
     Description: Datadog Intake URL for delivering recorded config changes
     AllowedValues:
-      - https://cloudplatform-intake.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
-      - https://cloudplatform-intake.us3.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
-      - https://cloudplatform-intake.us5.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
-      - https://cloudplatform-intake.ddog-gov.com/cloudchanges?dd-protocol=aws-kinesis-firehose
-      - https://cloudplatform-intake.datadoghq.eu/cloudchanges?dd-protocol=aws-kinesis-firehose
-      - https://cloudplatform-intake.ap1.datadoghq.com/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.us3.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.us5.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.ddog-gov.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.datadoghq.eu/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.ap1.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
 Resources:
   ConfigurationRecorder:
     Type: AWS::Config::ConfigurationRecorder
