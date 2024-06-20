@@ -99,6 +99,14 @@ Parameters:
     Description: >-
       Enable Agentless Scanning of Lambda vulnerabilities. "CloudSecurityPostureManagement" must be set to 'true'.
     Default: false
+  AgentlessSensitiveDataScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of datastores (S3 buckets). "CloudSecurityPostureManagement" must be set to 'true'.
+    Default: false
 Conditions:
   InstallForwarder:
     Fn::Equals:
@@ -127,6 +135,9 @@ Conditions:
         - Fn::Equals:
           - !Ref AgentlessLambdaScanning
           - true
+        - Fn::Equals:
+          - !Ref AgentlessSensitiveDataScanning
+          - true
   IsAP1:
     Fn::Equals:
       - !Ref DatadogSite
@@ -153,6 +164,7 @@ Resources:
         AgentlessHostScanning: !Ref AgentlessHostScanning
         AgentlessContainerScanning: !Ref AgentlessContainerScanning
         AgentlessLambdaScanning: !Ref AgentlessLambdaScanning
+        AgentlessSensitiveDataScanning: !Ref AgentlessSensitiveDataScanning
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -227,6 +239,7 @@ Metadata:
         - AgentlessHostScanning
         - AgentlessContainerScanning
         - AgentlessLambdaScanning
+        - AgentlessSensitiveDataScanning
     - Label:
         default: Advanced
       Parameters:
@@ -247,5 +260,7 @@ Metadata:
         default: "AgentlessContainerScanning *"
       AgentlessLambdaScanning:
         default: "AgentlessLambdaScanning *"
+      AgentlessSensitiveDataScanning:
+        default: "AgentlessSensitiveDataScanning *"
       InstallLambdaLogForwarder:
         default: "InstallLambdaLogForwarder *"
