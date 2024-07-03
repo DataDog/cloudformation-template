@@ -102,6 +102,7 @@ Resources:
 
           API_CALL_SOURCE_HEADER_VALUE = "cfn-quick-start"
 
+
           def call_datadog_api(event, method):
               api_key = event['ResourceProperties']['APIKey']
               app_key = event['ResourceProperties']['APPKey']
@@ -109,37 +110,61 @@ Resources:
               account_id = event['ResourceProperties']['AccountId']
               role_name = event['ResourceProperties']['RoleName']
               aws_partition = event['ResourceProperties']['AWSPartition']
-              host_tags = event['ResourceProperties']['HostTags']
+              account_tags = event['ResourceProperties']['AccountTags']
               cspm = event['ResourceProperties']['CloudSecurityPostureManagement']
               metrics_disabled = event['ResourceProperties']['DisableMetricCollection']
 
               # Make the url Request
-              url = 'https://api.' + api_url + '/api/v1/integration/aws'
-              values = {
-                  'account_id': account_id,
-                  'role_name': role_name
-              }
-              if method == "POST":
-                  values["host_tags"] = host_tags
-                  values["aws_partition"] = aws_partition
-                  values["cspm_resource_collection_enabled"] = cspm == "true"
-                  values["metrics_collection_enabled"] = metrics_disabled == "false"
-
+              url = 'https://api.' + api_url + '/api/v2/integration/aws/accounts'
               headers = {
                   'DD-API-KEY': api_key,
                   'DD-APPLICATION-KEY': app_key,
                   'Dd-Aws-Api-Call-Source': API_CALL_SOURCE_HEADER_VALUE,
               }
-              data = json.dumps(values)
-              data = data.encode('utf-8')  # data should be bytes
-              request = Request(url, data=data, headers=headers)
-              request.add_header('Content-Type', 'application/json; charset=utf-8')
-              request.add_header('Content-Length', len(data))
-              request.get_method = lambda: method
 
-              # Send the url Request, store external_id
+              if method == 'PATCH' or method == 'DELETE':
+                  url = url + '/' + account_id
+
+              if method == 'DELETE':
+                  # DELETE request has no body
+                  request = Request(url, headers=headers)
+              else:
+                  # Create the request body for POST and PATCH
+                  values = {
+                    "data": {
+                      "id": account_id,
+                      "type": "account",
+                      "attributes": {
+                        "aws_account": {
+                          "aws_account_id": account_id,
+                          "account_tags": account_tags,
+                          "aws_partition": aws_partition,
+                          "auth_config": {
+                            "role_name": role_name
+                          },
+                          "metrics_config": {
+                              "enabled": (metrics_disabled == "false"),
+                              "namespace_filters": { "include_all": True }
+                          },
+                          "resources_config": {
+                            "cloud_security_posture_management_collection": (cspm == "true")
+                          }
+                        }
+                      }
+                    }
+                  }
+
+                  data = json.dumps(values)
+                  data = data.encode('utf-8')  # data should be bytes
+                  request = Request(url, data=data, headers=headers)
+                  request.add_header('Content-Type', 'application/json; charset=utf-8')
+                  request.add_header('Content-Length', len(data))
+
+              # Send the request
+              request.get_method = lambda: method
               response = urllib.request.urlopen(request)
               return response
+
 
           def handler(event, context):
               '''Handle Lambda event from AWS'''
@@ -152,7 +177,7 @@ Resources:
                           send_response(event, context, "SUCCESS",
                                         {
                                             "Message": "Datadog AWS Integration created successfully.",
-                                            "ExternalId": json_response["external_id"],
+                                            "ExternalId": json_response['data']['attributes']['aws_account']['auth_config']['external_id'],
                                         })
                       else:
                           LOGGER.info('Failed - exception thrown during processing.')
@@ -161,19 +186,24 @@ Resources:
 
                   elif event['RequestType'] == 'Update':
                       LOGGER.info('Received Update request.')
-                      send_response(event, context, "FAILED",
-                                    {"Message": "Update not supported, no operation performed."})
+                      response = call_datadog_api(event, 'PATCH')
+                      if response.getcode() == 200:
+                          json_response = json.loads(response.read().decode("utf-8"))
+                          send_response(event, context, "SUCCESS",
+                                        {
+                                            "Message": "Datadog AWS Integration updated successfully.",
+                                            "ExternalId": json_response['data']['attributes']['aws_account']['auth_config']['external_id'],
+                                        })
                   elif event['RequestType'] == 'Delete':
                       LOGGER.info('Received Delete request.')
                       response = call_datadog_api(event, 'DELETE')
-
-                      if response.getcode() == 200:
+                      if response.getcode() == 204:
                           send_response(event, context, "SUCCESS",
                                         {
                                             "Message": "Datadog AWS Integration deleted successfully.",
                                         })
                       else:
-                          LOGGER.info('Failed - exception thrown during processing.')
+                          LOGGER.info('Failed to delete account - exception thrown during processing.')
                           send_response(event, context, "FAILED", {
                               "Message": "Http response: {}".format(response.msg)})
 
