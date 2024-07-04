@@ -292,7 +292,6 @@ Resources:
               DD_HOSTNAME="agentless-scanning-$IMDS_AWS_REGION-$IMDS_INSTANCE_ID"
               DD_SITE="${DatadogSite}"
               DD_API_KEY="$(jq -r '.SecretString' <<< "$AWS_SECRET_JSON")"
-              DD_AGENT_MINOR_VERSION="53.0"
               DD_AGENTLESS_VERSION="${ScannerVersion}"
               DD_AGENTLESS_CHANNEL="${ScannerChannel}"
 
@@ -302,12 +301,7 @@ Resources:
               DD_API_KEY="$DD_API_KEY" \
                 DD_SITE="$DD_SITE" \
                 DD_HOSTNAME="$DD_HOSTNAME" \
-                DD_AGENT_MINOR_VERSION="$DD_AGENT_MINOR_VERSION" \
                 bash -c "$(curl -L https://s3.amazonaws.com/dd-agent/scripts/install_script_agent7.sh)"
-
-              # Patch agent configuration
-              sed -i '/.*logs_enabled:.*/a logs_enabled: true'           /etc/datadog-agent/datadog.yaml
-              sed -i '/.*ec2_prefer_imdsv2:.*/a ec2_prefer_imdsv2: true' /etc/datadog-agent/datadog.yaml
 
               # Install the agentless-scanner
               echo "deb [signed-by=/usr/share/keyrings/datadog-archive-keyring.gpg] https://apt.datadoghq.com/ $DD_AGENTLESS_CHANNEL agentless-scanner" >> /etc/apt/sources.list.d/datadog.list
@@ -340,7 +334,16 @@ Resources:
 
               chown -R dd-agent: /etc/datadog-agent/conf.d/agentless-scanner.d
 
-              cat <<EOF >> /etc/datadog-agent/agentless-scanner.yaml
+              # Custom configuration for agent
+              cat <<EOF > /etc/datadog-agent/datadog.yaml
+              api_key: $DD_API_KEY
+              site: $DD_SITE
+              hostname: $DD_HOSTNAME
+              logs_enabled: true
+              ec2_prefer_imdsv2: true
+              EOF
+
+              cat <<EOF > /etc/datadog-agent/agentless-scanner.yaml
               hostname: $DD_HOSTNAME
               api_key: $DD_API_KEY
               site: $DD_SITE
