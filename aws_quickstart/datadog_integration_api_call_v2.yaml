@@ -76,7 +76,7 @@ Resources:
       AccountId: !Ref AWS::AccountId
       RoleName: !Ref RoleName
       AWSPartition: !Ref AWS::Partition
-      HostTags: [!Sub "aws_account:${AWS::AccountId}"]
+      AccountTags: [!Sub "aws_account:${AWS::AccountId}"]
       CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
       DisableMetricCollection: !Ref DisableMetricCollection
   DatadogAPICallFunction:
