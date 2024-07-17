@@ -130,6 +130,7 @@ Resources:
                   - 'events:CreateEventBus'
                   - 'fsx:DescribeFileSystems'
                   - 'fsx:ListTagsForResource'
+                  - 'glue:ListRegistries'
                   - 'health:DescribeEvents'
                   - 'health:DescribeEventDetails'
                   - 'health:DescribeAffectedEntities'
@@ -168,8 +169,9 @@ Resources:
                   - 'tag:GetResources'
                   - 'tag:GetTagKeys'
                   - 'tag:GetTagValues'
-                  - 'wafv2:ListLoggingConfigurations'
+                  - 'wafv2:GetIPSet'
                   - 'wafv2:GetLoggingConfiguration'
+                  - 'wafv2:ListLoggingConfigurations'
                   - 'xray:BatchGetTraces'
                   - 'xray:GetTraceSummaries'
               -
