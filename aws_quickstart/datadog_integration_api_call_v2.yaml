@@ -190,12 +190,12 @@ Resources:
                           )
                       else:
                           LOGGER.info("Failed - exception thrown during processing.")
-                          msg = "Datadog API returned error: {}".format(json_response)
+                          msg = {"Message": "Datadog API returned error: {}".format(json_response)}
                           cfnresponse.send(
                               event,
                               context,
                               responseStatus="FAILED",
-                              responseData={"Message": msg},
+                              responseData=msg,
                               reason=msg,
                           )
 
@@ -217,19 +217,19 @@ Resources:
                           )
                       else:
                           LOGGER.info("Failed - exception thrown during processing.")
-                          msg = "Datadog API returned error: {}".format(json_response)
+                          msg = {"Message": "Datadog API returned error: {}".format(json_response)}
                           cfnresponse.send(
                               event,
                               context,
                               responseStatus="FAILED",
-                              responseData={"Message": msg},
+                              responseData=msg,
                               reason=msg,
                           )
                   elif event["RequestType"] == "Delete":
                       LOGGER.info("Received Delete request.")
                       response = call_datadog_api(event, "DELETE")
                       if response.getcode() == 204:
-                          msg = ({"Message": "Datadog AWS Integration deleted successfully."},)
+                          msg = {"Message": "Datadog AWS Integration deleted successfully."}
                           cfnresponse.send(
                               event,
                               context,
@@ -239,12 +239,12 @@ Resources:
                       else:
                           json_response = json.loads(response.read().decode("utf-8"))
                           LOGGER.info("Failed - exception thrown during processing.")
-                          msg = "Datadog API returned error: {}".format(json_response)
+                          msg = {"Message": "Datadog API returned error: {}".format(json_response)}
                           cfnresponse.send(
                               event,
                               context,
                               responseStatus="FAILED",
-                              responseData={"Message": msg},
+                              responseData=msg,
                               reason=msg,
                           )
                   else:
