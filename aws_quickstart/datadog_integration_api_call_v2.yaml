@@ -171,102 +171,77 @@ Resources:
 
           def handler(event, context):
               """Handle Lambda event from AWS"""
-              try:
-                  if event["RequestType"] == "Create":
-                      LOGGER.info("Received Create request.")
-                      response = call_datadog_api(event, "POST")
-                      json_response = json.loads(response.read().decode("utf-8"))
-                      if response.getcode() == 200:
-                          external_id = json_response["data"]["attributes"]["aws_account"]["auth_config"]["external_id"]
-                          msg = {
-                              "Message": "Datadog AWS Integration created successfully.",
-                              "ExternalId": external_id,
-                          }
-                          cfnresponse.send(
-                              event,
-                              context,
-                              responseStatus="SUCCESS",
-                              responseData=msg,
-                          )
-                      else:
-                          LOGGER.info("Failed - exception thrown during processing.")
-                          msg = {"Message": "Datadog API returned error: {}".format(json_response)}
-                          cfnresponse.send(
-                              event,
-                              context,
-                              responseStatus="FAILED",
-                              responseData=msg,
-                              reason=msg,
-                          )
+              if event["RequestType"] == "Create":
+                  LOGGER.info("Received Create request.")
+                  method = "POST"
 
-                  elif event["RequestType"] == "Update":
-                      LOGGER.info("Received Update request.")
-                      response = call_datadog_api(event, "PATCH")
-                      json_response = json.loads(response.read().decode("utf-8"))
-                      if response.getcode() == 200:
-                          external_id = json_response["data"]["attributes"]["aws_account"]["auth_config"]["external_id"]
-                          msg = {
-                              "Message": "Datadog AWS Integration created successfully.",
-                              "ExternalId": external_id,
-                          }
-                          cfnresponse.send(
-                              event,
-                              context,
-                              responseStatus="SUCCESS",
-                              responseData=msg,
-                          )
-                      else:
-                          LOGGER.info("Failed - exception thrown during processing.")
-                          msg = {"Message": "Datadog API returned error: {}".format(json_response)}
-                          cfnresponse.send(
-                              event,
-                              context,
-                              responseStatus="FAILED",
-                              responseData=msg,
-                              reason=msg,
-                          )
-                  elif event["RequestType"] == "Delete":
-                      LOGGER.info("Received Delete request.")
-                      response = call_datadog_api(event, "DELETE")
-                      if response.getcode() == 204:
-                          msg = {"Message": "Datadog AWS Integration deleted successfully."}
-                          cfnresponse.send(
-                              event,
-                              context,
-                              responseStatus="SUCCESS",
-                              responseData=msg,
-                          )
-                      else:
-                          json_response = json.loads(response.read().decode("utf-8"))
-                          LOGGER.info("Failed - exception thrown during processing.")
-                          msg = {"Message": "Datadog API returned error: {}".format(json_response)}
-                          cfnresponse.send(
-                              event,
-                              context,
-                              responseStatus="FAILED",
-                              responseData=msg,
-                              reason=msg,
-                          )
-                  else:
-                      LOGGER.info("Failed - received unexpected request.")
-                      msg = "Received unexpected request type: {}".format(event["RequestType"])
-                      cfnresponse.send(
-                          event,
-                          context,
-                          responseStatus="FAILED",
-                          responseData={"Message": msg},
-                          reason=msg,
-                      )
+              elif event["RequestType"] == "Update":
+                  LOGGER.info("Received Update request.")
+                  method = "PATCH"
+
+              elif event["RequestType"] == "Delete":
+                  LOGGER.info("Received Delete request.")
+                  method = "DELETE"
+              else:
+                  LOGGER.info("Failed - received unexpected request.")
+                  msg = "Received unexpected request type: {}".format(event["RequestType"])
+                  cfnresponse.send(
+                      event,
+                      context,
+                      responseStatus="FAILED",
+                      responseData={"Message": msg},
+                      reason=msg,
+                  )
+                  return
+
+              try:
+                  # Call Datadog API and report response back to CloudFormation
+                  response = call_datadog_api(event, method)
+                  send_cfn_response(event, context, method, response)
+
               except Exception as e:
                   LOGGER.info("Failed - exception thrown during processing.")
-                  msg = "Exception during processing: {}".format(e)
+                  msg = {"Message": "Exception during processing: {}".format(e)}
                   cfnresponse.send(
                       event,
                       context,
                       "FAILED",
-                      responseData={"Message": msg},
+                      responseData=msg,
                       reason=msg,
                   )
+
+
+          def send_cfn_response(event, context, method, response):
+              reason = None
+              json_response = ""
+              code = response.getcode()
+              data = response.read()
+              if data:
+                  json_response = json.loads(data)
+              if code == 200 or code == 204:
+                  LOGGER.info("Success - Datadog API call was successful.")
+                  response_status = "SUCCESS"
+                  msg = {"Message": "Datadog AWS Integration {} API request was successful.".format(method)}
+
+                  # return external ID for create and update
+                  if method == "POST" or method == "PATCH":
+                      external_id = json_response["data"]["attributes"]["aws_account"]["auth_config"]["external_id"]
+                      msg["ExternalId"] = external_id
+              else:
+                  LOGGER.info("Failed - Datadog API call failed.")
+                  response_status = "FAILED"
+                  msg = {
+                      "Message": "Datadog API returned {} error: {}".format(code, json_response)
+                  }
+                  reason = msg  # surface error in CloudFormation console
+
+              cfnresponse.send(
+                  event,
+                  context,
+                  responseStatus=response_status,
+                  responseData=msg,
+                  reason=reason,
+              )
 
 
           def timeout_handler(_signal, _frame):
