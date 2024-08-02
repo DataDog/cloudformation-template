@@ -184,34 +184,36 @@ Resources:
                   method = "DELETE"
               else:
                   LOGGER.info("Failed - received unexpected request.")
-                  msg = "Received unexpected request type: {}".format(event["RequestType"])
+                  msg = {"Message": "Received unexpected request type: {}".format(event["RequestType"])}
+                  reason = json.dumps(msg)
                   cfnresponse.send(
                       event,
                       context,
                       responseStatus="FAILED",
-                      responseData={"Message": msg},
-                      reason=msg,
+                      responseData=msg,
+                      reason=reason,
                   )
                   return
 
               try:
                   # Call Datadog API and report response back to CloudFormation
                   response = call_datadog_api(event, method)
-                  send_cfn_response(event, context, method, response)
+                  cfn_response_send_api_result(event, context, method, response)
 
               except Exception as e:
                   LOGGER.info("Failed - exception thrown during processing.")
                   msg = {"Message": "Exception during processing: {}".format(e)}
+                  reason = json.dumps(msg)
                   cfnresponse.send(
                       event,
                       context,
                       "FAILED",
                       responseData=msg,
-                      reason=msg,
+                      reason=reason,
                   )
 
 
-          def send_cfn_response(event, context, method, response):
+          def cfn_response_send_api_result(event, context, method, response):
               reason = None
               json_response = ""
               code = response.getcode()
@@ -231,9 +233,9 @@ Resources:
                   LOGGER.info("Failed - Datadog API call failed.")
                   response_status = "FAILED"
                   msg = {
-                      "Message": "Datadog API returned {} error: {}".format(code, json_response)
+                      "Message": "Datadog API returned error: {}".format(json_response)
                   }
-                  reason = msg  # surface error in CloudFormation console
+                  reason = json.dumps(msg)  # surface error in CloudFormation console
 
               cfnresponse.send(
                   event,
