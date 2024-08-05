@@ -87,7 +87,7 @@ Conditions:
       - aws-us-gov
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
-  DatadogAPIHandler:
+  DatadogAWSAccountIntegration:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_api_call_v2.yaml"
@@ -104,7 +104,7 @@ Resources:
     Properties:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_role.yaml"
       Parameters:
-        ExternalId: !GetAtt DatadogAPIHandler.Outputs.ExternalId
+        ExternalId: !GetAtt DatadogAWSAccountIntegration.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
         CloudSecurityPostureManagementPermissions: !If [CloudSecurityPostureManagementPermissions, true, false]
         DdAWSAccountId: !If

@@ -50,7 +50,7 @@ Parameters:
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
 Resources:
-  LambdaExecutionRoleDatadogAPIHandler:
+  DatadogAPIHandlerLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -66,8 +66,8 @@ Resources:
       ManagedPolicyArns:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
   # Retrieving secrets passed in via SecretsManager Arn
-  DatadogAPIHandler:
-    Type: "Custom::DatadogAPIHandler"
+  DatadogAWSAccountIntegration:
+    Type: "Custom::DatadogAWSAccountIntegration"
     Properties:
       ServiceToken: !GetAtt DatadogAPIHandlerFunction.Arn
       APIKey: !Ref DatadogApiKey
@@ -83,7 +83,7 @@ Resources:
     Type: "AWS::Lambda::Function"
     Properties:
       Description: "A function to call the Datadog API."
-      Role: !GetAtt LambdaExecutionRoleDatadogAPIHandler.Arn
+      Role: !GetAtt DatadogAPIHandlerLambdaExecutionRole.Arn
       Handler: "index.handler"
       Runtime: "python3.11"
       Timeout: 5
@@ -256,4 +256,4 @@ Resources:
 Outputs:
   ExternalId:
     Description: Datadog AWS Integration ExternalId
-    Value: !GetAtt DatadogAPIHandler.ExternalId
+    Value: !GetAtt DatadogAWSAccountIntegration.ExternalId
