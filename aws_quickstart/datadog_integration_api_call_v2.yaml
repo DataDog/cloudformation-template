@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Datadog AWS Integration API Call
+Description: Configures the Datadog AWS Integration
 Parameters:
   DatadogApiKey:
     Description: >-
