@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Account level logs subscription single region
+Parameters:
+  ApiKey:
+    Description: >-
+      Your Datadog API Key
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: ApiKey is required
+    NoEcho: true
+  BackupBucketArn:
+    Description: >-
+      Backup bucket ARN
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: BackupBucketArn is required
+  CloudwatchLogsRoleArn:
+    Description: >-
+      Cloudwatch role ARN
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: CloudwatchLogsRoleArn is required
+  FirehoseLogsRoleArn:
+    Description: >-
+      Firehose role ARN
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: FirehoseLogsRoleArn is required
+  DatadogHttpEndpointUrl:
+    Description: >-
+      Datadog Logs Intake URL
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: DatadogHttpEndpointUrl is required
+
+Resources:
+
+  DeliveryStreamLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+  DeliveryStreamLogStream:
+    Type: 'AWS::Logs::LogStream'
+    Properties:
+      LogGroupName:
+        Ref: DeliveryStreamLogGroup
+      LogStreamName:
+        Ref: 'AWS::StackName'
+
+
+  DatadogDeliveryStream:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamType: DirectPut
+      HttpEndpointDestinationConfiguration:
+        RoleARN: !Ref FirehoseLogsRoleArn
+        EndpointConfiguration:
+          Url:
+            Ref: DatadogHttpEndpointUrl
+          AccessKey:
+            Ref: ApiKey
+          Name:
+            Fn::Join:
+            - "-"
+            - - Ref: AWS::StackName
+              - datadog-account-logs-endpoint
+        RequestConfiguration:
+          ContentEncoding: GZIP
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName:
+            Ref: DeliveryStreamLogGroup
+          LogStreamName:
+            Ref: DeliveryStreamLogStream
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 4
+        RetryOptions:
+          DurationInSeconds: 60
+        S3BackupMode: FailedDataOnly
+        S3Configuration:
+          BucketARN: !Ref BackupBucketArn
+          CompressionFormat: UNCOMPRESSED
+          Prefix: !Sub "${AWS::Region}/"
+          RoleARN: !Ref FirehoseLogsRoleArn
+  AccountPolicy:
+    Type: AWS::Logs::AccountPolicy
+    Properties:
+      PolicyName: "AccountLevelLogSubscriptionPolicy"
+      PolicyDocument:
+        Fn::Join:
+        - ''
+        - - "{\"RoleArn\":\""
+          - !Ref "CloudwatchLogsRoleArn"
+          - "\", \"DestinationArn\":\""
+          - Fn::GetAtt: "DatadogDeliveryStream.Arn"
+          - "\", \"FilterPattern\": \"\", \"Distribution\": \"Random\"}"
+      SelectionCriteria: "LogGroupName NOT IN [\"MyLogGroup\", \"MyAnotherLogGroup\"]"
+      PolicyType: "SUBSCRIPTION_FILTER_POLICY"
+      Scope: "ALL"
