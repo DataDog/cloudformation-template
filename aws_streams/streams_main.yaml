@@ -101,7 +101,20 @@ Resources:
                 Action:
                   - iam:GetRole
                   - iam:PassRole
-                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "iam:PassedToService": "streams.metrics.cloudwatch.amazonaws.com"
+                Resource:
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/DatadogMetricStreamRole"
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:PassRole
+                Condition:
+                  StringEquals:
+                    "iam:PassedToService": "firehose.amazonaws.com"
+                Resource:
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/DatadogServiceRole"
               - Effect: Allow
                 Action:
                   - s3:CreateBucket
