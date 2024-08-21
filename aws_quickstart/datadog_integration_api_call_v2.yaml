@@ -131,25 +131,22 @@ Resources:
                   # Create the request body for POST and PATCH
                   values = {
                       "data": {
-                          "id": account_id,
                           "type": "account",
                           "attributes": {
-                              "aws_account": {
-                                  "aws_account_id": account_id,
-                                  "account_tags": account_tags,
-                                  "aws_partition": aws_partition,
-                                  "auth_config": {"role_name": role_name},
-                                  "metrics_config": {
-                                      "enabled": (metrics_disabled == "false"),
-                                      "namespace_filters": {"include_all": True},
-                                  },
-                                  "resources_config": {
-                                      "cloud_security_posture_management_collection": (
-                                          cspm == "true"
-                                      )
-                                  },
+                              "aws_account_id": account_id,
+                              "account_tags": account_tags,
+                              "aws_partition": aws_partition,
+                              "auth_config": {"role_name": role_name},
+                              "metrics_config": {
+                                  "enabled": (metrics_disabled == "false"),
+                                  "namespace_filters": {"include_all": True},
+                              },
+                              "resources_config": {
+                                  "cloud_security_posture_management_collection": (
+                                      cspm == "true"
+                                  )
                               }
-                          },
+                          }
                       }
                   }
 
@@ -227,7 +224,7 @@ Resources:
 
                   # return external ID for create and update
                   if method == "POST" or method == "PATCH":
-                      external_id = json_response["data"]["attributes"]["aws_account"]["auth_config"]["external_id"]
+                      external_id = json_response["data"]["attributes"]["auth_config"]["external_id"]
                       msg["ExternalId"] = external_id
               else:
                   LOGGER.info("Failed - Datadog API call failed.")
