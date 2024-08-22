@@ -78,7 +78,7 @@ Resources:
                       "Action": [
                           "s3:ListBucket"
                       ],
-                      "Resource": "arn:aws:s3:::{product_variables["DDCloudCostBucketName"]}"
+                      "Resource": f"arn:aws:s3:::{product_variables['DDCloudCostBucketName']}"
                   },
                   {
                       "Sid": "GetBill",
@@ -86,7 +86,7 @@ Resources:
                       "Action": [
                           "s3:GetObject"
                       ],
-                      "Resource": "arn:aws:s3:::{product_variables["DDCloudCostBucketName"]}/{product_variables["DDCloudCostBucketPrefix"]}/{product_variables["DDCloudCostReportName"]}/*"
+                      "Resource": f"arn:aws:s3:::{product_variables['DDCloudCostBucketName']}/{product_variables['DDCloudCostBucketPrefix']}/{product_variables['DDCloudCostReportName']}/*"
                   },
                   {
                       "Sid": "CheckAccuracy",
@@ -160,7 +160,7 @@ Resources:
               policy_arn = event['ResourceProperties']['DatadogIntegrationManagedPolicy']
               product = event['ResourceProperties']['Product']
               product_variables = json.loads(event['ResourceProperties']['ProductVariables'])
-              logical_resource_id = event['ResourceProperties']['LogicalResourceId']
+              logical_resource_id = event['LogicalResourceId']
 
               validate_variables(product_variables, product)
               statements = prepare_statements(product, logical_resource_id, product_variables)
