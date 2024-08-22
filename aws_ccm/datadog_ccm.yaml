@@ -17,6 +17,10 @@ Parameters:
     Type: String
     Description: The name of the IAM role that has been integrated with Datadog.
     Default: DatadogIntegrationRole
+  DatadogIntegrationManagedPolicy:
+    Type: String
+    Description: The name of the IAM policy used in the role that has been integrated with Datadog.
+    Default: DatadogIntegrationManagedPolicy
   CreateCloudCostBucket:
     Type: String
     Default: true
@@ -32,13 +36,20 @@ Conditions:
       - true
 
 Resources:
-  DDCloudCostPermissions:
+  DatadogCustomIAM:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_datatdog_iam/<VERSION_PLACEHOLDER>/datadog_custom_iam.yaml"
       Parameters:
-        Product: CloudCost
-        ProductVariables: !Sub '{"DDCloudCostReportName": "${DDCloudCostReportName}", "DDCloudCostBucketPrefix": "${DDCloudCostBucketPrefix}", "DDCloudCostBucketName": "${DDCloudCostBucketName}" }'
+        DatadogIntegrationManagedPolicy: !Ref DatadogIntegrationManagedPolicy
+      
+  DatadogCCMCustomIAM:
+    Type: "Custom::DatadogCustomIAM"
+    Properties:
+      ServiceToken: !GetAtt DatadogCustomIAM.DatadogCustomIAMFunctionArn
+      DatadogIntegrationManagedPolicy: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${DatadogIntegrationManagedPolicy}"
+      Product: CloudCost
+      ProductVariables: !Sub '{"DDCloudCostReportName": "${DDCloudCostReportName}", "DDCloudCostBucketPrefix": "${DDCloudCostBucketPrefix}", "DDCloudCostBucketName": "${DDCloudCostBucketName}" }'
 
   DDCloudCostBucket:
     Condition: ShouldCreateCloudCostBucket
