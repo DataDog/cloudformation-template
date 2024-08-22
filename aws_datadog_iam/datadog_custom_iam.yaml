@@ -5,6 +5,9 @@ Parameters:
     Type: String
     Description: The name of the IAM role that has been integrated with Datadog.
     Default: DatadogIntegrationManagedPolicy
+  CallerStackId:
+    Type: String
+    Description: The stack ID of the calling stack.
 
 Resources:
   LambdaExecutionRoleDatadogCustomIAM:
@@ -44,6 +47,13 @@ Resources:
       Roles:
         - !Ref LambdaExecutionRoleDatadogCustomIAM
 
+  DatadogCustomIAMFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt DatadogCustomIAMFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: "cloudformation.amazonaws.com"
+      SourceArn: !Ref CallerStackId
     
   DatadogCustomIAMFunction:
     Type: AWS::Lambda::Function
