@@ -1,0 +1,187 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Integration Custom IAM Resource
+Parameters:
+  DatadogIntegrationManagedPolicy:
+    Type: String
+    Description: The name of the IAM role that has been integrated with Datadog.
+    Default: DatadogIntegrationManagedPolicy
+  Product:
+    Type: String
+    Description: The product to update the IAM role for.
+    AllowedValues:
+      - CloudCost
+  ProductVariables:
+    Type: String
+    Description: The variables to be used in the product statement as a JSON string
+
+Resources:
+  LambdaExecutionRoleDatadogCustomIAM:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+  LambdaExecutionRolePolicyDatadogCustomIAMCall:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "dd-custom-iam-policy"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action: 
+              - "iam:GetPolicy"
+              - "iam:GetPolicyVersion"
+              - "iam:CreatePolicyVersion"
+              - "iam:DeletePolicyVersion"
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${DatadogIntegrationManagedPolicy}"
+            Condition:
+              StringEquals:
+                "aws:userid":
+                  !Join [":", [!GetAtt LambdaExecutionRoleDatadogCustomIAM.RoleId, !Ref DatadogCustomIAMFunction]]
+      Roles:
+        - !Ref LambdaExecutionRoleDatadogCustomIAM
+
+  DatadogCCMCustomIAM:
+    Type: "Custom::DatadogCustomIAM"
+    DependsOn: LambdaExecutionRolePolicyDatadogCustomIAMCall
+    Properties:
+      ServiceToken: !GetAtt DatadogCustomIAMFunction.Arn
+      DatadogIntegrationManagedPolicy: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${DatadogIntegrationManagedPolicy}"
+      Product: !Ref Product
+      ProductVariables: !Ref ProductVariables
+    
+  DatadogCustomIAMFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt LambdaExecutionRoleDatadogCustomIAM.Arn
+      Description: "A function to modify the IAM role integrated with Datadog."
+      Handler: "index.handler"
+      Runtime: "python3.11"
+      Timeout: 30
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import json
+          import secrets
+
+          def getCCMPolicyStatement(product_variables):
+              return [
+                  {
+                      "Sid": "ReadCloudCostBucket",
+                      "Effect": "Allow",
+                      "Action": [
+                          "s3:ListBucket"
+                      ],
+                      "Resource": "arn:aws:s3:::{product_variables["DDCloudCostBucketName"]}"
+                  },
+                  {
+                      "Sid": "GetBill",
+                      "Effect": "Allow",
+                      "Action": [
+                          "s3:GetObject"
+                      ],
+                      "Resource": "arn:aws:s3:::{product_variables["DDCloudCostBucketName"]}/{product_variables["DDCloudCostBucketPrefix"]}/{product_variables["DDCloudCostReportName"]}/*"
+                  },
+                  {
+                      "Sid": "CheckAccuracy",
+                      "Effect": "Allow",
+                      "Action": [
+                          "ce:Get*"
+                      ],
+                      "Resource": "*"
+                  },
+                  {
+                      "Sid": "ListCURs",
+                      "Effect": "Allow",
+                      "Action": [
+                          "cur:DescribeReportDefinitions"
+                      ],
+                      "Resource": "*"
+                  },
+                  {
+                      "Sid": "ListOrganizations",
+                      "Effect": "Allow",
+                      "Action": [
+                          "organizations:Describe*",
+                          "organizations:List*"
+                      ],
+                      "Resource": "*"
+                  }
+              ]
+
+          PRODUCT_TO_STATEMENTS = {
+              "CloudCost": {
+              "statementsGenerator": getCCMPolicyStatement,
+              "variables": ["DDCloudCostBucketName", "DDCloudCostBucketPrefix", "DDCloudCostReportName"]
+              }
+          }
+
+          def modify_policy(policy_json, method, statements, logical_resource_id, product):
+              policy_statements = policy_json['Statement']
+              policy_statements_by_id = {i['Sid']:i for i in policy_statements}
+              if method == 'Update' or method == 'Create':
+                  for statement in statements:
+                      policy_statements_by_id[statement['Sid']] = statement
+              elif method == 'Delete':
+                  statement_ids = list(policy_statements_by_id.keys())
+                  for statement_id in statement_ids:
+                      if statement_id.startswith(f"{logical_resource_id}{product}"):
+                          del policy_statements_by_id[statement_id]
+              else:
+                  raise ValueError('Invalid method')
+              policy_json['Statement'] = list(policy_statements_by_id.values())
+              return policy_json
+          
+          def prepare_statements(product, logical_resource_id, product_variables):
+              product_data = PRODUCT_TO_STATEMENTS.get(product)
+              statements = product_data["statementsGenerator"](product_variables)
+              for statement in statements:
+                  statement['Sid'] = f"{logical_resource_id}{product}{statement.get('Sid', secrets.token_hex(nbytes=3))}"
+              return statements
+
+          def get_policy(iam, policy_arn):
+              resp = iam.get_policy(PolicyArn=policy_arn)
+              version = resp["Policy"]["DefaultVersionId"]
+              policy_resp = iam.get_policy_version(PolicyArn=policy_arn, VersionId=version)
+              return (policy_resp["PolicyVersion"]["Document"], version)
+
+          def validate_variables(product_variables, product):
+              if not all([var in product_variables for var in PRODUCT_TO_STATEMENTS[product]['variables']]):
+                  raise ValueError('Invalid product variables, missing required keys')
+
+          def modify_iam(event, context):
+              method = event['RequestType']
+              policy_arn = event['ResourceProperties']['DatadogIntegrationManagedPolicy']
+              product = event['ResourceProperties']['Product']
+              product_variables = json.loads(event['ResourceProperties']['ProductVariables'])
+              logical_resource_id = event['ResourceProperties']['LogicalResourceId']
+
+              validate_variables(product_variables, product)
+              statements = prepare_statements(product, logical_resource_id, product_variables)
+
+              iam = boto3.client('iam')
+              policy_json, policy_version = get_policy(iam, policy_arn)
+              modified_policy_json = modify_policy(policy_json, method, statements, logical_resource_id, product)
+              iam.create_policy_version(PolicyArn=policy_arn, PolicyDocument=json.dumps(modified_policy_json), SetAsDefault=True)
+              iam.delete_policy_version(PolicyArn=policy_arn, VersionId=policy_version)
+
+          def handler(event, context):
+              print(event)
+              try:
+                  modify_iam(event, context)
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, context.log_stream_name)
+              except Exception as e:
+                  print(e)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, context.log_stream_name)
