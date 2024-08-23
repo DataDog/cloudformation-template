@@ -42,7 +42,6 @@ Resources:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_datatdog_iam/<VERSION_PLACEHOLDER>/datadog_custom_iam.yaml"
       Parameters:
         DatadogIntegrationManagedPolicy: !Ref DatadogIntegrationManagedPolicy
-        CallerStackId: !Ref "AWS::StackId"
       
   DatadogCCMCustomIAM:
     Type: "Custom::DatadogCustomIAM"
