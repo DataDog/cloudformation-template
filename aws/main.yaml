@@ -15,11 +15,11 @@ Parameters:
       It will be stored in AWS Secrets Manager securely. If DdApiKeySecretArn is also set, this value is ignored.
     Type: String
     NoEcho: true
-    Default: ""
+    Default: ''
   DdApiKeySecretArn:
     Type: String
-    AllowedPattern: "(arn:.*:secretsmanager:.*)?"
-    Default: ""
+    AllowedPattern: '(arn:.*:secretsmanager:.*)?'
+    Default: ''
     Description: The ARN of the secret storing the Datadog API key, if you already have it stored in Secrets Manager. You must store the secret as a plaintext, rather than a key-value pair.
   DdSite:
     Type: String
@@ -58,7 +58,7 @@ Parameters:
     Description: >-
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
     Type: String
-    Default: "464622532012"
+    Default: '464622532012'
   DdForwarderName:
     Type: String
     Default: DatadogForwarder
@@ -89,7 +89,7 @@ Conditions:
   WillCreateDdApiKeySecretArn:
     Fn::Equals:
       - Ref: DdApiKeySecretArn
-      - ""
+      - ''
 Rules:
   MustSetDdApiKey:
     Assertions:
@@ -98,11 +98,11 @@ Rules:
             - Fn::Not:
                 - Fn::Equals:
                     - Ref: DdApiKey
-                    - ""
+                    - ''
             - Fn::Not:
                 - Fn::Equals:
                     - Ref: DdApiKeySecretArn
-                    - ""
+                    - ''
         AssertDescription: DdApiKey or DdApiKeySecretArn must be set
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
@@ -110,12 +110,12 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Condition: ShouldInstallDatadogPolicyMacro
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_policy_macro.yaml"
+      TemplateURL: 'https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_policy_macro.yaml'
   # The IAM role for Datadog integration
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml"
+      TemplateURL: 'https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/datadog_integration_role.yaml'
       Parameters:
         ExternalId: !Ref ExternalId
         BasePermissions: !Ref BasePermissions
@@ -127,29 +127,39 @@ Resources:
       Tags:
         - # A trick to create a conditional dependency on DatadogPolicyMacroStack
           # https://stackoverflow.com/questions/34607476/cloudformation-apply-condition-on-dependson
-          Key: "DatadogPolicyMacroStackId"
-          Value: !If [ShouldInstallDatadogPolicyMacro, !Ref DatadogPolicyMacroStack, "null"]
+          Key: 'DatadogPolicyMacroStackId'
+          Value:
+            !If [
+              ShouldInstallDatadogPolicyMacro,
+              !Ref DatadogPolicyMacroStack,
+              'null',
+            ]
   # The Lambda function to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
   # https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring
   ForwarderStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/latest.yaml"
+      TemplateURL: 'https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/latest.yaml'
       Parameters:
         DdApiKey: !Ref DdApiKey
-        DdApiKeySecretArn: !If [WillCreateDdApiKeySecretArn, "arn:aws:secretsmanager:DEFAULT", !Ref DdApiKeySecretArn]
+        DdApiKeySecretArn:
+          !If [
+            WillCreateDdApiKeySecretArn,
+            'arn:aws:secretsmanager:DEFAULT',
+            !Ref DdApiKeySecretArn,
+          ]
         DdSite: !Ref DdSite
         FunctionName: !Ref DdForwarderName
 Outputs:
   IAMRoleName:
-    Description: AWS IAM Role named to be used with the DataDog AWS Integration 
+    Description: AWS IAM Role named to be used with the DataDog AWS Integration
     Value: !Ref IAMRoleName
   AccountId:
     Description: AWS Account number
-    Value: !Ref "AWS::AccountId"
+    Value: !Ref 'AWS::AccountId'
   Region:
     Description: AWS Region
-    Value: !Ref "AWS::Region"
+    Value: !Ref 'AWS::Region'
   DatadogForwarderArn:
     Description: Datadog Forwarder Lambda Function ARN
     Value:
@@ -172,31 +182,31 @@ Outputs:
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
-    - Label:
-        default: Required
-      Parameters:
-        - IAMRoleName
-        - ExternalId
-        - DdApiKey
-        - DdApiKeySecretArn
-        - BasePermissions
-        - DdSite
-    - Label:
-        default: Optional
-      Parameters:
-        - LogArchives
-        - CloudTrails
-        - CloudSecurityPostureManagementPermissions
-    - Label:
-        default: Advanced
-      Parameters:
-        - DdAWSAccountId
-        - DdForwarderName
-        - InstallDatadogPolicyMacro
+      - Label:
+          default: Required
+        Parameters:
+          - IAMRoleName
+          - ExternalId
+          - DdApiKey
+          - DdApiKeySecretArn
+          - BasePermissions
+          - DdSite
+      - Label:
+          default: Optional
+        Parameters:
+          - LogArchives
+          - CloudTrails
+          - CloudSecurityPostureManagementPermissions
+      - Label:
+          default: Advanced
+        Parameters:
+          - DdAWSAccountId
+          - DdForwarderName
+          - InstallDatadogPolicyMacro
     ParameterLabels:
       ExternalId:
-        default: "ExternalId *"
+        default: 'ExternalId *'
       DdApiKey:
-        default: "DdApiKey *"
+        default: 'DdApiKey *'
       DdSite:
-        default: "DdSite *"
+        default: 'DdSite *'

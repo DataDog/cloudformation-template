@@ -46,7 +46,7 @@ Parameters:
     Description: >-
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
     Type: String
-    Default: "464622532012"
+    Default: '464622532012'
 Conditions:
   GrantFullPermissions:
     Fn::Equals:
@@ -64,8 +64,8 @@ Resources:
         config:
           # cfn-lint does not yet support "Fn::Transform"
           ignore_checks:
-          - E3002
-          - E3003
+            - E3002
+            - E3003
     Properties:
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -74,7 +74,7 @@ Resources:
             Principal:
               AWS: !Sub
                 - 'arn:aws:iam::${DdAWSAccountId}:root'
-                - { DdAWSAccountId: !Ref DdAWSAccountId}
+                - { DdAWSAccountId: !Ref DdAWSAccountId }
             Action:
               - 'sts:AssumeRole'
             Condition:
@@ -82,134 +82,137 @@ Resources:
                 'sts:ExternalId': !Ref ExternalId
       Path: /
       RoleName: !Ref IAMRoleName
-      ManagedPolicyArns: !If [ShouldInstallCSPMPolicy, ['arn:aws:iam::aws:policy/SecurityAudit'], !Ref AWS::NoValue]
+      ManagedPolicyArns:
+        !If [
+          ShouldInstallCSPMPolicy,
+          ['arn:aws:iam::aws:policy/SecurityAudit'],
+          !Ref AWS::NoValue,
+        ]
       Policies:
         - PolicyName: DatadogAWSIntegrationPolicy
           PolicyDocument:
             Version: 2012-10-17
             Statement:
-            - !If
-              - GrantFullPermissions
-              -
-                Effect: Allow
-                Resource: '*'
-                Action:
-                  - 'apigateway:GET'
-                  - 'autoscaling:Describe*'
-                  - 'backup:List*'
-                  - 'bcm-data-exports:GetExport'
-                  - 'bcm-data-exports:ListExports'
-                  - 'budgets:ViewBudget'
-                  - 'cloudfront:GetDistributionConfig'
-                  - 'cloudfront:ListDistributions'
-                  - 'cloudtrail:DescribeTrails'
-                  - 'cloudtrail:GetTrailStatus'
-                  - 'cloudtrail:LookupEvents'
-                  - 'cloudwatch:Describe*'
-                  - 'cloudwatch:Get*'
-                  - 'cloudwatch:List*'
-                  - 'codedeploy:BatchGet*'
-                  - 'codedeploy:List*'
-                  - 'cur:DescribeReportDefinitions'
-                  - 'directconnect:Describe*'
-                  - 'dynamodb:Describe*'
-                  - 'dynamodb:List*'
-                  - 'ec2:Describe*'
-                  - 'ec2:GetTransitGatewayPrefixListReferences'
-                  - 'ec2:SearchTransitGatewayRoutes'
-                  - 'ecs:Describe*'
-                  - 'ecs:List*'
-                  - 'elasticache:Describe*'
-                  - 'elasticache:List*'
-                  - 'elasticfilesystem:DescribeAccessPoints'
-                  - 'elasticfilesystem:DescribeFileSystems'
-                  - 'elasticfilesystem:DescribeTags'
-                  - 'elasticloadbalancing:Describe*'
-                  - 'elasticmapreduce:Describe*'
-                  - 'elasticmapreduce:List*'
-                  - 'es:DescribeElasticsearchDomains'
-                  - 'es:ListDomainNames'
-                  - 'es:ListTags'
-                  - 'events:CreateEventBus'
-                  - 'fsx:DescribeFileSystems'
-                  - 'fsx:ListTagsForResource'
-                  - 'health:DescribeAffectedEntities'
-                  - 'health:DescribeEventDetails'
-                  - 'health:DescribeEvents'
-                  - 'kinesis:Describe*'
-                  - 'kinesis:List*'
-                  - 'lambda:GetPolicy'
-                  - 'lambda:List*'
-                  - 'logs:DeleteSubscriptionFilter'
-                  - 'logs:DescribeLogGroups'
-                  - 'logs:DescribeLogStreams'
-                  - 'logs:DescribeSubscriptionFilters'
-                  - 'logs:FilterLogEvents'
-                  - 'logs:PutSubscriptionFilter'
-                  - 'logs:TestMetricFilter'
-                  - 'oam:ListAttachedLinks'
-                  - 'oam:ListSinks'
-                  - 'organizations:Describe*'
-                  - 'organizations:List*'
-                  - 'rds:Describe*'
-                  - 'rds:List*'
-                  - 'redshift:DescribeClusters'
-                  - 'redshift:DescribeLoggingStatus'
-                  - 'route53:List*'
-                  - 's3:GetBucketLocation'
-                  - 's3:GetBucketLogging'
-                  - 's3:GetBucketNotification'
-                  - 's3:GetBucketTagging'
-                  - 's3:ListAllMyBuckets'
-                  - 's3:PutBucketNotification'
-                  - 'ses:Get*'
-                  - 'sns:GetSubscriptionAttributes'
-                  - 'sns:List*'
-                  - 'sns:Publish'
-                  - 'sqs:ListQueues'
-                  - 'states:DescribeStateMachine'
-                  - 'states:ListStateMachines'
-                  - 'support:DescribeTrustedAdvisor*'
-                  - 'support:RefreshTrustedAdvisorCheck'
-                  - 'tag:GetResources'
-                  - 'tag:GetTagKeys'
-                  - 'tag:GetTagValues'
-                  - 'wafv2:GetLoggingConfiguration'
-                  - 'wafv2:ListLoggingConfigurations'
-                  - 'xray:BatchGetTraces'
-                  - 'xray:GetTraceSummaries'
-              -
-                Effect: Allow
-                Resource: '*'
-                Action:
-                  - 'cloudwatch:Get*'
-                  - 'cloudwatch:List*'
-                  - 'ec2:Describe*'
-                  - 'tag:GetResources'
-                  - 'tag:GetTagKeys'
-                  - 'tag:GetTagValues'
+              - !If
+                - GrantFullPermissions
+                - Effect: Allow
+                  Resource: '*'
+                  Action:
+                    - 'apigateway:GET'
+                    - 'autoscaling:Describe*'
+                    - 'backup:List*'
+                    - 'bcm-data-exports:GetExport'
+                    - 'bcm-data-exports:ListExports'
+                    - 'budgets:ViewBudget'
+                    - 'cloudfront:GetDistributionConfig'
+                    - 'cloudfront:ListDistributions'
+                    - 'cloudtrail:DescribeTrails'
+                    - 'cloudtrail:GetTrailStatus'
+                    - 'cloudtrail:LookupEvents'
+                    - 'cloudwatch:Describe*'
+                    - 'cloudwatch:Get*'
+                    - 'cloudwatch:List*'
+                    - 'codedeploy:BatchGet*'
+                    - 'codedeploy:List*'
+                    - 'cur:DescribeReportDefinitions'
+                    - 'directconnect:Describe*'
+                    - 'dynamodb:Describe*'
+                    - 'dynamodb:List*'
+                    - 'ec2:Describe*'
+                    - 'ec2:GetTransitGatewayPrefixListReferences'
+                    - 'ec2:SearchTransitGatewayRoutes'
+                    - 'ecs:Describe*'
+                    - 'ecs:List*'
+                    - 'elasticache:Describe*'
+                    - 'elasticache:List*'
+                    - 'elasticfilesystem:DescribeAccessPoints'
+                    - 'elasticfilesystem:DescribeFileSystems'
+                    - 'elasticfilesystem:DescribeTags'
+                    - 'elasticloadbalancing:Describe*'
+                    - 'elasticmapreduce:Describe*'
+                    - 'elasticmapreduce:List*'
+                    - 'es:DescribeElasticsearchDomains'
+                    - 'es:ListDomainNames'
+                    - 'es:ListTags'
+                    - 'events:CreateEventBus'
+                    - 'fsx:DescribeFileSystems'
+                    - 'fsx:ListTagsForResource'
+                    - 'health:DescribeAffectedEntities'
+                    - 'health:DescribeEventDetails'
+                    - 'health:DescribeEvents'
+                    - 'kinesis:Describe*'
+                    - 'kinesis:List*'
+                    - 'lambda:GetPolicy'
+                    - 'lambda:List*'
+                    - 'logs:DeleteSubscriptionFilter'
+                    - 'logs:DescribeLogGroups'
+                    - 'logs:DescribeLogStreams'
+                    - 'logs:DescribeSubscriptionFilters'
+                    - 'logs:FilterLogEvents'
+                    - 'logs:PutSubscriptionFilter'
+                    - 'logs:TestMetricFilter'
+                    - 'oam:ListAttachedLinks'
+                    - 'oam:ListSinks'
+                    - 'organizations:Describe*'
+                    - 'organizations:List*'
+                    - 'rds:Describe*'
+                    - 'rds:List*'
+                    - 'redshift:DescribeClusters'
+                    - 'redshift:DescribeLoggingStatus'
+                    - 'route53:List*'
+                    - 's3:GetBucketLocation'
+                    - 's3:GetBucketLogging'
+                    - 's3:GetBucketNotification'
+                    - 's3:GetBucketTagging'
+                    - 's3:ListAllMyBuckets'
+                    - 's3:PutBucketNotification'
+                    - 'ses:Get*'
+                    - 'sns:GetSubscriptionAttributes'
+                    - 'sns:List*'
+                    - 'sns:Publish'
+                    - 'sqs:ListQueues'
+                    - 'states:DescribeStateMachine'
+                    - 'states:ListStateMachines'
+                    - 'support:DescribeTrustedAdvisor*'
+                    - 'support:RefreshTrustedAdvisorCheck'
+                    - 'tag:GetResources'
+                    - 'tag:GetTagKeys'
+                    - 'tag:GetTagValues'
+                    - 'wafv2:GetLoggingConfiguration'
+                    - 'wafv2:ListLoggingConfigurations'
+                    - 'xray:BatchGetTraces'
+                    - 'xray:GetTraceSummaries'
+                - Effect: Allow
+                  Resource: '*'
+                  Action:
+                    - 'cloudwatch:Get*'
+                    - 'cloudwatch:List*'
+                    - 'ec2:Describe*'
+                    - 'tag:GetResources'
+                    - 'tag:GetTagKeys'
+                    - 'tag:GetTagValues'
         - Fn::Transform:
-          - Name: 'DatadogPolicy'
-            Parameters:
-              PolicyType: LogArchive
-              LogArchives: !Ref LogArchives
+            - Name: 'DatadogPolicy'
+              Parameters:
+                PolicyType: LogArchive
+                LogArchives: !Ref LogArchives
         - Fn::Transform:
-          - Name: 'DatadogPolicy'
-            Parameters:
-              PolicyType: CloudTrail
-              CloudTrails: !Ref CloudTrails
+            - Name: 'DatadogPolicy'
+              Parameters:
+                PolicyType: CloudTrail
+                CloudTrails: !Ref CloudTrails
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
-    - Label:
-        default: Required
-      Parameters:
-        - ExternalId
-        - IAMRoleName
-        - BasePermissions
-    - Label:
-        default: Optional
-      Parameters:
-        - LogArchives
-        - CloudTrails
-        - CloudSecurityPostureManagementPermissions
+      - Label:
+          default: Required
+        Parameters:
+          - ExternalId
+          - IAMRoleName
+          - BasePermissions
+      - Label:
+          default: Optional
+        Parameters:
+          - LogArchives
+          - CloudTrails
+          - CloudSecurityPostureManagementPermissions
