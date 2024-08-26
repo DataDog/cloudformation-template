@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Datadog AWS Integration
+Description: Configures the Datadog AWS Integration
 Parameters:
   DatadogApiKey:
     Description: >-
@@ -59,7 +59,7 @@ Conditions:
       - true
 
 Resources:
-  LambdaExecutionRoleDatadogAPICall:
+  DatadogAPIHandlerLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -75,155 +75,186 @@ Resources:
       ManagedPolicyArns:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 
-  DatadogAPICall:
-    Type: "Custom::DatadogAPICall"
+  DatadogAWSAccountIntegration:
+    Type: "Custom::DatadogAWSAccountIntegration"
     Properties:
-      ServiceToken: !GetAtt DatadogAPICallFunction.Arn
+      ServiceToken: !GetAtt DatadogAPIHandlerFunction.Arn
       APIKey: !Ref DatadogApiKey
       APPKey: !Ref DatadogAppKey
       ApiURL: !Ref DatadogSite
       AccountId: !Ref AWS::AccountId
       RoleName: !Ref IAMRoleName
-      HostTags: [ !Sub "aws_account:${AWS::AccountId}" ]
+      AWSPartition: !Ref AWS::Partition
+      AccountTags: [!Sub "aws_account:${AWS::AccountId}"]
       CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
       DisableMetricCollection: !Ref DisableMetricCollection
-  DatadogAPICallFunction:
+  DatadogAPIHandlerFunction:
     Type: "AWS::Lambda::Function"
     Properties:
       Description: "A function to call the Datadog API."
-      Role: !GetAtt LambdaExecutionRoleDatadogAPICall.Arn
+      Role: !GetAtt DatadogAPIHandlerLambdaExecutionRole.Arn
       Handler: "index.handler"
       Runtime: "python3.11"
       Timeout: 30
       Code:
         ZipFile: |
-          import boto3
-
           import json
           import logging
           import signal
-          from urllib.request import build_opener, HTTPHandler, Request
+          from urllib.request import Request
           import urllib.parse
+          import cfnresponse
 
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
 
           API_CALL_SOURCE_HEADER_VALUE = "cfn-organizations"
 
+
           def call_datadog_api(event, method):
-              api_key = event['ResourceProperties']['APIKey']
-              app_key = event['ResourceProperties']['APPKey']
-              api_url = event['ResourceProperties']['ApiURL']
-              account_id = event['ResourceProperties']['AccountId']
-              role_name = event['ResourceProperties']['RoleName']
-              host_tags = event['ResourceProperties']['HostTags']
-              cspm = event['ResourceProperties']['CloudSecurityPostureManagement']
-              metrics_disabled = event['ResourceProperties']['DisableMetricCollection']
+              api_key = event["ResourceProperties"]["APIKey"]
+              app_key = event["ResourceProperties"]["APPKey"]
+              api_url = event["ResourceProperties"]["ApiURL"]
+              account_id = event["ResourceProperties"]["AccountId"]
+              role_name = event["ResourceProperties"]["RoleName"]
+              aws_partition = event["ResourceProperties"]["AWSPartition"]
+              account_tags = event["ResourceProperties"]["AccountTags"]
+              cspm = event["ResourceProperties"]["CloudSecurityPostureManagement"]
+              metrics_disabled = event["ResourceProperties"]["DisableMetricCollection"]
 
               # Make the url Request
-              url = 'https://api.' + api_url + '/api/v1/integration/aws'
-              values = {
-                  'account_id': account_id,
-                  'role_name': role_name,
-              }
-              if method != "DELETE":
-                  values["host_tags"] = host_tags
-                  values["cspm_resource_collection_enabled"] = cspm == "true"
-                  values["metrics_collection_enabled"] = metrics_disabled == "false"
-
+              url = "https://api." + api_url + "/api/v2/integration/aws/accounts"
               headers = {
-                  'DD-API-KEY': api_key,
-                  'DD-APPLICATION-KEY': app_key,
-                  'Dd-Aws-Api-Call-Source': API_CALL_SOURCE_HEADER_VALUE,
+                  "DD-API-KEY": api_key,
+                  "DD-APPLICATION-KEY": app_key,
+                  "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
               }
-              data = json.dumps(values)
-              data = data.encode('utf-8')  # data should be bytes
-              request = Request(url, data=data, headers=headers)
-              request.add_header('Content-Type', 'application/json; charset=utf-8')
-              request.add_header('Content-Length', len(data))
-              request.get_method = lambda: method
 
-              # Send the url Request, store external_id
-              response = urllib.request.urlopen(request)
+              if method == "PATCH" or method == "DELETE":
+                  url = url + "/" + account_id
+
+              if method == "DELETE":
+                  # DELETE request has no body
+                  request = Request(url, headers=headers)
+              else:
+                  # Create the request body for POST and PATCH
+                  values = {
+                      "data": {
+                          "type": "account",
+                          "attributes": {
+                              "aws_account_id": account_id,
+                              "account_tags": account_tags,
+                              "aws_partition": aws_partition,
+                              "auth_config": {"role_name": role_name},
+                              "metrics_config": {
+                                  "enabled": (metrics_disabled == "false"),
+                                  "namespace_filters": {"include_all": True},
+                              },
+                              "resources_config": {
+                                  "cloud_security_posture_management_collection": (
+                                      cspm == "true"
+                                  )
+                              }
+                          }
+                      }
+                  }
+
+                  data = json.dumps(values)
+                  data = data.encode("utf-8")  # data should be bytes
+                  request = Request(url, data=data, headers=headers)
+                  request.add_header("Content-Type", "application/json; charset=utf-8")
+                  request.add_header("Content-Length", len(data))
+
+              # Send the request
+              request.get_method = lambda: method
+              try:
+                  response = urllib.request.urlopen(request)
+              except urllib.error.HTTPError as e:
+                  # Return error response from API
+                  response = e
               return response
 
+
           def handler(event, context):
-              '''Handle Lambda event from AWS'''
+              """Handle Lambda event from AWS"""
+              if event["RequestType"] == "Create":
+                  LOGGER.info("Received Create request.")
+                  method = "POST"
+
+              elif event["RequestType"] == "Update":
+                  LOGGER.info("Received Update request.")
+                  method = "PATCH"
+
+              elif event["RequestType"] == "Delete":
+                  LOGGER.info("Received Delete request.")
+                  method = "DELETE"
+              else:
+                  LOGGER.info("Failed - received unexpected request.")
+                  msg = {"Message": "Received unexpected request type: {}".format(event["RequestType"])}
+                  reason = json.dumps(msg)
+                  cfnresponse.send(
+                      event,
+                      context,
+                      responseStatus="FAILED",
+                      responseData=msg,
+                      reason=reason,
+                  )
+                  return
+
               try:
-                  LOGGER.info('REQUEST RECEIVED:\n %s', event)
-                  LOGGER.info('REQUEST RECEIVED:\n %s', context)
-                  if event['RequestType'] == 'Create':
-                      LOGGER.info('Received Create request.')
-                      response = call_datadog_api(event, 'POST')
-                      if response.getcode() == 200:
-                          json_response = json.loads(response.read().decode("utf-8"))
-                          send_response(event, context, "SUCCESS",
-                                        {
-                                            "Message": "Datadog AWS Integration created successfully.",
-                                            "ExternalId": json_response["external_id"],
-                                        })
-                      else:
-                          LOGGER.info('Failed - exception thrown during processing.')
-                          send_response(event, context, "FAILED", {
-                              "Message": "Http response: {}".format(response.msg)})
+                  # Call Datadog API and report response back to CloudFormation
+                  response = call_datadog_api(event, method)
+                  cfn_response_send_api_result(event, context, method, response)
 
-                  elif event['RequestType'] == 'Update':
-                      LOGGER.info('Received Update request.')
-                      send_response(event, context, "SUCCESS",
-                                    {"Message": "Update not supported, no operation performed."})
-                  elif event['RequestType'] == 'Delete':
-                      LOGGER.info('Received Delete request.')
-                      response = call_datadog_api(event, 'DELETE')
-
-                      if response.getcode() == 200:
-                          send_response(event, context, "SUCCESS",
-                                        {
-                                            "Message": "Datadog AWS Integration deleted successfully.",
-                                        })
-                      else:
-                          LOGGER.info('Failed - exception thrown during processing.')
-                          send_response(event, context, "FAILED", {
-                              "Message": "Http response: {}".format(response.msg)})
-
-                  else:
-                      LOGGER.info('Failed - received unexpected request.')
-                      send_response(event, context, "FAILED",
-                                    {"Message": "Unexpected event received from CloudFormation"})
-              except Exception as e:  # pylint: disable=W0702
-                  LOGGER.info('Failed - exception thrown during processing.')
-                  send_response(event, context, "FAILED", {
-                      "Message": "Exception during processing: {}".format(e)})
+              except Exception as e:
+                  LOGGER.info("Failed - exception thrown during processing.")
+                  msg = {"Message": "Exception during processing: {}".format(e)}
+                  reason = json.dumps(msg)
+                  cfnresponse.send(
+                      event,
+                      context,
+                      "FAILED",
+                      responseData=msg,
+                      reason=reason,
+                  )
 
 
-          def send_response(event, context, response_status, response_data):
-              '''Send a resource manipulation status response to CloudFormation'''
-              response_body = json.dumps({
-                  "Status": response_status,
-                  "Reason": "See the details in CloudWatch Log Stream: " + context.log_stream_name,
-                  "PhysicalResourceId": context.log_stream_name,
-                  "StackId": event['StackId'],
-                  "RequestId": event['RequestId'],
-                  "LogicalResourceId": event['LogicalResourceId'],
-                  "Data": response_data
-              })
-              formatted_response = response_body.encode("utf-8")
+          def cfn_response_send_api_result(event, context, method, response):
+              reason = None
+              json_response = ""
+              code = response.getcode()
+              data = response.read()
+              if data:
+                  json_response = json.loads(data)
+              if code == 200 or code == 204:
+                  LOGGER.info("Success - Datadog API call was successful.")
+                  response_status = "SUCCESS"
+                  msg = {"Message": "Datadog AWS Integration {} API request was successful.".format(method)}
 
-              LOGGER.info('ResponseURL: %s', event['ResponseURL'])
-              LOGGER.info('ResponseBody: %s', response_body)
+                  # return external ID for create and update
+                  if method == "POST" or method == "PATCH":
+                      external_id = json_response["data"]["attributes"]["auth_config"]["external_id"]
+                      msg["ExternalId"] = external_id
+              else:
+                  LOGGER.info("Failed - Datadog API call failed.")
+                  response_status = "FAILED"
+                  msg = {
+                      "Message": "Datadog API returned error: {}".format(json_response)
+                  }
+                  reason = json.dumps(msg)  # surface error in CloudFormation console
 
-              opener = build_opener(HTTPHandler)
-              request = Request(event['ResponseURL'], data=formatted_response)
-              request.add_header('Content-Type', 'application/json; charset=utf-8')
-              request.add_header('Content-Length', len(formatted_response))
-              request.get_method = lambda: 'PUT'
-              response = opener.open(request)
-              LOGGER.info("Status code: %s", response.getcode())
-              LOGGER.info("Status message: %s", response.msg)
+              cfnresponse.send(
+                  event,
+                  context,
+                  responseStatus=response_status,
+                  responseData=msg,
+                  reason=reason,
+              )
 
 
           def timeout_handler(_signal, _frame):
-              '''Handle SIGALRM'''
-              raise Exception('Time exceeded')
+              """Handle SIGALRM"""
+              raise Exception("Time exceeded")
 
 
           signal.signal(signal.SIGALRM, timeout_handler)
@@ -251,7 +282,7 @@ Resources:
               - 'sts:AssumeRole'
             Condition:
               StringEquals:
-                'sts:ExternalId': !GetAtt DatadogAPICall.ExternalId
+                'sts:ExternalId': !GetAtt DatadogAWSAccountIntegration.ExternalId
       Path: /
       RoleName: !Ref IAMRoleName
       ManagedPolicyArns: !If [ ShouldInstallCSPMPolicy, [ !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit" ], !Ref AWS::NoValue ]
