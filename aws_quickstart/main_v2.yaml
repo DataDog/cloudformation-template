@@ -95,7 +95,7 @@ Resources:
         DatadogApiKey: !Ref APIKey
         DatadogAppKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
-        RoleName: !Ref IAMRoleName
+        IAMRoleName: !Ref IAMRoleName
         CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
         DisableMetricCollection: !Ref DisableMetricCollection
   # The IAM role for Datadog integration

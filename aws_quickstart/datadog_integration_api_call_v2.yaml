@@ -24,7 +24,7 @@ Parameters:
       - us5.datadoghq.com
       - ap1.datadoghq.com
       - ddog-gov.com
-  RoleName:
+  IAMRoleName:
     Description: >-
       The name of the IAM role created for Datadog's use.
     Type: String
@@ -65,7 +65,6 @@ Resources:
       Path: "/"
       ManagedPolicyArns:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-  # Retrieving secrets passed in via SecretsManager Arn
   DatadogAWSAccountIntegration:
     Type: "Custom::DatadogAWSAccountIntegration"
     Properties:
@@ -74,7 +73,7 @@ Resources:
       APPKey: !Ref DatadogAppKey
       ApiURL: !Ref DatadogSite
       AccountId: !Ref AWS::AccountId
-      RoleName: !Ref RoleName
+      RoleName: !Ref IAMRoleName
       AWSPartition: !Ref AWS::Partition
       AccountTags: [!Sub "aws_account:${AWS::AccountId}"]
       CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
