@@ -3,6 +3,7 @@ Description: Datadog Agentless Scanner CloudFormation deployment template
 Parameters:
   DatadogAPIKey:
     Type: String
+    AllowedPattern: "[0-9a-f]{32}"
     Description: >-
       API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys).
       To enable Agentless Scanning (find at https://docs.datadoghq.com/security/cloud_security_management/agentless_scanning),
@@ -11,6 +12,7 @@ Parameters:
 
   DatadogAPPKey:
     Type: String
+    AllowedPattern: "[0-9a-f]{40}"
     Description: APP key for the Datadog account
     NoEcho: true
 
