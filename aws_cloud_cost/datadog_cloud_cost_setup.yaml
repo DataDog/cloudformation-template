@@ -21,7 +21,7 @@ Parameters:
     AllowedValues:
       - true
       - false
-    Description: Whether to create the S3 bucket for storing the cost and usage reports.
+    Description: Should the S3 bucket for storing the cost and usage reports be created, or use an existing bucket.
 
 Conditions:
   ShouldCreateCloudCostBucket:
@@ -64,6 +64,7 @@ Resources:
               - organizations:Describe*
               - organizations:List*
             Resource: "*"
+
   DDCloudCostBucket:
     Condition: ShouldCreateCloudCostBucket
     Type: AWS::S3::Bucket
