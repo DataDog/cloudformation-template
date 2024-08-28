@@ -1,6 +1,6 @@
 # Datadog AWS Cloud Cost Setup
 
-[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-cloud-cost-setup&templateURL=https://datadog-cloudformation-template.s3.amazonaws.com/aws/datadog_cloud_cost_setup.yaml)
+[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-cloud-cost&templateURL=https://datadog-cloudformation-template.s3.amazonaws.com/aws_cloud_cost/v0.0.1/main.yaml)
 
 ## AWS Resources
 
@@ -20,7 +20,7 @@ Use the release script to upload the template to a S3 bucket following the examp
 ```
 
 Use an optional argument `--private` to prevent granting public access to the uploaded template (good for testing purposes). 
-The uploaded template file can be found at `/aws/datadog_cloud_cost_setup.yaml` key on the chosen S3 bucket.
+The uploaded template file can be found at `/aws_cloud_cost/main.yaml` key on the chosen S3 bucket.
 
 
 
