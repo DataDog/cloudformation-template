@@ -6,17 +6,15 @@ Parameters:
   DDCloudCostBucketRegion:
     Type: String
     Description: The AWS region where the S3 bucket is located.
-    Default: us-east-1
   DDCloudCostBucketPrefix:
     Type: String
     Description: The prefix to be added to the cost and usage report files in the S3 bucket.
   DDCloudCostReportName:
     Type: String
     Description: The name of the cost and usage report.
-  DatadogIntegrationManagedPolicy:
+  DatadogIntegrationRole:
     Type: String
-    Description: The name of the IAM policy used in the role that has been integrated with Datadog.
-    Default: DatadogIntegrationManagedPolicy
+    Description: The name of the IAM role that has been integrated with Datadog.
   CreateCloudCostBucket:
     Type: String
     Default: true
@@ -32,21 +30,40 @@ Conditions:
       - true
 
 Resources:
-  DatadogCustomIAM:
-    Type: AWS::CloudFormation::Stack
+  DatadogCCMIAMPolicy:
+    Type: AWS::IAM::RolePolicy
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_datatdog_iam/<VERSION_PLACEHOLDER>/datadog_custom_iam.yaml"
-      Parameters:
-        DatadogIntegrationManagedPolicy: !Ref DatadogIntegrationManagedPolicy
-      
-  DatadogCCMCustomIAM:
-    Type: "Custom::DatadogCustomIAM"
-    Properties:
-      ServiceToken: !GetAtt DatadogCustomIAM.DatadogCustomIAMFunctionArn
-      DatadogIntegrationManagedPolicy: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${DatadogIntegrationManagedPolicy}"
-      Product: CloudCost
-      ProductVariables: !Sub '{"DDCloudCostReportName": "${DDCloudCostReportName}", "DDCloudCostBucketPrefix": "${DDCloudCostBucketPrefix}", "DDCloudCostBucketName": "${DDCloudCostBucketName}" }'
-
+      PolicyName: datadog-ccm-iam-policy
+      RoleName: !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ReadCloudCostBucket
+            Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource: !Sub "arn:aws:s3:::${DDCloudCostBucketName}"
+          - Sid: GetBill
+            Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${DDCloudCostBucketName}/${DDCloudCostBucketPrefix}/${DDCloudCostReportName}/*"
+          - Sid: CheckAccuracy
+            Effect: Allow
+            Action:
+              - ce:Get*
+            Resource: "*"
+          - Sid: ListCURs
+            Effect: Allow
+            Action:
+              - cur:DescribeReportDefinitions
+            Resource: "*"
+          - Sid: ListOrganizations
+            Effect: Allow
+            Action:
+              - organizations:Describe*
+              - organizations:List*
+            Resource: "*"
   DDCloudCostBucket:
     Condition: ShouldCreateCloudCostBucket
     Type: AWS::S3::Bucket
