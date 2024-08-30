@@ -201,6 +201,11 @@ Resources:
           ToPort: 65535
           Description: All traffic
           IpProtocol: 'tcp'
+        - CidrIpv6: '::/0'
+          FromPort: 0
+          ToPort: 65535
+          Description: All traffic
+          IpProtocol: 'tcp'
       Tags:
         - Key: Datadog
           Value: 'true'
@@ -220,7 +225,6 @@ Resources:
       LaunchTemplateData:
         NetworkInterfaces:
           - DeviceIndex: 0
-            AssociatePublicIpAddress: false
             DeleteOnTermination: true
             SubnetId: !If [CreateVPCResources, !Ref 'VPCSubnetPrivate', !Ref 'ScannerSubnetId']
             Groups:
