@@ -350,7 +350,7 @@ Resources:
               api_key: $DD_API_KEY
               site: $DD_SITE
               installation_mode: cloudformation
-              installation_version: 0.11.2
+              installation_version: 0.11.3
               default_roles:
                 - "arn:aws:iam::${AWS::AccountId}:role/${ScannerDelegateRoleName}"
               EOF
@@ -427,12 +427,14 @@ Resources:
             Resource:
               - 'arn:aws:ec2:*:*:volume/*'
               - 'arn:aws:ec2:*:*:snapshot/*'
+              - 'arn:aws:ec2:*:*:image/*'
             Condition:
               StringEquals:
                 'ec2:CreateAction':
                   - CreateSnapshot
                   - CreateVolume
                   - CopySnapshot
+                  - CopyImage
           - Sid: DatadogAgentlessScannerVolumeSnapshotCreation
             Action: 'ec2:CreateSnapshot'
             Effect: Allow
@@ -485,6 +487,24 @@ Resources:
             Action: 'kms:DescribeKey'
             Effect: Allow
             Resource: 'arn:aws:kms:*:*:key/*'
+          - Sid: DatadogAgentlessScannerCopyImage
+            Action: 'ec2:CopyImage'
+            Effect: Allow
+            Resource:
+            - 'arn:aws:ec2:*:*:image/*'
+            - 'arn:aws:ec2:*:*:snapshot/*'
+            Condition:
+              'ForAllValues:StringLike':
+                'aws:TagKeys': DatadogAgentlessScanner*
+              StringEquals:
+                'aws:RequestTag/DatadogAgentlessScanner': 'true'
+          - Sid: DatadogAgentlessScannerImageCleanup
+            Action: 'ec2:DeregisterImage'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:image/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
 
   ScannerDelegateRoleWorkerPolicy:
     Type: AWS::IAM::ManagedPolicy
