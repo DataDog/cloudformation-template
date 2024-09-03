@@ -483,7 +483,6 @@ Resources:
               'ForAnyValue:StringEquals':
                 'kms:EncryptionContextKeys': 'aws:ebs:id'
               StringLike:
-                'kms:EncryptionContext:aws:ebs:id': 'snap-*'
                 'kms:ViaService': 'ec2.*.amazonaws.com'
               Bool:
                 'kms:GrantIsForAWSResource': true
@@ -543,7 +542,6 @@ Resources:
               'ForAnyValue:StringEquals':
                 'kms:EncryptionContextKeys': 'aws:ebs:id'
               StringLike:
-                'kms:EncryptionContext:aws:ebs:id': 'snap-*'
                 'kms:ViaService': 'ec2.*.amazonaws.com'
           - Sid: DatadogAgentlessScannerKMSDescribe
             Action: 'kms:DescribeKey'
