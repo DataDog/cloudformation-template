@@ -964,6 +964,9 @@ Resources:
       Description: "A function to call the Datadog Agentless API."
       Role: !GetAtt LambdaExecutionRoleDatadogAgentlessAPICall.Arn
       Handler: "index.handler"
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
       Runtime: "python3.11"
       Timeout: 30
       Code:
@@ -977,7 +980,6 @@ Resources:
           import urllib.parse
 
           LOGGER = logging.getLogger()
-          LOGGER.setLevel(logging.INFO)
 
           API_CALL_SOURCE_HEADER_VALUE = "cfn-agentless-quick-start"
 
@@ -1043,7 +1045,7 @@ Resources:
                                             "Message": "Datadog AWS Agentless Scanning Integration created successfully.",
                                         })
                       else:
-                          LOGGER.info('Failed - exception thrown during processing.')
+                          LOGGER.error('Failed - unexpected status code: %d', response.getcode())
                           send_response(event, context, "FAILED", {
                               "Message": "Http response: {}".format(response.msg)})
 
@@ -1061,16 +1063,16 @@ Resources:
                                             "Message": "Datadog AWS Agentless Scanning Integration deleted successfully.",
                                         })
                       else:
-                          LOGGER.info('Failed - exception thrown during processing.')
+                          LOGGER.error('Failed - unexpected status code: %d', response.getcode())
                           send_response(event, context, "FAILED", {
                               "Message": "Http response: {}".format(response.msg)})
 
                   else:
-                      LOGGER.info('Failed - received unexpected request.')
+                      LOGGER.error('Failed - received unexpected request: %s', event['RequestType'])
                       send_response(event, context, "FAILED",
                                     {"Message": "Unexpected event received from CloudFormation"})
               except Exception as e:  # pylint: disable=W0702
-                  LOGGER.info('Failed - exception thrown during processing.')
+                  LOGGER.exception('Failed - exception thrown during processing.')
                   send_response(event, context, "FAILED", {
                       "Message": "Exception during processing: {}".format(e)})
 
