@@ -425,6 +425,10 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
+          - Sid: DatadogAgentlessScannerAutoScaling
+            Action: 'autoscaling:SetDesiredCapacity'
+            Effect: Allow
+            Resource: !Ref 'ScannerAutoScalingGroup'
           - Sid: DatadogAgentlessScannerResourceTagging
             Action: 'ec2:CreateTags'
             Effect: Allow
@@ -638,6 +642,7 @@ Resources:
             Condition:
               StringEquals:
                 'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+
       MaxSessionDuration: 3600
       ManagedPolicyArns:
         - !Ref 'ScannerAgentPolicy'
@@ -684,8 +689,8 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref 'ScannerLaunchTemplate'
         Version: !GetAtt 'ScannerLaunchTemplate.LatestVersionNumber'
-      MinSize: !Ref 'ScannerAutoScalingGroupSize'
-      MaxSize: !Ref 'ScannerAutoScalingGroupSize'
+      MinSize: 0
+      MaxSize: 20
       DesiredCapacity: !Ref 'ScannerAutoScalingGroupSize'
       Cooldown: 300
       HealthCheckType: EC2
