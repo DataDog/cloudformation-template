@@ -84,6 +84,9 @@ Resources:
       Description: "A function to call the Datadog API."
       Role: !GetAtt DatadogAPIHandlerLambdaExecutionRole.Arn
       Handler: "index.handler"
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
       Runtime: "python3.11"
       Timeout: 5
       Code:
@@ -96,7 +99,6 @@ Resources:
           import cfnresponse
 
           LOGGER = logging.getLogger()
-          LOGGER.setLevel(logging.INFO)
 
           API_CALL_SOURCE_HEADER_VALUE = "cfn-quick-start"
 
@@ -179,7 +181,7 @@ Resources:
                   LOGGER.info("Received Delete request.")
                   method = "DELETE"
               else:
-                  LOGGER.info("Failed - received unexpected request.")
+                  LOGGER.error('Failed - received unexpected request: %s', event['RequestType'])
                   msg = {"Message": "Received unexpected request type: {}".format(event["RequestType"])}
                   reason = json.dumps(msg)
                   cfnresponse.send(
@@ -197,7 +199,7 @@ Resources:
                   cfn_response_send_api_result(event, context, method, response)
 
               except Exception as e:
-                  LOGGER.info("Failed - exception thrown during processing.")
+                  LOGGER.exception('Failed - exception thrown during processing.')
                   msg = {"Message": "Exception during processing: {}".format(e)}
                   reason = json.dumps(msg)
                   cfnresponse.send(
@@ -226,7 +228,7 @@ Resources:
                       external_id = json_response["data"]["attributes"]["auth_config"]["external_id"]
                       msg["ExternalId"] = external_id
               else:
-                  LOGGER.info("Failed - Datadog API call failed.")
+                  LOGGER.error('Failed - unexpected status code: %d', code)
                   response_status = "FAILED"
                   msg = {
                       "Message": "Datadog API returned error: {}".format(json_response)

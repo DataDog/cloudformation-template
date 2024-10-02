@@ -57,6 +57,10 @@ Conditions:
     Fn::Equals:
       - Ref: CloudSecurityPostureManagement
       - true
+  IsAP1:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - ap1.datadoghq.com
 
 Resources:
   DatadogAPIHandlerLambdaExecutionRole:
@@ -277,7 +281,10 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub "arn:${AWS::Partition}:iam::464622532012:root"
+              Fn::If:
+                - IsAP1
+                - AWS: !Sub "arn:${AWS::Partition}:iam::417141415827:root"
+                - AWS: !Sub "arn:${AWS::Partition}:iam::464622532012:root"
             Action:
               - 'sts:AssumeRole'
             Condition:
