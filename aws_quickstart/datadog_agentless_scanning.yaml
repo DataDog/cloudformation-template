@@ -405,7 +405,12 @@ Resources:
           - Sid: AssumeCrossAccountScanningRole
             Action: 'sts:AssumeRole'
             Effect: Allow
-            Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:role/${ScannerDelegateRoleName}'
+            Resource: !Sub 'arn:aws:iam::*:role/${ScannerDelegateRoleName}'
+            Condition:
+              StringEquals:
+                'iam:ResourceTag/Datadog': 'true'
+              StringEquals:
+                'iam:ResourceTag/DatadogAgentlessScanner': 'true'
 
   ScannerAgentPolicyReadApiKeySecret:
     Type: AWS::IAM::ManagedPolicy
@@ -659,7 +664,14 @@ Resources:
           - Sid: EC2AssumeRole
             Effect: Allow
             Principal:
-              AWS: !GetAtt 'ScannerInstanceRole.Arn'
+              AWS: '*'
+            Condition:
+              ArnLike:
+                'aws:PrincipalArn': !GetAtt 'ScannerInstanceRole.Arn'
+              StringEquals:
+                'iam:ResourceTag/Datadog': 'true'
+              StringEquals:
+                'iam:ResourceTag/DatadogAgentlessScanner': 'true'
             Action: 'sts:AssumeRole'
 
       MaxSessionDuration: 3600
