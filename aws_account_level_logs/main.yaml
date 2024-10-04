@@ -21,7 +21,7 @@ Parameters:
     Description: The URL of the Datadog HTTP endpoint to send logs to.
   Regions:
     Description: >-
-      Comma separated list of regions to enable metric streaming
+      Comma separated list of regions to enable account level logs
     Type: CommaDelimitedList
     ConstraintDescription: Regions is required
     Default: ''
