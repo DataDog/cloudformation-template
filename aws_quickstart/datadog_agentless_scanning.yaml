@@ -142,6 +142,11 @@ Parameters:
       - stable
       - beta
 
+  ScannerOrganizationUnitIDs:
+    Type: Commaseparatedlist
+    Description: The AWS Organizations organizational unit (OU) ID to use for the Datadog Agentless Scanner: scoping down the delegate roles to be only be accessible from this list of OU IDs
+    Default: '*'
+
 Conditions:
   ProvideSshKeyPair: !Not
     - !Equals
@@ -405,7 +410,10 @@ Resources:
           - Sid: AssumeCrossAccountScanningRole
             Action: 'sts:AssumeRole'
             Effect: Allow
-            Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:role/${ScannerDelegateRoleName}'
+            Resource: !Sub 'arn:aws:iam::*:role/${ScannerDelegateRoleName}'
+            Condition:
+              StringEquals:
+                'iam:ResourceTag/DatadogAgentlessScanner': 'true'
 
   ScannerAgentPolicyReadApiKeySecret:
     Type: AWS::IAM::ManagedPolicy
@@ -659,7 +667,14 @@ Resources:
           - Sid: EC2AssumeRole
             Effect: Allow
             Principal:
-              AWS: !GetAtt 'ScannerInstanceRole.Arn'
+              AWS: '*'
+            Condition:
+              ArnLike:
+                'aws:PrincipalArn': !GetAtt 'ScannerInstanceRole.Arn'
+              StringEquals:
+                'iam:ResourceTag/DatadogAgentlessScanner': 'true'
+              ForAnyValues:StringLike:
+                'aws:PrincipalOrgID': !Ref 'ScannerOrganizationUnitIDs'
             Action: 'sts:AssumeRole'
 
       MaxSessionDuration: 3600
@@ -1136,6 +1151,7 @@ Metadata:
           - ScannerSecurityGroupId
           - ScannerSubnetId
           - ScannerVPCId
+          - ScannerOrganizationUnitIDs
     ParameterLabels:
       DatadogAPIKey:
         default: "DatadogApiKey *"
