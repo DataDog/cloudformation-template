@@ -8,6 +8,7 @@ Parameters:
       To enable Agentless Scanning (find at https://docs.datadoghq.com/security/cloud_security_management/agentless_scanning),
       you must use a Remote Configuration-enabled API key (find at https://docs.datadoghq.com/security/cloud_security_management/setup/agentless_scanning/)
     Type: String
+    AllowedPattern: "([0-9a-f]{32})?"
     NoEcho: true
     Default: ""
   APPKey:
@@ -16,6 +17,7 @@ Parameters:
       If this template was launched from the Datadog app, this key is tied to the user that launched the template,
       and is a key specifically generated for this integration.
     Type: String
+    AllowedPattern: "([0-9a-f]{40})?"
     NoEcho: true
     Default: ""
   AWSAccountType:
