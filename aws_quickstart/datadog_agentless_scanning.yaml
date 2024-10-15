@@ -409,7 +409,6 @@ Resources:
             Condition:
               StringEquals:
                 'iam:ResourceTag/Datadog': 'true'
-              StringEquals:
                 'iam:ResourceTag/DatadogAgentlessScanner': 'true'
 
   ScannerAgentPolicyReadApiKeySecret:
@@ -669,9 +668,8 @@ Resources:
               ArnLike:
                 'aws:PrincipalArn': !GetAtt 'ScannerInstanceRole.Arn'
               StringEquals:
-                'iam:ResourceTag/Datadog': 'true'
-              StringEquals:
-                'iam:ResourceTag/DatadogAgentlessScanner': 'true'
+                'aws:PrincipalTag/Datadog': 'true'
+                'aws:PrincipalTag/DatadogAgentlessScanner': 'true'
             Action: 'sts:AssumeRole'
 
       MaxSessionDuration: 3600
