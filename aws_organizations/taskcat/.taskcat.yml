@@ -1,0 +1,19 @@
+general:
+  auth:
+    default: "<REPLACE_AWS_PROFILE>"
+  s3_bucket: datadog-cloudformation-templates-aws-taskcat-test
+
+project:
+  name: aws-organizations
+  regions:
+  - us-east-2
+tests:
+  default:
+    template: ./main_organizations.yaml
+    parameters:
+      DatadogApiKey: "<REPLACE_DD_API_KEY>"
+      DatadogAppKey: "<REPLACE_DD_APP_KEY>"
+      DatadogSite: "datad0g.com"
+      IAMRoleName: "DatadogIntegrationRole-taskcat-$[taskcat_random-string]"
+      DisableMetricCollection: "false"
+      CloudSecurityPostureManagement: "false"
