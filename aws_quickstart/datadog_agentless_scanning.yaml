@@ -274,30 +274,17 @@ Resources:
 
               # Install requirements
               apt update
-              apt install -y nbd-client curl jq
+              apt install -y nbd-client curl
 
               # Get IMDS metadata to fetch the API Key from SecretsManager (without having to install awscli)
-              IMDS_TOKEN=$(        curl -sSL -XPUT "http://169.254.169.254/latest/api/token"                                              -H "X-AWS-EC2-Metadata-Token-TTL-Seconds: 30")
-              IMDS_INSTANCE_ID=$(  curl -sSL -XGET "http://169.254.169.254/latest/meta-data/instance-id"                                  -H "X-AWS-EC2-Metadata-Token: $IMDS_TOKEN")
-              IMDS_AWS_REGION=$(   curl -sSL -XGET "http://169.254.169.254/latest/meta-data/placement/region"                             -H "X-AWS-EC2-Metadata-Token: $IMDS_TOKEN")
-              IMDS_INSTANCE_ROLE=$(curl -sSL -XGET "http://169.254.169.254/latest/meta-data/iam/security-credentials/"                    -H "X-AWS-EC2-Metadata-Token: $IMDS_TOKEN")
-              IMDS_CREDS=$(        curl -sSL -XGET "http://169.254.169.254/latest/meta-data/iam/security-credentials/$IMDS_INSTANCE_ROLE" -H "X-AWS-EC2-Metadata-Token: $IMDS_TOKEN")
-
-              AWS_ACCESS_KEY_ID=$(    jq -r '.AccessKeyId'     <<< "$IMDS_CREDS")
-              AWS_SECRET_ACCESS_KEY=$(jq -r '.SecretAccessKey' <<< "$IMDS_CREDS")
-              AWS_SECURITY_TOKEN=$(   jq -r '.Token'           <<< "$IMDS_CREDS")
-
-              AWS_SECRET_JSON=$(curl --noproxy '*' -sSL -X POST "https://secretsmanager.$IMDS_AWS_REGION.amazonaws.com" \
-                  --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" \
-                  --aws-sigv4 "aws:amz:$IMDS_AWS_REGION:secretsmanager" \
-                  --header "X-Amz-Security-Token: $AWS_SECURITY_TOKEN" \
-                  --header "X-Amz-Target: secretsmanager.GetSecretValue" \
-                  --header "Content-Type: application/x-amz-json-1.1" \
-                  --data "{\"SecretId\": \"${SecretAPIKeyArn}\"}")
+              IMDS_TOKEN=$(      curl -sSL -XPUT "http://169.254.169.254/latest/api/token"                  -H "X-AWS-EC2-Metadata-Token-TTL-Seconds: 30")
+              IMDS_INSTANCE_ID=$(curl -sSL -XGET "http://169.254.169.254/latest/meta-data/instance-id"      -H "X-AWS-EC2-Metadata-Token: $IMDS_TOKEN")
+              IMDS_AWS_REGION=$( curl -sSL -XGET "http://169.254.169.254/latest/meta-data/placement/region" -H "X-AWS-EC2-Metadata-Token: $IMDS_TOKEN")
+              unset IMDS_TOKEN
 
               DD_HOSTNAME="agentless-scanning-$IMDS_AWS_REGION-$IMDS_INSTANCE_ID"
               DD_SITE="${DatadogSite}"
-              DD_API_KEY="$(jq -r '.SecretString' <<< "$AWS_SECRET_JSON")"
+              DD_API_KEY="ENC[${SecretAPIKeyArn}]"
               DD_AGENTLESS_VERSION="${ScannerVersion}"
               DD_AGENTLESS_CHANNEL="${ScannerChannel}"
 
@@ -305,7 +292,7 @@ Resources:
 
               # Install the agent
               DD_INSTALL_ONLY=true \
-                DD_API_KEY="$DD_API_KEY" \
+                DD_API_KEY="TBD" \
                 DD_SITE="$DD_SITE" \
                 DD_HOSTNAME="$DD_HOSTNAME" \
                 bash -c "$(curl -L https://s3.amazonaws.com/dd-agent/scripts/install_script_agent7.sh)"
@@ -353,25 +340,31 @@ Resources:
               logs_enabled: true
               ec2_prefer_imdsv2: true
               tags: ["Datadog:true","DatadogAgentlessScanner:true"]
+              secret_backend_command: /usr/local/bin/dd-secret-backend
               EOF
+
+              cat <<EOF > /usr/local/bin/dd-secret-backend
+              #!/bin/bash
+              datadog-agentless-scanner secrets || exit 1
+              EOF
+              chown dd-agent: /usr/local/bin/dd-secret-backend
+              chmod 700 /usr/local/bin/dd-secret-backend
 
               cat <<EOF > /etc/datadog-agent/agentless-scanner.yaml
               hostname: $DD_HOSTNAME
               api_key: $DD_API_KEY
               site: $DD_SITE
               installation_mode: cloudformation
-              installation_version: 0.11.3
+              installation_version: 0.11.4
               default_roles:
                 - "arn:aws:iam::${AWS::AccountId}:role/${ScannerDelegateRoleName}"
               EOF
 
+              chown dd-agent: /etc/datadog-agent/agentless-scanner.yaml
               chmod 600 /etc/datadog-agent/agentless-scanner.yaml
 
               # Restart the agent
               systemctl restart datadog-agent
-
-              # Give some room to the agent to start to not miss logs
-              sleep 5
 
               # Enable and start datadog-agentless-scaner
               systemctl enable --now datadog-agentless-scanner
