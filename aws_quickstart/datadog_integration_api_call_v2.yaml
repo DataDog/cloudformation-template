@@ -38,6 +38,15 @@ Parameters:
       Disable this if you only want to collect tags or resource configuration information from this AWS account,
       and do not want to use Datadog Infrastructure Monitoring.
     Default: false
+  DisableResourceCollection:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Disabling resource collection for this account will lead to a loss in visibility into your AWS services. 
+      Disable this if you do not want to collect configuration information for the resources in this AWS account.
+    Default: false
   CloudSecurityPostureManagement:
     Type: String
     AllowedValues:
@@ -79,6 +88,7 @@ Resources:
       HostTags: [!Sub "aws_account:${AWS::AccountId}"]
       CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
       DisableMetricCollection: !Ref DisableMetricCollection
+      DisableResourceCollection: !Ref DisableResourceCollection
   DatadogAPICallFunction:
     Type: "AWS::Lambda::Function"
     Properties:
@@ -114,6 +124,7 @@ Resources:
               host_tags = event['ResourceProperties']['HostTags']
               cspm = event['ResourceProperties']['CloudSecurityPostureManagement']
               metrics_disabled = event['ResourceProperties']['DisableMetricCollection']
+              resource_collection_disabled = event['ResourceProperties']['DisableResourceCollection']
 
               # Make the url Request
               url = 'https://api.' + api_url + '/api/v1/integration/aws'
@@ -126,6 +137,7 @@ Resources:
                   values["aws_partition"] = aws_partition
                   values["cspm_resource_collection_enabled"] = cspm == "true"
                   values["metrics_collection_enabled"] = metrics_disabled == "false"
+                  values["extended_resource_collection_enabled"] = resource_collection_disabled == "false"
 
               headers = {
                   'DD-API-KEY': api_key,
