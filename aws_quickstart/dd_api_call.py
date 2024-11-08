@@ -10,7 +10,6 @@ LOGGER.setLevel(logging.INFO)
 
 API_CALL_SOURCE_HEADER_VALUE = "cfn-organizations"
 
-
 def call_datadog_api(uuid, event, method):
     api_key = event["ResourceProperties"]["APIKey"]
     app_key = event["ResourceProperties"]["APPKey"]
@@ -21,6 +20,7 @@ def call_datadog_api(uuid, event, method):
     account_tags = event["ResourceProperties"]["AccountTags"]
     cspm = event["ResourceProperties"]["CloudSecurityPostureManagement"]
     metrics_disabled = event["ResourceProperties"]["DisableMetricCollection"]
+    resource_collection_disabled = event['ResourceProperties']['DisableResourceCollection']
 
     # Make the url Request
     url = "https://api." + api_url + "/api/v2/integration/aws/accounts"
@@ -52,6 +52,9 @@ def call_datadog_api(uuid, event, method):
                     "resources_config": {
                         "cloud_security_posture_management_collection": (
                             cspm == "true"
+                        ),
+                        "extended_resource_collection": (
+                            resource_collection_disabled == "false"
                         )
                     }
                 }

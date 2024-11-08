@@ -38,6 +38,15 @@ Parameters:
       Disable this if you only want to collect tags or resource configuration information from this AWS account,
       and do not want to use Datadog Infrastructure Monitoring.
     Default: false
+  DisableResourceCollection:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Disabling resource collection for this account will lead to a loss in visibility into your AWS services. 
+      Disable this if you do not want to collect configuration information for the resources in this AWS account.
+    Default: false
   CloudSecurityPostureManagement:
     Type: String
     AllowedValues:
@@ -78,7 +87,8 @@ Resources:
       AccountTags: [!Sub "aws_account:${AWS::AccountId}"]
       CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
       DisableMetricCollection: !Ref DisableMetricCollection
-  DatadogAPIHandlerFunction:
+      DisableResourceCollection: !Ref DisableResourceCollection
+  DatadogAPICallFunction:
     Type: "AWS::Lambda::Function"
     Properties:
       Description: "A function to call the Datadog API."
@@ -103,7 +113,6 @@ Resources:
 
           API_CALL_SOURCE_HEADER_VALUE = "cfn-organizations"
 
-
           def call_datadog_api(uuid, event, method):
               api_key = event["ResourceProperties"]["APIKey"]
               app_key = event["ResourceProperties"]["APPKey"]
@@ -114,6 +123,7 @@ Resources:
               account_tags = event["ResourceProperties"]["AccountTags"]
               cspm = event["ResourceProperties"]["CloudSecurityPostureManagement"]
               metrics_disabled = event["ResourceProperties"]["DisableMetricCollection"]
+              resource_collection_disabled = event['ResourceProperties']['DisableResourceCollection']
 
               # Make the url Request
               url = "https://api." + api_url + "/api/v2/integration/aws/accounts"
@@ -145,6 +155,9 @@ Resources:
                               "resources_config": {
                                   "cloud_security_posture_management_collection": (
                                       cspm == "true"
+                                  ),
+                                  "extended_resource_collection": (
+                                      resource_collection_disabled == "false"
                                   )
                               }
                           }
