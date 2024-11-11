@@ -10,6 +10,10 @@ LOGGER.setLevel(logging.INFO)
 
 API_CALL_SOURCE_HEADER_VALUE = "cfn-organizations"
 
+class TimeoutError(Exception):
+    """Exception for timeouts"""
+    pass
+
 def call_datadog_api(uuid, event, method):
     api_key = event["ResourceProperties"]["APIKey"]
     app_key = event["ResourceProperties"]["APPKey"]
@@ -209,7 +213,6 @@ def cfn_response_send_failure(event, context, message):
 
 def timeout_handler(_signal, _frame):
     """Handle SIGALRM"""
-    raise Exception("Lambda function timeout exceeded - increase the timeout set in the api_call Cloudformation template.")
-
+    raise TimeoutError("Lambda function timeout exceeded - increase the timeout set in the api_call Cloudformation template.")
 
 signal.signal(signal.SIGALRM, timeout_handler)
