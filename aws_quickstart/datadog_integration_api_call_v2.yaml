@@ -308,7 +308,7 @@ Resources:
               reason = json.dumps(cfResponse)
               cfnresponse.send(
                   event,
-                  signalcontext,
+                  context,
                   responseStatus=response_status,
                   responseData=cfResponse,
                   reason=reason,

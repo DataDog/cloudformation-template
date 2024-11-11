@@ -66,6 +66,15 @@ Parameters:
       Disable this if you only want to collect tags or resource configuration information from this AWS account, 
       and do not want to use Datadog Infrastructure Monitoring.
     Default: false
+  DisableResourceCollection:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Disabling resource collection for this account will lead to a loss in visibility into your AWS services. 
+      Disable this if you do not want to collect configuration information for the resources in this AWS account.
+    Default: false
   CloudSecurityPostureManagement:
     Type: String
     AllowedValues:
@@ -109,15 +118,28 @@ Parameters:
     Description: >-
       Enable Agentless Scanning of datastores (S3 buckets). "CloudSecurityPostureManagement" must be set to 'true'.
     Default: false
+Rules:
+  ResourceCollectionValidState:
+    Assertions:
+      - Assert:
+          Fn::Not:
+            - Fn::And:
+                - Fn::Equals:
+                    - Ref: DisableResourceCollection
+                    - 'true'
+                - Fn::Equals:
+                    - Ref: CloudSecurityPostureManagement
+                    - 'true'
+        AssertDescription: CloudSecurityPostureManagement requires ResourceCollection, must enable ResourceCollection
 Conditions:
   InstallForwarder:
     Fn::Equals:
       - !Ref InstallLambdaLogForwarder
       - true
-  CloudSecurityPostureManagementPermissions:
+  ResourceCollectionPermissions:
     Fn::Equals:
-      - !Ref CloudSecurityPostureManagement
-      - true
+      - !Ref DisableResourceCollection
+      - false
   EnableAgentlessScanning:
     Fn::And:
       - Fn::Not:
@@ -175,9 +197,10 @@ Resources:
         DatadogApiKey: !Ref APIKey
         DatadogAppKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
-        RoleName: !Ref IAMRoleName
+        IAMRoleName: !Ref IAMRoleName
         CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
         DisableMetricCollection: !Ref DisableMetricCollection
+        DisableResourceCollection: !Ref DisableResourceCollection
   # The IAM role for Datadog integration
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
@@ -186,7 +209,7 @@ Resources:
       Parameters:
         ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
-        CloudSecurityPostureManagementPermissions: !If [CloudSecurityPostureManagementPermissions, true, false]
+        ResourceCollectionPermissions: !If [ResourceCollectionPermissions, true, false]
         DdAWSAccountId: !If
           - IsAP1
           - "417141415827"

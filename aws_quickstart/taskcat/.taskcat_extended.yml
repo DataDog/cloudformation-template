@@ -1,0 +1,20 @@
+general:
+  auth:
+    default: "<REPLACE_AWS_PROFILE>"
+  s3_bucket: datadog-cloudformation-templates-aws-taskcat-test
+
+project:
+  name: aws-quickstart
+  regions:
+  - us-east-2
+tests:
+  default:
+    template: ./main_extended.yaml
+    parameters:
+      APIKey: "<REPLACE_DD_API_KEY>"
+      APPKey: "<REPLACE_DD_APP_KEY>"
+      DatadogSite: "datadoghq.com"
+      IAMRoleName: "DatadogIntegrationRole-taskcat-$[taskcat_random-string]"
+      InstallLambdaLogForwarder: "true"
+      DisableMetricCollection: "false"
+      CloudSecurityPostureManagement: "false"
