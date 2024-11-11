@@ -23,7 +23,7 @@ def call_datadog_api(uuid, event, method):
     resource_collection_disabled = event['ResourceProperties']['DisableResourceCollection']
 
     # Make the url Request
-    url = "https://api." + api_url + "/api/v2/integration/aws/accounts"
+    url = f"https://api.{api_url}/api/v2/integration/aws/accounts"
     headers = {
         "DD-API-KEY": api_key,
         "DD-APPLICATION-KEY": app_key,
@@ -83,7 +83,7 @@ def get_datadog_account(event):
     account_id = event["ResourceProperties"]["AccountId"]
 
     # Make the url Request
-    url = "https://api." + api_url + "/api/v2/integration/aws/accounts?aws_account_id=" + account_id
+    url = f"https://api.{api_url}/api/v2/integration/aws/accounts?aws_account_id={account_id}"
     headers = {
         "DD-API-KEY": api_key,
         "DD-APPLICATION-KEY": app_key,
@@ -162,9 +162,8 @@ def extract_uuid_from_account_response(event, context, account_response):
             cfn_response_send_failure(event, context, "Datadog account not unique.")
             return None
         return json_response["data"][0]["id"]
-    else:
-        cfn_response_send_failure(event, context, "Datadog API returned error: {}".format(json_response))
-        return None
+    cfn_response_send_failure(event, context, "Datadog API returned error: {}".format(json_response))
+    return None
 
 
 def cfn_response_send_api_result(event, context, method, response):
@@ -210,7 +209,7 @@ def cfn_response_send_failure(event, context, message):
 
 def timeout_handler(_signal, _frame):
     """Handle SIGALRM"""
-    raise Exception("Time exceeded")
+    raise Exception("Lambda function timeout exceeded - increase the timeout set in the api_call Cloudformation template.")
 
 
 signal.signal(signal.SIGALRM, timeout_handler)

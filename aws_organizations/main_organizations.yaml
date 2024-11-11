@@ -102,7 +102,7 @@ Resources:
   DatadogAWSAccountIntegration:
     Type: "Custom::DatadogAWSAccountIntegration"
     Properties:
-      ServiceToken: !GetAtt DatadogAPIHandlerFunction.Arn
+      ServiceToken: !GetAtt DatadogAPICallFunction.Arn
       APIKey: !Ref DatadogApiKey
       APPKey: !Ref DatadogAppKey
       ApiURL: !Ref DatadogSite
@@ -148,7 +148,7 @@ Resources:
               resource_collection_disabled = event['ResourceProperties']['DisableResourceCollection']
 
               # Make the url Request
-              url = "https://api." + api_url + "/api/v2/integration/aws/accounts"
+              url = f"https://api.{api_url}/api/v2/integration/aws/accounts"
               headers = {
                   "DD-API-KEY": api_key,
                   "DD-APPLICATION-KEY": app_key,
@@ -208,7 +208,7 @@ Resources:
               account_id = event["ResourceProperties"]["AccountId"]
 
               # Make the url Request
-              url = "https://api." + api_url + "/api/v2/integration/aws/accounts?aws_account_id=" + account_id
+              url = f"https://api.{api_url}/api/v2/integration/aws/accounts?aws_account_id={account_id}"
               headers = {
                   "DD-API-KEY": api_key,
                   "DD-APPLICATION-KEY": app_key,
@@ -287,9 +287,8 @@ Resources:
                       cfn_response_send_failure(event, context, "Datadog account not unique.")
                       return None
                   return json_response["data"][0]["id"]
-              else:
-                  cfn_response_send_failure(event, context, "Datadog API returned error: {}".format(json_response))
-                  return None
+              cfn_response_send_failure(event, context, "Datadog API returned error: {}".format(json_response))
+              return None
 
 
           def cfn_response_send_api_result(event, context, method, response):
@@ -335,7 +334,7 @@ Resources:
 
           def timeout_handler(_signal, _frame):
               """Handle SIGALRM"""
-              raise Exception("Time exceeded")
+              raise Exception("Lambda function timeout exceeded - increase the timeout set in the api_call Cloudformation template.")
 
 
           signal.signal(signal.SIGALRM, timeout_handler)
