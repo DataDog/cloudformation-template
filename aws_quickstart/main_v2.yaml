@@ -10,7 +10,7 @@ Parameters:
     Default: ""
   APPKey:
     Description: >-
-      APP key for the Datadog account (find at https://app.datadoghq.com/organization-settings/application-keys). 
+      APP key for the Datadog account (find at https://app.datadoghq.com/organization-settings/application-keys).
       If this template was launched from the Datadog app, this key is tied to the user that launched the template,
       and is a key specifically generated for this integration.
     Type: String
@@ -37,8 +37,8 @@ Parameters:
       - true
       - false
     Description: >-
-      Determines whether the default configuration for the Datadog Lambda Log Forwarder is installed 
-      as part of this stack. This is useful for sending logs to Datadog for use in Log Management or Cloud SIEM. 
+      Determines whether the default configuration for the Datadog Lambda Log Forwarder is installed
+      as part of this stack. This is useful for sending logs to Datadog for use in Log Management or Cloud SIEM.
       Customers who want to customize this setup to include specific custom tags, data scrubbing or redaction rules,
       or send logs using AWS PrivateLink should select “no” and install this independently
       (https://docs.datadoghq.com/serverless/libraries_integrations/forwarder/#installation).
@@ -49,8 +49,8 @@ Parameters:
       - true
       - false
     Description: >-
-      Disabling metric collection for this account will lead to a loss in visibility into your AWS services. 
-      Disable this if you only want to collect tags or resource configuration information from this AWS account, 
+      Disabling metric collection for this account will lead to a loss in visibility into your AWS services.
+      Disable this if you only want to collect tags or resource configuration information from this AWS account,
       and do not want to use Datadog Infrastructure Monitoring.
     Default: false
   DisableResourceCollection:
@@ -68,9 +68,9 @@ Parameters:
       - true
       - false
     Description: >-
-      Add the AWS Managed SecurityAudit policy to your Datadog AWS Integration role, and enable 
+      Add the AWS Managed SecurityAudit policy to your Datadog AWS Integration role, and enable
       Datadog Cloud Security Posture Management (CSPM) to start performing configuration checks across your AWS account.
-      Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to 
+      Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
 Rules:
@@ -109,7 +109,7 @@ Conditions:
       - aws-us-gov
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
-  DatadogAPICall:
+  DatadogAWSAccountIntegration:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_api_call_v2.yaml"
@@ -117,7 +117,7 @@ Resources:
         DatadogApiKey: !Ref APIKey
         DatadogAppKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
-        RoleName: !Ref IAMRoleName
+        IAMRoleName: !Ref IAMRoleName
         CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
         DisableMetricCollection: !Ref DisableMetricCollection
         DisableResourceCollection: !Ref DisableResourceCollection
@@ -127,7 +127,7 @@ Resources:
     Properties:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_role.yaml"
       Parameters:
-        ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
+        ExternalId: !GetAtt DatadogAWSAccountIntegration.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
         ResourceCollectionPermissions: !If [ResourceCollectionPermissions, true, false]
         DdAWSAccountId: !If
@@ -152,7 +152,7 @@ Resources:
         DdSite: !Ref DatadogSite
 Outputs:
   IAMRoleName:
-    Description: AWS IAM Role named to be used with the DataDog AWS Integration 
+    Description: AWS IAM Role named to be used with the DataDog AWS Integration
     Value: !Ref IAMRoleName
   AccountId:
     Description: AWS Account number

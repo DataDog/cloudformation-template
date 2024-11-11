@@ -8,7 +8,7 @@ fi
 aws sso login --profile ${AWS_SSO_PROFILE_NAME}
 
 TASKCAT_S3_BUCKET="datadog-cloudformation-templates-aws-taskcat-test"
-TASKCAT_PROJECT="aws-quickstart"
+TASKCAT_PROJECT="aws-organizations"
 
 if [ -z "$DD_API_KEY" ]; then
     echo "Missing DD_API_KEY - Must specify a Datadog API key"
