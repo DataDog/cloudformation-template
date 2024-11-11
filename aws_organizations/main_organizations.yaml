@@ -340,7 +340,7 @@ Resources:
               """Handle SIGALRM"""
               raise TimeoutError("Lambda function timeout exceeded - increase the timeout set in the api_call Cloudformation template.")
 
-          .signal(signal.SIGALRM, timeout_handler)
+          signal.signal(signal.SIGALRM, timeout_handler)
   DatadogIntegrationRole:
     Type: 'AWS::IAM::Role'
     Metadata:
