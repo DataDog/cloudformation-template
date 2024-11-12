@@ -1,5 +1,22 @@
 #!/bin/bash
 
+# Usage: ./run-taskcat-tests.sh <test_version>
+
+set -e
+
+# Read the S3 bucket
+if [ -z "$1" ]; then
+    echo "Must specify a test_version (either 'standard' or 'extended')"
+    exit 1
+else
+    TEST_VERSION=$1
+fi
+
+if [ "$TEST_VERSION" != "standard" ]  &&  [ "$TEST_VERSION" != "extended" ]; then
+    echo "Invalid test_version - Must specify either 'standard' or 'extended'"
+    exit 1
+fi
+
 if [ -z "$AWS_SSO_PROFILE_NAME" ]; then
     echo "Missing AWS_SSO_PROFILE_NAME - Must specify an AWS profile name"
     exit 1
@@ -31,7 +48,16 @@ for f in ../*.yaml; do
    sed "s|<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>|${TASKCAT_S3_BUCKET}.s3.amazonaws.com/${TASKCAT_PROJECT}|g" $f > ./tmp/$(basename $f)
 done
 
-sed "s|<REPLACE_DD_API_KEY>|${DD_API_KEY}|g ; s|<REPLACE_DD_APP_KEY>|${DD_APP_KEY}|g ; s|<REPLACE_AWS_PROFILE>|${AWS_SSO_PROFILE_NAME}|g" ./.taskcat.yml > ./tmp/.taskcat.yml
+if [ "$TEST_VERSION" = "standard" ]; then
+    cp ./.taskcat.yml ./tmp/.taskcat-temp.yml
+elif [ "$TEST_VERSION" = "extended" ]; then
+    cp ./.taskcat_extended.yml ./tmp/.taskcat-temp.yml
+else
+    echo "Invalid test_version - Must specify either 'standard' or 'extended'"
+    exit 1
+fi
+
+sed "s|<REPLACE_DD_API_KEY>|${DD_API_KEY}|g ; s|<REPLACE_DD_APP_KEY>|${DD_APP_KEY}|g ; s|<REPLACE_AWS_PROFILE>|${AWS_SSO_PROFILE_NAME}|g" ./tmp/.taskcat-temp.yml > ./tmp/.taskcat.yml
 
 taskcat upload -b ${TASKCAT_S3_BUCKET} -k ${TASKCAT_PROJECT} -p tmp
 
