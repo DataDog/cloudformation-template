@@ -1,3 +1,4 @@
+# version: <VERSION_PLACEHOLDER>
 AWSTemplateFormatVersion: 2010-09-09
 Description: Configures the Datadog AWS Integration
 Parameters:
