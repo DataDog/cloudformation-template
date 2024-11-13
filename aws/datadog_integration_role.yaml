@@ -167,6 +167,7 @@ Resources:
                     - 's3:ListAllMyBuckets'
                     - 's3:PutBucketNotification'
                     - 'ses:Get*'
+                    - 'secretsmanager:GetResourcePolicy'
                     - 'sns:GetSubscriptionAttributes'
                     - 'sns:List*'
                     - 'sns:Publish'

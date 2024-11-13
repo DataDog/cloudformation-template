@@ -1,3 +1,6 @@
+## 1.2.6 (November 13, 2024)
+* Add GetResourcePolicy permission for secretsmanager
+
 ## 1.2.5 (November 5, 2024)
 
 ### FEATURES
