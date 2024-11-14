@@ -142,6 +142,7 @@ Resources:
                   - 'savingsplans:DescribeSavingsPlanRates'
                   - 'savingsplans:DescribeSavingsPlans'
                   - 'ses:Get*'
+                  - 'secretsmanager:GetResourcePolicy'
                   - 'sns:GetSubscriptionAttributes'
                   - 'sns:List*'
                   - 'sns:Publish'
