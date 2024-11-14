@@ -18,3 +18,7 @@ tests:
       InstallLambdaLogForwarder: "true"
       DisableMetricCollection: "false"
       CloudSecurityPostureManagement: "false"
+      AgentlessHostScanning: "true"
+      AgentlessContainerScanning: "true"
+      AgentlessLambdaScanning: "true"
+      AgentlessSensitiveDataScanning: "true"
