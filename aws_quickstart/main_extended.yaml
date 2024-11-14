@@ -141,17 +141,17 @@ Rules:
                     - 'true'
                 - Fn::Or:
                     - Fn::Equals:
-                        - !Ref AgentlessHostScanning
-                        - true
+                        - Ref: AgentlessHostScanning
+                        - 'true'
                     - Fn::Equals:
-                        - !Ref AgentlessContainerScanning
-                        - true
+                        - Ref: AgentlessContainerScanning
+                        - 'true'
                     - Fn::Equals:
-                        - !Ref AgentlessLambdaScanning
-                        - true
+                        - Ref: AgentlessLambdaScanning
+                        - 'true'
                     - Fn::Equals:
-                        - !Ref AgentlessSensitiveDataScanning
-                        - true
+                        - Ref: AgentlessSensitiveDataScanning
+                        - 'true'
         AssertDescription: Agentless Scanning options require ResourceCollection, must enable ResourceCollection
 Conditions:
   InstallForwarder:
