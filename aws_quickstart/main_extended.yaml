@@ -92,7 +92,7 @@ Parameters:
       - true
       - false
     Description: >-
-      Enable Agentless Scanning of host vulnerabilities. "CloudSecurityPostureManagement" must be set to 'true'.
+      Enable Agentless Scanning of host vulnerabilities.
     Default: false
   AgentlessContainerScanning:
     Type: String
@@ -100,7 +100,7 @@ Parameters:
       - true
       - false
     Description: >-
-      Enable Agentless Scanning of container vulnerabilities. "CloudSecurityPostureManagement" must be set to 'true'.
+      Enable Agentless Scanning of container vulnerabilities.
     Default: false
   AgentlessLambdaScanning:
     Type: String
@@ -108,7 +108,7 @@ Parameters:
       - true
       - false
     Description: >-
-      Enable Agentless Scanning of Lambda vulnerabilities. "CloudSecurityPostureManagement" must be set to 'true'.
+      Enable Agentless Scanning of Lambda vulnerabilities.
     Default: false
   AgentlessSensitiveDataScanning:
     Type: String
@@ -116,10 +116,10 @@ Parameters:
       - true
       - false
     Description: >-
-      Enable Agentless Scanning of datastores (S3 buckets). "CloudSecurityPostureManagement" must be set to 'true'.
+      Enable Agentless Scanning of datastores (S3 buckets).
     Default: false
 Rules:
-  ResourceCollectionValidState:
+  CSPMResourceCollectionValidState:
     Assertions:
       - Assert:
           Fn::Not:
@@ -131,6 +131,28 @@ Rules:
                     - Ref: CloudSecurityPostureManagement
                     - 'true'
         AssertDescription: CloudSecurityPostureManagement requires ResourceCollection, must enable ResourceCollection
+  AgentlessResourceCollectionValidState:
+    Assertions:
+      - Assert:
+          Fn::Not:
+            - Fn::And:
+                - Fn::Equals:
+                    - Ref: DisableResourceCollection
+                    - 'true'
+                - Fn::Or:
+                    - Fn::Equals:
+                        - Ref: AgentlessHostScanning
+                        - 'true'
+                    - Fn::Equals:
+                        - Ref: AgentlessContainerScanning
+                        - 'true'
+                    - Fn::Equals:
+                        - Ref: AgentlessLambdaScanning
+                        - 'true'
+                    - Fn::Equals:
+                        - Ref: AgentlessSensitiveDataScanning
+                        - 'true'
+        AssertDescription: Agentless Scanning options require ResourceCollection, must enable ResourceCollection
 Conditions:
   InstallForwarder:
     Fn::Equals:
@@ -146,9 +168,6 @@ Conditions:
         - Fn::Equals:
           - !Ref DatadogSite
           - ddog-gov.com
-      - Fn::Equals:
-        - !Ref CloudSecurityPostureManagement
-        - true
       - Fn::Or:
         - Fn::Equals:
           - !Ref AgentlessHostScanning
