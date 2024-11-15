@@ -570,6 +570,20 @@ Resources:
             Condition:
               StringNotEquals:
                 'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+          - Sid: DatadogAgentlessScannerECRAuthorizationToken
+            Action:
+              - "ecr:GetAuthorizationToken"
+            Effect: Allow
+            Resource: "*"
+          - Sid: DatadogAgentlessScannerECRImages
+            Action:
+              - "ecr:GetDownloadUrlForLayer"
+              - "ecr:BatchGetImage"
+            Condition:
+              StringNotEquals:
+                "ecr:ResourceTag/DatadogAgentlessScanner": "false"
+            Effect: Allow
+            Resource: "arn:aws:ecr:*:*:repository/*"
 
   ScannerDelegateRoleWorkerDSPMPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -630,6 +644,12 @@ Resources:
             Resource: '*'
           - Sid: DatadogAgentlessScannerOfflineModeGetBucketTags
             Action: s3:GetBucketTagging
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerOfflineModeListECRRepos
+            Action:
+              - ecr:DescribeRepositories
+              - ecr:DescribeImages
             Effect: Allow
             Resource: '*'
 
