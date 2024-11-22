@@ -1,4 +1,4 @@
-# version: v2.0.3
+# version: <VERSION_PLACEHOLDER>
 AWSTemplateFormatVersion: 2010-09-09
 Description: Datadog AWS Integration
 Parameters:
@@ -112,7 +112,7 @@ Resources:
   DatadogAWSAccountIntegration:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-test-sandbox.s3.amazonaws.com/aws/v2.0.3/datadog_integration_api_call_v2.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_api_call_v2.yaml"
       Parameters:
         DatadogApiKey: !Ref APIKey
         DatadogAppKey: !Ref APPKey
@@ -125,7 +125,7 @@ Resources:
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://datadog-cloudformation-template-test-sandbox.s3.amazonaws.com/aws/v2.0.3/datadog_integration_role.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_role.yaml"
       Parameters:
         ExternalId: !GetAtt DatadogAWSAccountIntegration.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
