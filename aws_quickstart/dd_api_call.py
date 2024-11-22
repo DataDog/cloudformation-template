@@ -57,7 +57,7 @@ def call_datadog_api(uuid, event, method):
                         "cloud_security_posture_management_collection": (
                             cspm == "true"
                         ),
-                        "extended_resource_collection": (
+                        "extended_collection": (
                             resource_collection_disabled == "false"
                         )
                     }
