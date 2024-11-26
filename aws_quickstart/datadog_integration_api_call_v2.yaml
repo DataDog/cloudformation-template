@@ -44,7 +44,7 @@ Parameters:
       - true
       - false
     Description: >-
-      Disabling resource collection for this account will lead to a loss in visibility into your AWS services. 
+      Disabling resource collection for this account will lead to a loss in visibility into your AWS services.
       Disable this if you do not want to collect configuration information for the resources in this AWS account.
     Default: false
   CloudSecurityPostureManagement:
@@ -111,7 +111,7 @@ Resources:
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
 
-          API_CALL_SOURCE_HEADER_VALUE = "cfn-organizations"
+          API_CALL_SOURCE_HEADER_VALUE = "cfn-quick-start"
 
           class TimeoutError(Exception):
               """Exception for timeouts"""
