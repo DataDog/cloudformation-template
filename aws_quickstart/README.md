@@ -25,7 +25,7 @@ This template creates the following AWS resources required by the Datadog AWS in
 
 ## Updating your CloudFormation Stack
 
-As of v2.0.0 of the aws_quickstart template updates to the stack parameters are supported. Updates should generally be made to the root CloudFormation Stack (entitled DatadogIntegration by default). We do not support updating the API Key or APP Key fields to point to a different Datadog Organization - if these are updated they must point to the same Organization. You can also update the version of the template used by selecting "Replace existing template" while updating your CloudFormation Stack. You must select a version number with the same major version as your current template.
+As of v2.0.0 of the aws_quickstart template updates to the stack parameters are supported. Updates should generally be made to the root CloudFormation Stack (entitled DatadogIntegration by default). We do not support updating the API Key or APP Key fields to point to a different Datadog Organization - if these are updated they must point to the original Organization. You can also update the version of the template used by selecting "Replace existing template" while updating your CloudFormation Stack. You must select a version number with the same major version as your current template.
 
 **Note:** Updating from v1.X.X -> v2.X.X is not supported. If you are on v1.X.X you can delete your original stack and recreate a new stack with the v2.X.X template, however this is dangerous as you will be deleting your Datadog integration for this account, and you will experience a temporary service disruption in Datadog until the v2.X.X stack is successfully created.
 
