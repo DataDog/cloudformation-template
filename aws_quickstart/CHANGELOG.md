@@ -1,3 +1,9 @@
+## 2.0.6 (December 4, 2024)
+
+### Features
+
+* Add `s3express` permission for Resource Crawler
+
 ## 2.0.2 (November 13, 2024)
 
 ### Features

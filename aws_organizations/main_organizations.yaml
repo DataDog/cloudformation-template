@@ -455,6 +455,11 @@ Resources:
                   - 's3:ListAccessGrants'
                   - 's3:ListAllMyBuckets'
                   - 's3:PutBucketNotification'
+                  # For S3 Directory Buckets, the s3 calls are with the s3express prefix
+                  # https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazons3express.html
+                  - 's3express:GetBucketPolicy'
+                  - 's3express:GetEncryptionConfiguration'
+                  - 's3express:ListAllMyDirectoryBuckets'
                   - 'savingsplans:DescribeSavingsPlanRates'
                   - 'savingsplans:DescribeSavingsPlans'
                   - 'ses:Get*'
