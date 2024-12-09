@@ -1,18 +1,17 @@
 # Datadog AWS Integration
 
-[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog&templateURL=https://datadog-cloudformation-template.s3.amazonaws.com/aws/main_v2.yaml)
+[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?param_APIKey=&param_APPKey=&param_CloudSecurityPostureManagement=false&param_DatadogSite=datadoghq.com&param_InstallLambdaLogForwarder=true&stackName=DatadogIntegration&templateURL=https%3A%2F%2Fdatadog-cloudformation-template-quickstart.s3.amazonaws.com%2Faws%2Fv2.0.5%2Fmain_v2.yaml)
   
 ## Installation
 
 1. Open the [AWS integration tile](https://app.datadoghq.com/account/settings#integrations/amazon-web-services) within the Datadog platform.
-   1. Click "Add an account".
-   1. Enter your AWS Account ID, e.g., 123456789012.
-   1. Enter IAM Role name `DatadogIntegrationRole` (needs to match the value of `IAMRoleName` in the next step).
-   1. Copy the External ID for the next step to use.
-1. Log into your admin AWS account/role and deploy the CloudFormation Stack with the button above.
-   1. Fill in all the `Required` parameters.
-   1. Optinally edit `LogArchives` and `CloudTrails` to configure [Log Archives](https://docs.datadoghq.com/logs/archives/?tab=awss3) and [CloudTrail](https://docs.datadoghq.com/integrations/amazon_cloudtrail/) integration.
-   1. On a rare occasion, if you already have a stack deployed in the same AWS account using this template (e.g., monitor the same AWS account in multiple Datadog accounts), You MUST use a different role name for `IAMRoleName` and set `InstallDatadogPolicyMacro` to `false`.
+   1. Click "Add AWS Account(s)".
+   1. Fill out the various fields under "Automatically using CloudFormation".
+   1. Click "Launch CloudFormation Template" in the bottom right.
+1. Log into your admin AWS account/role and deploy the CloudFormation Stack that you're linked to. All required parameters will be filled in.
+   1. Optionally edit "Advanced" fields to set the `IAMRoleName` used, or disable default collection settings.
+   1. On a rare occasion, if you already have a stack deployed in the same AWS account using this template (e.g., monitor the same AWS account in multiple Datadog accounts), You MUST use a different role name for `IAMRoleName`.
+   1. Check the 2 checkboxes under "Capabilities" to give our stack the necessary permissions.
    1. Click **Create stack**.
 
 ## AWS Resources
@@ -21,8 +20,15 @@ This template creates the following AWS resources required by the Datadog AWS in
 
 - An IAM role for Datadog to assume for data collection (e.g., CloudWatch metrics)
 - The [Datadog Forwarder Lambda function](https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring) to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
-  - The Datadog Forwarder only deploy to the AWS region where the AWS integration CloudFormation stack is launched. If you operate in multiple AWS regions, you can deploy the Forwarder stack (without the rest of the AWS integration stack) directly to other regions as needed.
+  - The Datadog Forwarder only deploys to the AWS region where the AWS integration CloudFormation stack is launched. If you operate in multiple AWS regions, you can deploy the Forwarder stack (without the rest of the AWS integration stack) directly to other regions as needed.
   - The Datadog Forwarder is installed with default settings as a nested stack, edit the nested stack directly to update the forwarder specific settings.
+
+## Updating your CloudFormation Stack
+
+As of v2.0.0 of the aws_quickstart template updates to the stack parameters are supported. Updates should generally be made to the root CloudFormation Stack (entitled DatadogIntegration by default). We do not support updating the API Key or APP Key fields to point to a different Datadog Organization - if these are updated they must point to the original Organization. You can also update the version of the template used by selecting "Replace existing template" while updating your CloudFormation Stack. You must select a version number with the same major version as your current template.
+
+**Note:** Updating an existing stack from template version v1.X.X -> v2.X.X is not supported. If you are on v1.X.X and wish to migrate to v2.X.X, it will involve a service disruption. To migrate, delete your original stack and recreate a new stack with the v2.X.X template.
+Deleting the v1 stack will delete your Datadog integration for this account, stopping AWS data collection in Datadog temporarily. Collection will resume once the v2.X.X stack is successfully created.
 
 ## Datadog::Integrations::AWS
 
