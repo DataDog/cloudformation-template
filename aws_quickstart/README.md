@@ -9,7 +9,7 @@
    1. Fill out the various fields under "Automatically using CloudFormation".
    1. Click "Launch CloudFormation Template" in the bottom right.
 1. Log into your admin AWS account/role and deploy the CloudFormation Stack that you're linked to. All required parameters will be filled in.
-   1. Optinally edit "Advanced" fields to set the IAM RoleName used, and disable default collection settings.
+   1. Optionally edit "Advanced" fields to set the `IAMRoleName` used, or disable default collection settings.
    1. On a rare occasion, if you already have a stack deployed in the same AWS account using this template (e.g., monitor the same AWS account in multiple Datadog accounts), You MUST use a different role name for `IAMRoleName`.
    1. Check the 2 checkboxes under "Capabilities" to give our stack the necessary permissions.
    1. Click **Create stack**.
