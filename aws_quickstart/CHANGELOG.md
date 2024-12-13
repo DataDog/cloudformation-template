@@ -1,3 +1,9 @@
+## 2.0.7 (December 13, 2024)
+
+### Features
+
+* Add additional permissions empowering AWS resource collection and align policy content between templates
+
 ## 2.0.6 (December 4, 2024)
 
 ### Features
