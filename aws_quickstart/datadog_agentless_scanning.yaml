@@ -276,6 +276,14 @@ Resources:
               apt update
               apt install -y nbd-client curl jq
 
+              # Perform unattended upgrades with automatic reboot on kernel updates
+              cat << EOF >> /etc/apt/apt.conf.d/50unattended-upgrades
+              Unattended-Upgrade::Automatic-Reboot "true";
+              Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+              Unattended-Upgrade::Automatic-Reboot-Time "now";
+              EOF
+              unattended-upgrade -v
+
               # Get IMDS metadata to fetch the API Key from SecretsManager (without having to install awscli)
               IMDS_TOKEN=$(        curl -sSL -XPUT "http://169.254.169.254/latest/api/token"                                              -H "X-AWS-EC2-Metadata-Token-TTL-Seconds: 30")
               IMDS_INSTANCE_ID=$(  curl -sSL -XGET "http://169.254.169.254/latest/meta-data/instance-id"                                  -H "X-AWS-EC2-Metadata-Token: $IMDS_TOKEN")
@@ -324,13 +332,6 @@ Resources:
               systemctl mask datadog-agentless-scanner.service
               apt install -y "datadog-agentless-scanner=$agentless_version_custom"
               systemctl unmask datadog-agentless-scanner.service
-
-              # Adding automatic reboot on kernel updates
-              cat << EOF >> /etc/apt/apt.conf.d/50unattended-upgrades
-              Unattended-Upgrade::Automatic-Reboot "true";
-              Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
-              Unattended-Upgrade::Automatic-Reboot-Time "now";
-              EOF
 
               # Activate agentless scanner logging
               mkdir -p /etc/datadog-agent/conf.d/agentless-scanner.d
