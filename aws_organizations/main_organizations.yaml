@@ -69,10 +69,10 @@ Rules:
             - Fn::And:
                 - Fn::Equals:
                     - Ref: DisableResourceCollection
-                    - 'true'
+                    - "true"
                 - Fn::Equals:
                     - Ref: CloudSecurityPostureManagement
-                    - 'true'
+                    - "true"
         AssertDescription: CloudSecurityPostureManagement requires ResourceCollection, must enable ResourceCollection
 Conditions:
   ResourceCollectionPermissions:
@@ -89,7 +89,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -343,7 +343,7 @@ Resources:
 
           signal.signal(signal.SIGALRM, timeout_handler)
   DatadogIntegrationRole:
-    Type: 'AWS::IAM::Role'
+    Type: "AWS::IAM::Role"
     Metadata:
       cfn-lint:
         config:
@@ -365,138 +365,140 @@ Resources:
                 - AWS: !Sub "arn:${AWS::Partition}:iam::417141415827:root"
                 - AWS: !Sub "arn:${AWS::Partition}:iam::464622532012:root"
             Action:
-              - 'sts:AssumeRole'
+              - "sts:AssumeRole"
             Condition:
               StringEquals:
-                'sts:ExternalId': !GetAtt DatadogAWSAccountIntegration.ExternalId
+                "sts:ExternalId": !GetAtt DatadogAWSAccountIntegration.ExternalId
       Path: /
       RoleName: !Ref IAMRoleName
-      ManagedPolicyArns: !If [ ResourceCollectionPermissions, [ !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit" ], !Ref AWS::NoValue ]
+      ManagedPolicyArns:
+        !If [
+          ResourceCollectionPermissions,
+          [!Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"],
+          !Ref AWS::NoValue,
+        ]
       Policies:
         - PolicyName: DatadogAWSIntegrationPolicy
           PolicyDocument:
             Version: 2012-10-17
             Statement:
               - Effect: Allow
-                Resource: '*'
+                Resource: "*"
                 Action:
-                  - 'apigateway:GET'
-                  - 'autoscaling:Describe*'
-                  - 'backup:List*'
-                  - 'bcm-data-exports:GetExport'
-                  - 'bcm-data-exports:ListExports'
-                  - 'budgets:ViewBudget'
-                  - 'cassandra:Select'
-                  - 'cloudfront:GetDistributionConfig'
-                  - 'cloudfront:ListDistributions'
-                  - 'cloudtrail:DescribeTrails'
-                  - 'cloudtrail:GetTrailStatus'
-                  - 'cloudtrail:LookupEvents'
-                  - 'cloudwatch:Describe*'
-                  - 'cloudwatch:Get*'
-                  - 'cloudwatch:List*'
-                  - 'codedeploy:BatchGet*'
-                  - 'codedeploy:List*'
-                  - 'cur:DescribeReportDefinitions'
-                  - 'directconnect:Describe*'
-                  - 'dynamodb:Describe*'
-                  - 'dynamodb:List*'
-                  - 'ec2:Describe*'
-                  - 'ec2:GetSnapshotBlockPublicAccessState'
-                  - 'ec2:GetEbsDefaultKmsKeyId'
-                  - 'ec2:GetInstanceMetadataDefaults'
-                  - 'ec2:GetSerialConsoleAccessStatus'
-                  - 'ec2:GetTransitGatewayPrefixListReferences'
-                  - 'ec2:SearchTransitGatewayRoutes'
-                  - 'ecs:Describe*'
-                  - 'ecs:List*'
-                  - 'elasticache:Describe*'
-                  - 'elasticache:List*'
-                  - 'elasticfilesystem:DescribeAccessPoints'
-                  - 'elasticfilesystem:DescribeFileSystems'
-                  - 'elasticfilesystem:DescribeTags'
-                  - 'elasticloadbalancing:Describe*'
-                  - 'elasticmapreduce:Describe*'
-                  - 'elasticmapreduce:List*'
-                  - 'es:DescribeElasticsearchDomains'
-                  - 'es:ListDomainNames'
-                  - 'es:ListTags'
-                  - 'events:CreateEventBus'
-                  - 'fsx:DescribeFileSystems'
-                  - 'fsx:ListTagsForResource'
-                  - 'glacier:GetVaultNotifications'
-                  - 'glue:ListRegistries'
-                  - 'health:DescribeAffectedEntities'
-                  - 'health:DescribeEventDetails'
-                  - 'health:DescribeEvents'
-                  - 'keyspaces:GetTable'
-                  - 'keyspaces:ListKeyspaces'
-                  - 'keyspaces:ListTables'
-                  - 'kinesis:Describe*'
-                  - 'kinesis:List*'
-                  - 'lambda:GetPolicy'
-                  - 'lambda:List*'
-                  - 'lightsail:GetInstancePortStates'
-                  - 'logs:DeleteSubscriptionFilter'
-                  - 'logs:DescribeLogGroups'
-                  - 'logs:DescribeLogStreams'
-                  - 'logs:DescribeSubscriptionFilters'
-                  - 'logs:FilterLogEvents'
-                  - 'logs:PutSubscriptionFilter'
-                  - 'logs:TestMetricFilter'
-                  - 'oam:ListAttachedLinks'
-                  - 'oam:ListSinks'
-                  - 'organizations:Describe*'
-                  - 'organizations:List*'
-                  - 'rds:Describe*'
-                  - 'rds:List*'
-                  - 'redshift:DescribeClusters'
-                  - 'redshift:DescribeLoggingStatus'
-                  - 'route53:List*'
-                  - 's3:GetBucketLocation'
-                  - 's3:GetBucketLogging'
-                  - 's3:GetBucketNotification'
-                  - 's3:GetBucketTagging'
-                  - 's3:ListAccessGrants'
-                  - 's3:ListAllMyBuckets'
-                  - 's3:PutBucketNotification'
+                  - "apigateway:GET"
+                  - "autoscaling:Describe*"
+                  - "backup:List*"
+                  - "bcm-data-exports:GetExport"
+                  - "bcm-data-exports:ListExports"
+                  - "budgets:ViewBudget"
+                  - "cassandra:Select"
+                  - "cloudfront:GetDistributionConfig"
+                  - "cloudfront:ListDistributions"
+                  - "cloudtrail:DescribeTrails"
+                  - "cloudtrail:GetTrailStatus"
+                  - "cloudtrail:LookupEvents"
+                  - "cloudwatch:Describe*"
+                  - "cloudwatch:Get*"
+                  - "cloudwatch:List*"
+                  - "codedeploy:BatchGet*"
+                  - "codedeploy:List*"
+                  - "cur:DescribeReportDefinitions"
+                  - "directconnect:Describe*"
+                  - "dynamodb:Describe*"
+                  - "dynamodb:List*"
+                  - "ec2:Describe*"
+                  - "ec2:GetSnapshotBlockPublicAccessState"
+                  - "ec2:GetEbsDefaultKmsKeyId"
+                  - "ec2:GetInstanceMetadataDefaults"
+                  - "ec2:GetSerialConsoleAccessStatus"
+                  - "ec2:GetTransitGatewayPrefixListReferences"
+                  - "ec2:SearchTransitGatewayRoutes"
+                  - "ecs:Describe*"
+                  - "ecs:List*"
+                  - "elasticache:Describe*"
+                  - "elasticache:List*"
+                  - "elasticfilesystem:DescribeAccessPoints"
+                  - "elasticfilesystem:DescribeFileSystems"
+                  - "elasticfilesystem:DescribeTags"
+                  - "elasticloadbalancing:Describe*"
+                  - "elasticmapreduce:Describe*"
+                  - "elasticmapreduce:List*"
+                  - "es:DescribeElasticsearchDomains"
+                  - "es:ListDomainNames"
+                  - "es:ListTags"
+                  - "events:CreateEventBus"
+                  - "fsx:DescribeFileSystems"
+                  - "fsx:ListTagsForResource"
+                  - "glacier:GetVaultNotifications"
+                  - "glue:ListRegistries"
+                  - "health:DescribeAffectedEntities"
+                  - "health:DescribeEventDetails"
+                  - "health:DescribeEvents"
+                  - "kinesis:Describe*"
+                  - "kinesis:List*"
+                  - "lambda:GetPolicy"
+                  - "lambda:List*"
+                  - "lightsail:GetInstancePortStates"
+                  - "logs:DeleteSubscriptionFilter"
+                  - "logs:DescribeLogGroups"
+                  - "logs:DescribeLogStreams"
+                  - "logs:DescribeSubscriptionFilters"
+                  - "logs:FilterLogEvents"
+                  - "logs:PutSubscriptionFilter"
+                  - "logs:TestMetricFilter"
+                  - "oam:ListAttachedLinks"
+                  - "oam:ListSinks"
+                  - "organizations:Describe*"
+                  - "organizations:List*"
+                  - "rds:Describe*"
+                  - "rds:List*"
+                  - "redshift:DescribeClusters"
+                  - "redshift:DescribeLoggingStatus"
+                  - "route53:List*"
+                  - "s3:GetBucketLocation"
+                  - "s3:GetBucketLogging"
+                  - "s3:GetBucketNotification"
+                  - "s3:GetBucketTagging"
+                  - "s3:ListAccessGrants"
+                  - "s3:ListAllMyBuckets"
+                  - "s3:PutBucketNotification"
                   # For S3 Directory Buckets, the s3 calls are with the s3express prefix
                   # https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazons3express.html
-                  - 's3express:GetBucketPolicy'
-                  - 's3express:GetEncryptionConfiguration'
-                  - 's3express:ListAllMyDirectoryBuckets'
-                  - 'savingsplans:DescribeSavingsPlanRates'
-                  - 'savingsplans:DescribeSavingsPlans'
-                  - 'ses:Get*'
-                  - 'secretsmanager:GetResourcePolicy'
-                  - 'sns:GetSubscriptionAttributes'
-                  - 'sns:List*'
-                  - 'sns:Publish'
-                  - 'sqs:ListQueues'
-                  - 'states:DescribeStateMachine'
-                  - 'states:ListStateMachines'
-                  - 'support:DescribeTrustedAdvisor*'
-                  - 'support:RefreshTrustedAdvisorCheck'
-                  - 'tag:GetResources'
-                  - 'tag:GetTagKeys'
-                  - 'tag:GetTagValues'
-                  - 'timestream:DescribeEndpoints'
-                  - 'timestream:ListTables'
-                  - 'waf-reginal:GetRule'
-                  - 'waf-reginal:GetRuleGroup'
-                  - 'waf-regional:ListRuleGroups'
-                  - 'waf-regional:ListRules'
-                  - 'waf:GetRuleGroup'
-                  - 'waf:GetRule'
-                  - 'waf:ListRuleGroups'
-                  - 'waf:ListRules'
-                  - 'wafv2:GetIPSet'
-                  - 'wafv2:GetLoggingConfiguration'
-                  - 'wafv2:GetRegexPatternSet'
-                  - 'wafv2:GetRuleGroup'
-                  - 'wafv2:ListLoggingConfigurations'
-                  - 'xray:BatchGetTraces'
-                  - 'xray:GetTraceSummaries'
+                  - "s3express:GetBucketPolicy"
+                  - "s3express:GetEncryptionConfiguration"
+                  - "s3express:ListAllMyDirectoryBuckets"
+                  - "savingsplans:DescribeSavingsPlanRates"
+                  - "savingsplans:DescribeSavingsPlans"
+                  - "ses:Get*"
+                  - "secretsmanager:GetResourcePolicy"
+                  - "sns:GetSubscriptionAttributes"
+                  - "sns:List*"
+                  - "sns:Publish"
+                  - "sqs:ListQueues"
+                  - "states:DescribeStateMachine"
+                  - "states:ListStateMachines"
+                  - "support:DescribeTrustedAdvisor*"
+                  - "support:RefreshTrustedAdvisorCheck"
+                  - "tag:GetResources"
+                  - "tag:GetTagKeys"
+                  - "tag:GetTagValues"
+                  - "timestream:DescribeEndpoints"
+                  - "timestream:ListTables"
+                  - "waf-reginal:GetRule"
+                  - "waf-reginal:GetRuleGroup"
+                  - "waf-regional:ListRuleGroups"
+                  - "waf-regional:ListRules"
+                  - "waf:GetRuleGroup"
+                  - "waf:GetRule"
+                  - "waf:ListRuleGroups"
+                  - "waf:ListRules"
+                  - "wafv2:GetIPSet"
+                  - "wafv2:GetLoggingConfiguration"
+                  - "wafv2:GetRegexPatternSet"
+                  - "wafv2:GetRuleGroup"
+                  - "wafv2:ListLoggingConfigurations"
+                  - "xray:BatchGetTraces"
+                  - "xray:GetTraceSummaries"
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
