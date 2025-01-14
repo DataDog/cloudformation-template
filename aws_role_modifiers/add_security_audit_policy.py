@@ -55,7 +55,7 @@ def handler(event, context):
 
         iam.attach_role_policy(
             RoleName=role_name,
-            PolicyArn='arn:aws:iam::aws:policy/SecurityAudit'
+            PolicyArn="arn:{partition}:iam::aws:policy/SecurityAudit".format(partition=event["ResourceProperties"]["Partition"])
         )
         LOGGER.info("Success - Policy added to given role.")
         cfResponse = {"Message": "Datadog AWS Integration {} API request was successful.".format(method)}

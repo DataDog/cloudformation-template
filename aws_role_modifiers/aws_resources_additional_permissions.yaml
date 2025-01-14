@@ -19,14 +19,18 @@ Resources:
             Action:
               - sts:AssumeRole
       Policies:
-        - PolicyName: LambdaBasicExecution
+        - PolicyName: AttachSecurityAuditPolicyToRole
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
                   - iam:AttachRolePolicy
-                Resource: "*"
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DatadogIntegrationRole}"
+                Condition: 
+                  ArnEquals: 
+                    'iam:PolicyARN': 
+                      - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
       Path: "/"
       ManagedPolicyArns:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
@@ -35,6 +39,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt SecurityAuditFunction.Arn
       RoleName: !Ref DatadogIntegrationRole
+      Partition: !Ref AWS::Partition
   SecurityAuditFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -104,7 +109,7 @@ Resources:
 
                   iam.attach_role_policy(
                       RoleName=role_name,
-                      PolicyArn='arn:aws:iam::aws:policy/SecurityAudit'
+                      PolicyArn="arn:{partition}:iam::aws:policy/SecurityAudit".format(partition=event["ResourceProperties"]["Partition"])
                   )
                   LOGGER.info("Success - Policy added to given role.")
                   cfResponse = {"Message": "Datadog AWS Integration {} API request was successful.".format(method)}
@@ -134,4 +139,3 @@ Resources:
               raise TimeoutError("Lambda function timeout exceeded - increase the timeout set in the api_call Cloudformation template.")
 
           signal.signal(signal.SIGALRM, timeout_handler)
-
