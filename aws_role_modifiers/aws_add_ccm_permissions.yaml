@@ -1,0 +1,51 @@
+# version: <VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog Resource Collection Setup
+Parameters:
+  DDCloudCostBucketName:
+    Type: String
+    Description: The name of the S3 bucket for storing the cost and usage reports.
+  DDCloudCostReportName:
+    Type: String
+    Description: The name of the cost and usage report.
+  DDCloudCostBucketPrefix:
+    Type: String
+    Description: The prefix to be added to the cost and usage report files in the S3 bucket.
+  DatadogIntegrationRole:
+    Type: String
+    Description: The name of the IAM role that has been integrated with Datadog.
+Resources:
+  DatadogCCMAdditionalPermissionsPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref DatadogIntegrationRole
+      PolicyName: DatadogIntegrationPolicyWithCCM
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: ReadCloudCostBucket
+            Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource: !Sub "arn:aws:s3:::${DDCloudCostBucketName}"
+          - Sid: GetBill
+            Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${DDCloudCostBucketName}/${DDCloudCostBucketPrefix}/${DDCloudCostReportName}/*"
+          - Sid: CheckAccuracy
+            Effect: Allow
+            Action:
+              - ce:Get*
+            Resource: "*"
+          - Sid: ListCURs
+            Effect: Allow
+            Action:
+              - cur:DescribeReportDefinitions
+            Resource: "*"
+          - Sid: ListOrganizations
+            Effect: Allow
+            Action:
+              - organizations:Describe*
+              - organizations:List*
+            Resource: "*"
