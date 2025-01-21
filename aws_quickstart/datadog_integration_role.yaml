@@ -95,6 +95,7 @@ Resources:
                   - "ec2:GetSnapshotBlockPublicAccessState"
                   - "ec2:GetEbsDefaultKmsKeyId"
                   - "ec2:GetInstanceMetadataDefaults"
+                  - "ec2:GetAllowedImagesSettings"
                   - "ec2:GetSerialConsoleAccessStatus"
                   - "ec2:GetSnapshotBlockPublicAccessState"
                   - "ec2:GetTransitGatewayPrefixListReferences"

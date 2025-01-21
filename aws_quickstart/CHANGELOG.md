@@ -1,4 +1,10 @@
-## 2.0.8 (December 13, 2024)
+## 2.1.0 (January 21, 2025 )
+
+### Features
+
+- Add `ec2:GetAllowedImagesSettings` to integration role policy
+
+## 2.0.9 (December 13, 2024)
 
 ### Features
 
