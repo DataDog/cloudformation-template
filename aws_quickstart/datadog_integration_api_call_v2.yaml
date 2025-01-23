@@ -263,7 +263,12 @@ Resources:
                   json_response = json.loads(data)
               if code == 200 or code == 204:
                   if len(json_response["data"]) == 0:
-                      cfn_response_send_failure(event, context, "Datadog account not found.")
+                      if event["RequestType"] == "Delete":
+                          # Report success so stack deletion can proceed
+                          LOGGER.info("Account requested for deletion does not exist in Datadog. Proceeding with stack deletion.")
+                          cfn_response_send_api_result(event, context, "DELETE", account_response)
+                      else:
+                        cfn_response_send_failure(event, context, "Datadog account not found.")
                       return None
                   if len(json_response["data"]) > 1:
                       cfn_response_send_failure(event, context, "Datadog account not unique.")
