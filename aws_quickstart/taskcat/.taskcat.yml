@@ -18,3 +18,4 @@ tests:
       InstallLambdaLogForwarder: "true"
       DisableMetricCollection: "false"
       CloudSecurityPostureManagement: "false"
+      DisableResourceCollection: "false"
