@@ -20,6 +20,18 @@ Parameters:
       Enable Agentless Scanning of datastores (S3 buckets). "CloudSecurityPostureManagement" must be set to 'true'.
     Default: "false"
 
+  ExternalId:
+    Description: >-
+      External ID for the Datadog role (generate at
+      https://app.datadoghq.com/account/settings#integrations/amazon-web-services)
+    Type: String
+
+  DdAWSAccountId:
+    Description: >-
+      Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
+    Type: String
+    Default: "464622532012"
+
 Conditions:
   DSPMEnabled: !Equals
     - !Ref 'AgentlessSensitiveDataScanning'
@@ -240,6 +252,50 @@ Resources:
           Value: 'true'
         - Key: Datadog
           Value: 'true'
+
+  ScannerAutoScalingDelegateRole:
+    Type: AWS::IAM::Role
+    Properties:
+        Description: Role assumed by Datadog to perform AutoScaling operations
+        RoleName: !Sub '${ScannerDelegateRoleName}AutoScaling'
+        AssumeRolePolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Principal:
+                AWS: !Sub "arn:${AWS::Partition}:iam::${DdAWSAccountId}:root"
+              Action:
+                - "sts:AssumeRole"
+              Condition:
+                StringEquals:
+                  "sts:ExternalId": !Ref ExternalId
+        Path: /
+        Tags:
+          - Key: DatadogAgentlessScanner
+            Value: 'true'
+          - Key: Datadog
+            Value: 'true'
+        Policies:
+          - PolicyName: DatadogAWSIntegrationPolicy
+            PolicyDocument:
+              Version: 2012-10-17
+              Statement:
+                - Sid: DatadogAgentlessScannerAutoScaling
+                  Action:
+                    - 'autoscaling:DescribeAutoScalingGroups'
+                    - 'autoscaling:DescribeAutoScalingInstances'
+                    - 'autoscaling:DescribeLaunchConfigurations'
+                    - 'autoscaling:DescribeScalingActivities'
+                    - 'autoscaling:DescribeScheduledActions'
+                    - 'autoscaling:DescribeTags'
+                    - 'autoscaling:SetDesiredCapacity'
+                    - 'autoscaling:TerminateInstanceInAutoScalingGroup'
+                    - 'autoscaling:StartInstanceRefresh'
+                  Effect: Allow
+                  Resource: '*'
+                  Condition:
+                    StringEquals:
+                      'autoscaling:ResourceTag/DatadogAgentlessScanner': 'true'
 
 Metadata:
   AWS::CloudFormation::Interface:
