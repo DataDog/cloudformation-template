@@ -268,7 +268,7 @@ Resources:
                           LOGGER.info("Account requested for deletion does not exist in Datadog. Proceeding with stack deletion.")
                           cfn_response_send_api_result(event, context, "DELETE", account_response)
                       else:
-                        cfn_response_send_failure(event, context, "Datadog account not found.")
+                          cfn_response_send_failure(event, context, "Datadog account not found.")
                       return None
                   if len(json_response["data"]) > 1:
                       cfn_response_send_failure(event, context, "Datadog account not unique.")
