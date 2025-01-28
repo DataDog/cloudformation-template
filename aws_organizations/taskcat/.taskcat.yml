@@ -17,3 +17,4 @@ tests:
       IAMRoleName: "DatadogIntegrationRole-taskcat-$[taskcat_random-string]"
       DisableMetricCollection: "false"
       CloudSecurityPostureManagement: "false"
+      DisableResourceCollection: "false"
