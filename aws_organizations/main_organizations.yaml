@@ -102,7 +102,7 @@ Resources:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
   DatadogAWSAccountIntegration:
     Type: "Custom::DatadogAWSAccountIntegration"
-    DeletionPolicy: RetainExceptOnCreate
+    UpdateReplacePolicy: Retain
     Properties:
       ServiceToken: !GetAtt DatadogAPICallFunction.Arn
       APIKey: !Ref DatadogApiKey
@@ -117,7 +117,6 @@ Resources:
       DisableResourceCollection: !Ref DisableResourceCollection
   DatadogAPICallFunction:
     Type: "AWS::Lambda::Function"
-    DeletionPolicy: RetainExceptOnCreate
     Properties:
       Description: "A function to call the Datadog API."
       Role: !GetAtt DatadogAPIHandlerLambdaExecutionRole.Arn
