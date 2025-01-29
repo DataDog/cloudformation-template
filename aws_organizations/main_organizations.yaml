@@ -102,6 +102,7 @@ Resources:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
   DatadogAWSAccountIntegration:
     Type: "Custom::DatadogAWSAccountIntegration"
+    UpdateReplacePolicy: Retain
     Properties:
       ServiceToken: !GetAtt DatadogAPICallFunction.Arn
       APIKey: !Ref DatadogApiKey
