@@ -1,6 +1,18 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: IAM role for Datadog AWS Integration
 Parameters:
+  DatadogApiKey:
+    Description: >-
+      API key for the Datadog account
+    Type: String
+    NoEcho: true
+    Default: ""
+  DatadogAppKey:
+    Description: >-
+      APP key for the Datadog account
+    Type: String
+    NoEcho: true
+    Default: ""
   ExternalId:
     Description: >-
       External ID for the Datadog role (generate at
@@ -29,6 +41,138 @@ Conditions:
       - Ref: ResourceCollectionPermissions
       - true
 Resources:
+  DatadogPermissionsAPIHandlerLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  # Custom Resource to Invoke Lambda and Fetch IAM Policy
+  FetchIAMPermissions:
+    Type: "Custom::FetchIAMPermissions"
+    Properties:
+      ServiceToken: !GetAtt DatadogPermissionsAPICallFunction.Arn
+      APIKey: !Ref DatadogApiKey
+      APPKey: !Ref DatadogAppKey
+  DatadogPermissionsAPICallFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "A function to call the Datadog API."
+      Role: !GetAtt DatadogPermissionsAPIHandlerLambdaExecutionRole.Arn
+      Handler: "index.handler"
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
+      Runtime: "python3.11"
+      Timeout: 5
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import signal
+          from urllib.request import Request
+          import urllib.parse
+          import cfnresponse
+
+          LOGGER = logging.getLogger()
+          LOGGER.setLevel(logging.INFO)
+
+          API_CALL_SOURCE_HEADER_VALUE = "cfn-quick-start"
+
+          def handler(event, context):
+              api_key = event["ResourceProperties"]["APIKey"]
+              app_key = event["ResourceProperties"]["APPKey"]
+
+              try:
+                  print("Event received: ", json.dumps(event))
+                  
+                  if event['RequestType'] == 'Delete':
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      return
+
+                  # Fetch permissions from datadog
+                  api_url = "https://dd.datad0g.com/api/v2/integration/aws/permissions"
+                  headers = {
+                      "DD-API-KEY": api_key,
+                      "DD-APPLICATION-KEY": app_key,
+                      "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
+                  }
+                  request = Request(api_url, headers=headers)
+                  method = "GET"
+                  request.get_method = lambda: method
+                  try:
+                      response = urllib.request.urlopen(request)
+                  except urllib.error.HTTPError as e:
+                      # Return error response from API
+                      response = e
+
+                  cfn_response_send_api_result(event, context, method, response)
+              except Exception as e:
+                  print("Error: ", str(e))
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {})
+
+          def cfn_response_send_api_result(event, context, method, response):
+              reason = None
+              json_response = ""
+              code = response.getcode()
+              data = response.read()
+              if data:
+                  json_response = json.loads(data)
+              if code == 200 or code == 204:
+                  LOGGER.info("Success - Datadog API call was successful.")
+                  response_status = "SUCCESS"
+                  cfResponse = {"Message": "Datadog AWS Integration {} API request was successful.".format(method)}
+
+                  # return permissions
+                  print(f"RECEIVED RESPONSE: {json_response}")
+                  permissions = []
+                  for permission in json_response["data"]:
+                      permissions.append(permission["id"])
+                  policy_document = {
+                      "Version": "2012-10-17",
+                      "Statement": [
+                          {
+                              "Effect": "Allow",
+                              "Action": permissions,
+                              "Resource": "*"
+                          }
+                      ]
+                  }
+                  cfResponse["PolicyDocument"] = policy_document
+
+                  cfnresponse.send(
+                      event,
+                      context,
+                      responseStatus=response_status,
+                      responseData=cfResponse,
+                      reason=reason,
+                  )
+                  return
+              cfn_response_send_failure(event, context, "Datadog API returned error: {}".format(json_response))
+
+          def cfn_response_send_failure(event, context, message):
+              LOGGER.info("Failed - Datadog API call failed.")
+              reason = None
+              response_status = "FAILED"
+              cfResponse = {"Message": message}
+              reason = json.dumps(cfResponse)
+              cfnresponse.send(
+                  event,
+                  context,
+                  responseStatus=response_status,
+                  responseData=cfResponse,
+                  reason=reason,
+              )
+  
   DatadogIntegrationRole:
     Type: "AWS::IAM::Role"
     Metadata:
@@ -63,128 +207,128 @@ Resources:
         ]
       Policies:
         - PolicyName: DatadogAWSIntegrationPolicy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Resource: "*"
-                Action:
-                  - "apigateway:GET"
-                  - "autoscaling:Describe*"
-                  - "backup:List*"
-                  - "backup:ListRecoveryPointsByBackupVault"
-                  - "bcm-data-exports:GetExport"
-                  - "bcm-data-exports:ListExports"
-                  - "budgets:ViewBudget"
-                  - "cassandra:Select"
-                  - "cloudfront:GetDistributionConfig"
-                  - "cloudfront:ListDistributions"
-                  - "cloudtrail:DescribeTrails"
-                  - "cloudtrail:GetTrailStatus"
-                  - "cloudtrail:LookupEvents"
-                  - "cloudwatch:Describe*"
-                  - "cloudwatch:Get*"
-                  - "cloudwatch:List*"
-                  - "codedeploy:BatchGet*"
-                  - "codedeploy:List*"
-                  - "cur:DescribeReportDefinitions"
-                  - "directconnect:Describe*"
-                  - "dynamodb:Describe*"
-                  - "dynamodb:List*"
-                  - "ec2:Describe*"
-                  - "ec2:GetAllowedImagesSettings"
-                  - "ec2:GetEbsDefaultKmsKeyId"
-                  - "ec2:GetInstanceMetadataDefaults"
-                  - "ec2:GetSerialConsoleAccessStatus"
-                  - "ec2:GetSnapshotBlockPublicAccessState"
-                  - "ec2:GetTransitGatewayPrefixListReferences"
-                  - "ec2:SearchTransitGatewayRoutes"
-                  - "ecs:Describe*"
-                  - "ecs:List*"
-                  - "elasticache:Describe*"
-                  - "elasticache:List*"
-                  - "elasticfilesystem:DescribeAccessPoints"
-                  - "elasticfilesystem:DescribeFileSystems"
-                  - "elasticfilesystem:DescribeTags"
-                  - "elasticloadbalancing:Describe*"
-                  - "elasticmapreduce:Describe*"
-                  - "elasticmapreduce:List*"
-                  - "es:DescribeElasticsearchDomains"
-                  - "es:ListDomainNames"
-                  - "es:ListTags"
-                  - "events:CreateEventBus"
-                  - "fsx:DescribeFileSystems"
-                  - "fsx:ListTagsForResource"
-                  - "glacier:GetVaultNotifications"
-                  - "glue:ListRegistries"
-                  - "health:DescribeAffectedEntities"
-                  - "health:DescribeEventDetails"
-                  - "health:DescribeEvents"
-                  - "kinesis:Describe*"
-                  - "kinesis:List*"
-                  - "lambda:GetPolicy"
-                  - "lambda:List*"
-                  - "lightsail:GetInstancePortStates"
-                  - "logs:DeleteSubscriptionFilter"
-                  - "logs:DescribeLogGroups"
-                  - "logs:DescribeLogStreams"
-                  - "logs:DescribeSubscriptionFilters"
-                  - "logs:FilterLogEvents"
-                  - "logs:PutSubscriptionFilter"
-                  - "logs:TestMetricFilter"
-                  - "oam:ListAttachedLinks"
-                  - "oam:ListSinks"
-                  - "organizations:Describe*"
-                  - "organizations:List*"
-                  - "rds:Describe*"
-                  - "rds:List*"
-                  - "redshift:DescribeClusters"
-                  - "redshift:DescribeLoggingStatus"
-                  - "route53:List*"
-                  - "s3:GetBucketLocation"
-                  - "s3:GetBucketLogging"
-                  - "s3:GetBucketNotification"
-                  - "s3:GetBucketTagging"
-                  - "s3:ListAccessGrants"
-                  - "s3:ListAllMyBuckets"
-                  - "s3:PutBucketNotification"
-                  # For S3 Directory Buckets, the s3 calls are with the s3express prefix
-                  # https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazons3express.html
-                  - "s3express:GetBucketPolicy"
-                  - "s3express:GetEncryptionConfiguration"
-                  - "s3express:ListAllMyDirectoryBuckets"
-                  - "savingsplans:DescribeSavingsPlanRates"
-                  - "savingsplans:DescribeSavingsPlans"
-                  - "ses:Get*"
-                  - "secretsmanager:GetResourcePolicy"
-                  - "sns:GetSubscriptionAttributes"
-                  - "sns:List*"
-                  - "sns:Publish"
-                  - "sqs:ListQueues"
-                  - "states:DescribeStateMachine"
-                  - "states:ListStateMachines"
-                  - "support:DescribeTrustedAdvisor*"
-                  - "support:RefreshTrustedAdvisorCheck"
-                  - "tag:GetResources"
-                  - "tag:GetTagKeys"
-                  - "tag:GetTagValues"
-                  - "timestream:DescribeEndpoints"
-                  - "timestream:ListTables"
-                  - "waf-regional:GetRule"
-                  - "waf-regional:GetRuleGroup"
-                  - "waf-regional:ListRuleGroups"
-                  - "waf-regional:ListRules"
-                  - "waf:GetRuleGroup"
-                  - "waf:GetRule"
-                  - "waf:ListRuleGroups"
-                  - "waf:ListRules"
-                  - "wafv2:GetIPSet"
-                  - "wafv2:GetLoggingConfiguration"
-                  - "wafv2:GetRegexPatternSet"
-                  - "wafv2:GetRuleGroup"
-                  - "wafv2:ListLoggingConfigurations"
-                  - "xray:BatchGetTraces"
-                  - "xray:GetTraceSummaries"
+          PolicyDocument: !GetAtt FetchIAMPermissions.PolicyDocument
+            # Version: 2012-10-17
+            # Statement:
+            #   - Effect: Allow
+            #     Resource: "*"
+            #     Action:
+            #       - "apigateway:GET"
+            #       - "autoscaling:Describe*"
+            #       - "backup:List*"
+            #       - "backup:ListRecoveryPointsByBackupVault"
+            #       - "bcm-data-exports:GetExport"
+            #       - "bcm-data-exports:ListExports"
+            #       - "budgets:ViewBudget"
+            #       - "cassandra:Select"
+            #       - "cloudfront:GetDistributionConfig"
+            #       - "cloudfront:ListDistributions"
+            #       - "cloudtrail:DescribeTrails"
+            #       - "cloudtrail:GetTrailStatus"
+            #       - "cloudtrail:LookupEvents"
+            #       - "cloudwatch:Describe*"
+            #       - "cloudwatch:Get*"
+            #       - "cloudwatch:List*"
+            #       - "codedeploy:BatchGet*"
+            #       - "codedeploy:List*"
+            #       - "cur:DescribeReportDefinitions"
+            #       - "directconnect:Describe*"
+            #       - "dynamodb:Describe*"
+            #       - "dynamodb:List*"
+            #       - "ec2:Describe*"
+            #       - "ec2:GetAllowedImagesSettings"
+            #       - "ec2:GetEbsDefaultKmsKeyId"
+            #       - "ec2:GetInstanceMetadataDefaults"
+            #       - "ec2:GetSerialConsoleAccessStatus"
+            #       - "ec2:GetSnapshotBlockPublicAccessState"
+            #       - "ec2:GetTransitGatewayPrefixListReferences"
+            #       - "ec2:SearchTransitGatewayRoutes"
+            #       - "ecs:Describe*"
+            #       - "ecs:List*"
+            #       - "elasticache:Describe*"
+            #       - "elasticache:List*"
+            #       - "elasticfilesystem:DescribeAccessPoints"
+            #       - "elasticfilesystem:DescribeFileSystems"
+            #       - "elasticfilesystem:DescribeTags"
+            #       - "elasticloadbalancing:Describe*"
+            #       - "elasticmapreduce:Describe*"
+            #       - "elasticmapreduce:List*"
+            #       - "es:DescribeElasticsearchDomains"
+            #       - "es:ListDomainNames"
+            #       - "es:ListTags"
+            #       - "events:CreateEventBus"
+            #       - "fsx:DescribeFileSystems"
+            #       - "fsx:ListTagsForResource"
+            #       - "glacier:GetVaultNotifications"
+            #       - "glue:ListRegistries"
+            #       - "health:DescribeAffectedEntities"
+            #       - "health:DescribeEventDetails"
+            #       - "health:DescribeEvents"
+            #       - "kinesis:Describe*"
+            #       - "kinesis:List*"
+            #       - "lambda:GetPolicy"
+            #       - "lambda:List*"
+            #       - "lightsail:GetInstancePortStates"
+            #       - "logs:DeleteSubscriptionFilter"
+            #       - "logs:DescribeLogGroups"
+            #       - "logs:DescribeLogStreams"
+            #       - "logs:DescribeSubscriptionFilters"
+            #       - "logs:FilterLogEvents"
+            #       - "logs:PutSubscriptionFilter"
+            #       - "logs:TestMetricFilter"
+            #       - "oam:ListAttachedLinks"
+            #       - "oam:ListSinks"
+            #       - "organizations:Describe*"
+            #       - "organizations:List*"
+            #       - "rds:Describe*"
+            #       - "rds:List*"
+            #       - "redshift:DescribeClusters"
+            #       - "redshift:DescribeLoggingStatus"
+            #       - "route53:List*"
+            #       - "s3:GetBucketLocation"
+            #       - "s3:GetBucketLogging"
+            #       - "s3:GetBucketNotification"
+            #       - "s3:GetBucketTagging"
+            #       - "s3:ListAccessGrants"
+            #       - "s3:ListAllMyBuckets"
+            #       - "s3:PutBucketNotification"
+            #       # For S3 Directory Buckets, the s3 calls are with the s3express prefix
+            #       # https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazons3express.html
+            #       - "s3express:GetBucketPolicy"
+            #       - "s3express:GetEncryptionConfiguration"
+            #       - "s3express:ListAllMyDirectoryBuckets"
+            #       - "savingsplans:DescribeSavingsPlanRates"
+            #       - "savingsplans:DescribeSavingsPlans"
+            #       - "ses:Get*"
+            #       - "secretsmanager:GetResourcePolicy"
+            #       - "sns:GetSubscriptionAttributes"
+            #       - "sns:List*"
+            #       - "sns:Publish"
+            #       - "sqs:ListQueues"
+            #       - "states:DescribeStateMachine"
+            #       - "states:ListStateMachines"
+            #       - "support:DescribeTrustedAdvisor*"
+            #       - "support:RefreshTrustedAdvisorCheck"
+            #       - "tag:GetResources"
+            #       - "tag:GetTagKeys"
+            #       - "tag:GetTagValues"
+            #       - "timestream:DescribeEndpoints"
+            #       - "timestream:ListTables"
+            #       - "waf-regional:GetRule"
+            #       - "waf-regional:GetRuleGroup"
+            #       - "waf-regional:ListRuleGroups"
+            #       - "waf-regional:ListRules"
+            #       - "waf:GetRuleGroup"
+            #       - "waf:GetRule"
+            #       - "waf:ListRuleGroups"
+            #       - "waf:ListRules"
+            #       - "wafv2:GetIPSet"
+            #       - "wafv2:GetLoggingConfiguration"
+            #       - "wafv2:GetRegexPatternSet"
+            #       - "wafv2:GetRuleGroup"
+            #       - "wafv2:ListLoggingConfigurations"
+            #       - "xray:BatchGetTraces"
+            #       - "xray:GetTraceSummaries"
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
