@@ -41,13 +41,17 @@ Parameters:
     AllowedValues:
       - true
       - false
-  DdEnableResourceCollection:
+  DdDisableResourceCollection:
     Description: Enable Resource Collection
     Type: String
     Default: true
     AllowedValues:
       - true
       - false
+  DdIamIntegrationRoleName:
+    Description: Datadog IAM Integration Role Name
+    Type: String
+    Default: DatadogIntegrationRole
 Resources:
   DatadogAccountIntegrationLambdaFunctionRole:
     Type: AWS::IAM::Role
@@ -98,7 +102,8 @@ Resources:
           DD_INSTALL_LAMBDA_LOG_FORWARDER: !Ref DdInstallLambdaLogForwarder
           DD_ENABLE_CSPM: !Ref DdEnableCspm
           DD_DISABLE_METRIC_COLLECTION: !Ref DdDisableMetricCollection
-          DD_ENABLE_RESOURCE_COLLECTION: !Ref DdEnableResourceCollection
+          DD_DISABLE_RESOURCE_COLLECTION: !Ref DdDisableResourceCollection
+          DD_IAM_INTEGRATION_ROLE_NAME: !Ref DdIamIntegrationRoleName
       Role:
         Fn::GetAtt:
           - "DatadogAccountIntegrationLambdaFunctionRole"
