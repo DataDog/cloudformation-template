@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Datadog AWS Account Integration
+Parameters:
+  DdApiKey:
+    Description: Datadog API Key
+    Type: String
+    NoEcho: true
+  DdAppKey:
+    Description: Datadog Application Key
+    Type: String
+    NoEcho: true
+  DdSite:
+    Description: Datadog Site
+    Type: String
+    Default: datadoghq.com
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ap1.datadoghq.com
+      - ddog-gov.com
+  DdInstallLambdaLogForwarder:
+    Description: Install Lambda Log Forwarder
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+  DdEnableCspm:
+    Description: Enable Cloud Security Posture Management
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  DdDisableMetricCollection:
+    Description: Disable Metric Collection
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  DdEnableResourceCollection:
+    Description: Enable Resource Collection
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+Resources:
+  DatadogAccountIntegrationLambdaFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+      Policies:
+        - PolicyName: DatadogAccountIntegrationLambdaFunctionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                Resource: "*"
+    
+  DatadogAccountIntegrationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.12
+      Timeout: 600
+      Code:
+        ZipFile: |
+          import boto3
+          
+          def timeout():
+              # TBD
+              raise Exception('Timeout')
+          
+          def handler(event, context):
+              # TBD
+              print(event)      
+      Environment:
+        Variables:
+          DD_API_KEY: !Ref DdApiKey
+          DD_APP_KEY: !Ref DdAppKey
+          DD_SITE: !Ref DdSite
+          DD_INSTALL_LAMBDA_LOG_FORWARDER: !Ref DdInstallLambdaLogForwarder
+          DD_ENABLE_CSPM: !Ref DdEnableCspm
+          DD_DISABLE_METRIC_COLLECTION: !Ref DdDisableMetricCollection
+          DD_ENABLE_RESOURCE_COLLECTION: !Ref DdEnableResourceCollection
+      Role:
+        Fn::GetAtt:
+          - "DatadogAccountIntegrationLambdaFunctionRole"
+          - "Arn"
+  DatadogAccountIntegrationEventLambdaPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Fn::GetAtt: 
+          - "DatadogAccountIntegrationLambdaFunction"
+          - "Arn"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "DatadogAccountIntegrationEventRule"
+          - "Arn"
+  DatadogAccountIntegrationEventRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      Name: 'DatadogAccountIntegrationEventBridgeRule'
+      Description: 'Datadog Account Integration EventBridge Rule'
+      EventPattern:
+        source:
+          - aws.organizations
+        detail-type:
+          - 'AWS create account notificaiton'
+        detail:
+          eventName:
+            - CreateAccountResult
+          serviceEventDetails:
+            createAccountStatus:
+              - SUCCEEDED
+      State: ENABLED
+      Targets:
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "DatadogAccountIntegrationLambdaFunction"
+              - "Arn"
+          Id: 'DatadogAccountIntegration'
