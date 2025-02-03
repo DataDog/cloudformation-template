@@ -61,6 +61,8 @@ Resources:
             Principal:
               Service:
                 - lambda.amazonaws.com
+      ManagedPolicyArns:
+        -  Fn::Sub: "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
       Policies:
         - PolicyName: DatadogAccountIntegrationLambdaFunctionPolicy
           PolicyDocument:
@@ -68,9 +70,8 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - cloudformation:CreateStack
-                  - cloudformation:UpdateStack
-                Resource: "*"
+                  - sts:AssumeRole
+                Resource: "arn:${AWS::Partition}:iam::*:role/OrganizationAccountAccessRole"
     
   DatadogAccountIntegrationLambdaFunction:
     Type: AWS::Lambda::Function
