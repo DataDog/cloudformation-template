@@ -80,7 +80,19 @@ Resources:
   DatadogAccountIntegrationTrailBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: "automatic-account-integration-trail-bucket"
+      BucketName:
+        Fn::Join:
+          - "-"
+          - - "datadog-account-integration"
+            - !Select
+              - 0
+              - !Split
+                - "-"
+                - !Select
+                  - 2
+                  - !Split
+                    - "/"
+                    - !Ref "AWS::StackId"
   DatadogAccountIntegrationTrailBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -149,6 +161,7 @@ Resources:
                   return
 
               # We need to add a sleep here, to allow AWS finish provisioning of a new AWS account.
+              print(f"Sleep for 3 minutes to allow AWS finish provisioning of a new AWS account")
               time.sleep(180)
 
               newAccountId = event.get("detail").get("serviceEventDetails").get("createAccountStatus").get("accountId")
@@ -209,7 +222,9 @@ Resources:
               )
 
               stack_id = response["StackId"]
-
+              
+              print(f"Wait for Datadog Integration for account {newAccountId} to be created")
+              
               while True:
                   response = client.describe_stacks(StackName=stack_id)
                   if response["Stacks"][0]["StackStatus"] == "CREATE_IN_PROGRESS":
@@ -221,7 +236,6 @@ Resources:
                       break
 
                   print(f"Datadog Integration for account {newAccountId} failed to create")
-                  print(response)
                   RuntimeError(f"Datadog Integration for account {newAccountId} failed to create")
       Environment:
         Variables:
