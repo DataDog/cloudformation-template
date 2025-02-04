@@ -263,7 +263,8 @@ Resources:
             - CreateAccountResult
           serviceEventDetails:
             createAccountStatus:
-              - SUCCEEDED
+              state:
+                - SUCCEEDED
       State: ENABLED
       Targets:
         - 
