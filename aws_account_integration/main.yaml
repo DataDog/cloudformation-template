@@ -81,6 +81,33 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: "datadog-account-integration-trail-bucket"
+  DatadogAccountIntegrationTrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref "DatadogAccountIntegrationTrailBucket"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "cloudtrail.amazonaws.com"
+            Action: "s3:GetBucketAcl"
+            Resource: 
+              - Fn::Sub: "arn:${AWS::Partition}:s3:::datadog-account-integration-trail-bucket"
+            Condition:
+              StringLike:
+                "aws:SourceArn": 
+                  - Fn::Sub: "arn:${AWS::Partition}:cloudtrail:*:${AWS::AccountId}:trail/DatadogAccountIntegrationTrail"
+          - Effect: Allow
+            Principal:
+              Service: "cloudtrail.amazonaws.com"
+            Action: "s3:PutObject"
+            Resource: 
+              - Fn::Sub: "arn:${AWS::Partition}:s3:::datadog-account-integration-trail-bucket/datadog-account-integration/*"
+            Condition:
+              StringLike:
+                "aws:SourceArn": 
+                  - Fn::Sub: "arn:${AWS::Partition}:cloudtrail:*:${AWS::AccountId}:trail/DatadogAccountIntegrationTrail"
   DatadogAccountIntegrationTrail:
     Type: AWS::CloudTrail::Trail
     Properties:
@@ -93,7 +120,6 @@ Resources:
           ReadWriteType: WriteOnly
       S3BucketName: !Ref "DatadogAccountIntegrationTrailBucket"
       S3KeyPrefix: "datadog-account-integration"
-      
   DatadogAccountIntegrationLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
