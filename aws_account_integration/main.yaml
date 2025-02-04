@@ -80,7 +80,7 @@ Resources:
   DatadogAccountIntegrationTrailBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: "datadog-account-integration-trail-bucket"
+      BucketName: "automatic-account-integration-trail-bucket"
   DatadogAccountIntegrationTrailBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -93,21 +93,25 @@ Resources:
               Service: "cloudtrail.amazonaws.com"
             Action: "s3:GetBucketAcl"
             Resource: 
-              - Fn::Sub: "arn:${AWS::Partition}:s3:::datadog-account-integration-trail-bucket"
+              - Fn::GetAtt: ["DatadogAccountIntegrationTrailBucket", "Arn"]
             Condition:
-              StringLike:
+              StringEquals:
                 "aws:SourceArn": 
-                  - Fn::Sub: "arn:${AWS::Partition}:cloudtrail:*:${AWS::AccountId}:trail/DatadogAccountIntegrationTrail"
+                  - Fn::Sub: "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/DatadogAccountIntegrationTrail"
           - Effect: Allow
             Principal:
               Service: "cloudtrail.amazonaws.com"
             Action: "s3:PutObject"
             Resource: 
-              - Fn::Sub: "arn:${AWS::Partition}:s3:::datadog-account-integration-trail-bucket/datadog-account-integration/*"
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt: ["DatadogAccountIntegrationTrailBucket", "Arn"]
+                    - "/datadog-account-integration/*"
             Condition:
-              StringLike:
+              StringEquals:
+                "s3:x-amz-acl": "bucket-owner-full-control"
                 "aws:SourceArn": 
-                  - Fn::Sub: "arn:${AWS::Partition}:cloudtrail:*:${AWS::AccountId}:trail/DatadogAccountIntegrationTrail"
+                  - Fn::Sub: "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/DatadogAccountIntegrationTrail"
   DatadogAccountIntegrationTrail:
     Type: AWS::CloudTrail::Trail
     Properties:
@@ -120,9 +124,6 @@ Resources:
           ReadWriteType: WriteOnly
       S3BucketName: !Ref "DatadogAccountIntegrationTrailBucket"
       S3KeyPrefix: "datadog-account-integration"
-    DependsOn:
-      - DatadogAccountIntegrationTrailBucketPolicy
-        DatadogAccountIntegrationTrailBucket
   DatadogAccountIntegrationLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
