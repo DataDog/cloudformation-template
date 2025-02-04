@@ -113,6 +113,8 @@ Resources:
                 "aws:SourceArn": 
                   - Fn::Sub: "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/DatadogAccountIntegrationTrail"
   DatadogAccountIntegrationTrail:
+    DependsOn:
+      - DatadogAccountIntegrationTrailBucketPolicy
     Type: AWS::CloudTrail::Trail
     Properties:
       TrailName: "DatadogAccountIntegrationTrail"
