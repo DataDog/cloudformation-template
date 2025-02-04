@@ -87,9 +87,10 @@ Resources:
       TrailName: "DatadogAccountIntegrationTrail"
       IsLogging: true
       IsMultiRegionTrail: true
+      IncludeGlobalServiceEvents: true
       EventSelectors:
-         IncludeManagementEvents: true
-         ReadWriteType: WriteOnly
+        - IncludeManagementEvents: true
+          ReadWriteType: WriteOnly
       S3BucketName: !Ref "DatadogAccountIntegrationTrailBucket"
       S3KeyPrefix: "datadog-account-integration"
       
