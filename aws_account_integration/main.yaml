@@ -42,9 +42,9 @@ Parameters:
       - true
       - false
   DdDisableResourceCollection:
-    Description: Enable Resource Collection
+    Description: Disable Resource Collection
     Type: String
-    Default: true
+    Default: false
     AllowedValues:
       - true
       - false
@@ -77,7 +77,22 @@ Resources:
                   - sts:AssumeRole
                 Resource:
                   - Fn::Sub: "arn:${AWS::Partition}:iam::*:role/OrganizationAccountAccessRole"
-    
+  DatadogAccountIntegrationTrailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: "datadog-account-integration-trail-bucket"
+  DatadogAccountIntegrationTrail:
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      TrailName: "DatadogAccountIntegrationTrail"
+      IsLogging: true
+      IsMultiRegionTrail: true
+      EventSelectors:
+         IncludeManagementEvents: true
+         ReadWriteType: WriteOnly
+      S3BucketName: !Ref "DatadogAccountIntegrationTrailBucket"
+      S3KeyPrefix: "datadog-account-integration"
+      
   DatadogAccountIntegrationLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -88,12 +103,9 @@ Resources:
         ZipFile: |
           import os
           import time
-
           import boto3
 
-
           def handler(event, context):
-
               if event.get("source") != "aws.organizations":
                   return
 
@@ -213,8 +225,6 @@ Resources:
       EventPattern:
         source:
           - aws.organizations
-        detail-type:
-          - 'AWS create account notificaiton'
         detail:
           eventName:
             - CreateAccountResult
