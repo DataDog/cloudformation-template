@@ -120,6 +120,9 @@ Resources:
           ReadWriteType: WriteOnly
       S3BucketName: !Ref "DatadogAccountIntegrationTrailBucket"
       S3KeyPrefix: "datadog-account-integration"
+    DependsOn:
+      - DatadogAccountIntegrationTrailBucketPolicy
+        DatadogAccountIntegrationTrailBucket
   DatadogAccountIntegrationLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
