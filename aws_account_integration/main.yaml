@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Datadog AWS Account Integration
+Description: Datadog AWS Account Auto Integration
 Parameters:
   DdApiKey:
     Description: Datadog API Key
@@ -53,6 +53,17 @@ Parameters:
     Type: String
     Default: DatadogIntegrationRole
 Resources:
+  DatadogKeysSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: "DatadogKeysSecret"
+      Description: "Datadog API and Application Keys"
+      SecretString: 
+        !Sub |
+          {
+            "DD_API_KEY": "${DdApiKey}",
+            "DD_APP_KEY": "${DdAppKey}"
+          }
   DatadogAccountIntegrationLambdaFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -77,6 +88,12 @@ Resources:
                   - sts:AssumeRole
                 Resource:
                   - Fn::Sub: "arn:${AWS::Partition}:iam::*:role/OrganizationAccountAccessRole"
+              - Effect: Allow
+                Action:
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                Resource: 
+                  - !Ref DatadogKeysSecret
   DatadogAccountIntegrationTrailBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -149,6 +166,7 @@ Resources:
           import os
           import time
           import boto3
+          import json
 
           def handler(event, context):
               if event.get("source") != "aws.organizations":
@@ -171,25 +189,30 @@ Resources:
               sts = session.client("sts")
               response = sts.assume_role(RoleArn=role, RoleSessionName="datadog-aws-provisioning")
 
+              secrets = session.client("secretsmanager")
+              response = secrets.get_secret_value(SecretId=os.environ["DD_SECRET_ID"])
+              secret = json.loads(response["SecretString"])
+              dd_api_key = secret.get("DD_API_KEY")
+              dd_app_key = secret.get("DD_APP_KEY")
+
               new_session = boto3.Session(
                   aws_access_key_id=response["Credentials"]["AccessKeyId"],
                   aws_secret_access_key=response["Credentials"]["SecretAccessKey"],
                   aws_session_token=response["Credentials"]["SessionToken"],
               )
 
-              client = new_session.client("cloudformation")
-
-              response = client.create_stack(
+              cloudformation = new_session.client("cloudformation")
+              response = cloudformation.create_stack(
                   StackName="Datadog-Integration-New-AWS-Account-cf-stack",
                   TemplateURL="https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/v2.0.5/main_v2.yaml",
                   Parameters=[
                       {
                           "ParameterKey": "APIKey",
-                          "ParameterValue": os.environ["DD_API_KEY"],
+                          "ParameterValue": dd_api_key,
                       },
                       {
                           "ParameterKey": "APPKey",
-                          "ParameterValue": os.environ["DD_APP_KEY"],
+                          "ParameterValue": dd_app_key,
                       },
                       {
                           "ParameterKey": "DatadogSite",
@@ -239,8 +262,7 @@ Resources:
                   RuntimeError(f"Datadog Integration for account {newAccountId} failed to create")
       Environment:
         Variables:
-          DD_API_KEY: !Ref DdApiKey
-          DD_APP_KEY: !Ref DdAppKey
+          DD_SECRET_ID: !Ref DatadogKeysSecret
           DD_SITE: !Ref DdSite
           DD_INSTALL_LAMBDA_LOG_FORWARDER: !Ref DdInstallLambdaLogForwarder
           DD_ENABLE_CSPM: !Ref DdEnableCspm
