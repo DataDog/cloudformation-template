@@ -187,7 +187,7 @@ Resources:
               session = boto3.Session()
 
               sts = session.client("sts")
-              response = sts.assume_role(RoleArn=role, RoleSessionName="datadog-aws-provisioning")
+              assumeRoleResponse = sts.assume_role(RoleArn=role, RoleSessionName="datadog-aws-provisioning")
 
               secrets = session.client("secretsmanager")
               response = secrets.get_secret_value(SecretId=os.environ["DD_SECRET_ID"])
@@ -196,9 +196,9 @@ Resources:
               dd_app_key = secret.get("DD_APP_KEY")
 
               new_session = boto3.Session(
-                  aws_access_key_id=response["Credentials"]["AccessKeyId"],
-                  aws_secret_access_key=response["Credentials"]["SecretAccessKey"],
-                  aws_session_token=response["Credentials"]["SessionToken"],
+                  aws_access_key_id=assumeRoleResponse["Credentials"]["AccessKeyId"],
+                  aws_secret_access_key=assumeRoleResponse["Credentials"]["SecretAccessKey"],
+                  aws_session_token=assumeRoleResponse["Credentials"]["SessionToken"],
               )
 
               cloudformation = new_session.client("cloudformation")
@@ -249,7 +249,7 @@ Resources:
               print(f"Wait for Datadog Integration for account {newAccountId} to be created")
               
               while True:
-                  response = client.describe_stacks(StackName=stack_id)
+                  response = cloudformation.describe_stacks(StackName=stack_id)
                   if response["Stacks"][0]["StackStatus"] == "CREATE_IN_PROGRESS":
                       time.sleep(10)
                       continue
