@@ -127,6 +127,8 @@ Resources:
     Properties:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_role.yaml"
       Parameters:
+        DatadogApiKey: !Ref APIKey
+        DatadogAppKey: !Ref APPKey
         ExternalId: !GetAtt DatadogAWSAccountIntegration.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
         ResourceCollectionPermissions: !If [ResourceCollectionPermissions, true, false]
