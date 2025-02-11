@@ -396,6 +396,8 @@ Resources:
                   - "backup:List*"
                   - "bcm-data-exports:GetExport"
                   - "bcm-data-exports:ListExports"
+                  - "bedrock:Get*"
+                  - "bedrock:List*"
                   - "budgets:ViewBudget"
                   - "cassandra:Select"
                   - "cloudfront:GetDistributionConfig"
