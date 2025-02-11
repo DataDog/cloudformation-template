@@ -276,6 +276,9 @@ Resources:
               apt update
               apt install -y nbd-client curl jq
 
+              # Perform unattended upgrades
+              unattended-upgrade -v
+
               # Get IMDS metadata to fetch the API Key from SecretsManager (without having to install awscli)
               IMDS_TOKEN=$(        curl -sSL -XPUT "http://169.254.169.254/latest/api/token"                                              -H "X-AWS-EC2-Metadata-Token-TTL-Seconds: 30")
               IMDS_INSTANCE_ID=$(  curl -sSL -XGET "http://169.254.169.254/latest/meta-data/instance-id"                                  -H "X-AWS-EC2-Metadata-Token: $IMDS_TOKEN")
@@ -331,6 +334,24 @@ Resources:
               Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
               Unattended-Upgrade::Automatic-Reboot-Time "now";
               EOF
+
+              # Perform unattended upgrades 10 min after boot, then every 3 hours
+              cat << EOF > /etc/systemd/system/apt-daily-upgrade.timer
+              [Unit]
+              Description=Daily apt upgrade and clean activities
+              After=apt-daily.timer
+              
+              [Timer]
+              OnActiveSec=10min
+              OnCalendar=0/3:00:00
+              Persistent=true
+              
+              [Install]
+              WantedBy=timers.target
+              EOF
+
+              systemctl daemon-reload
+              systemctl restart apt-daily-upgrade.timer
 
               # Activate agentless scanner logging
               mkdir -p /etc/datadog-agent/conf.d/agentless-scanner.d
