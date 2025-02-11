@@ -274,7 +274,11 @@ Resources:
 
               # Install requirements
               apt update
-              apt install -y nbd-client curl
+              apt install -y curl
+
+              # Remove uneeded packages
+              apt remove -y libx11-6
+              apt autoremove -y
 
               # Get IMDS metadata to fetch the API Key from SecretsManager (without having to install awscli)
               IMDS_TOKEN=$(      curl -sSL -XPUT "http://169.254.169.254/latest/api/token"                  -H "X-AWS-EC2-Metadata-Token-TTL-Seconds: 30")
@@ -381,7 +385,7 @@ Resources:
               VolumeType: gp3
         IamInstanceProfile:
           Name: !Ref 'ScannerAgentInstanceProfile'
-        ImageId: resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id
+        ImageId: resolve:ssm:/aws/service/canonical/ubuntu/server-minimal/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id
         InstanceType: !Ref 'ScannerInstanceType'
         Monitoring:
           Enabled: !Ref 'ScannerInstanceMonitoring'
