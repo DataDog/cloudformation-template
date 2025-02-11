@@ -1,0 +1,21 @@
+# version: <VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog LLMObservabilityPermissions
+Parameters:
+  DatadogIntegrationRole:
+    Type: String
+    Description: The name of the IAM role that has been integrated with Datadog.
+Resources:
+  DatadogLLMObservabilityAdditionalPermissionsPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref DatadogIntegrationRole
+      PolicyName: DatadogIntegrationPolicyWithLLMObservability
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: InvokeModel
+            Effect: Allow
+            Action:
+              - bedrock:InvokeModel
+            Resource: "*"
