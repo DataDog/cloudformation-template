@@ -1,3 +1,9 @@
+## 2.1.3 (February 11, 2025)
+
+### Features
+
+- Adding Bedrock Get and List permissions support Bedrock resource collection coverage
+
 ## 2.1.0 (January 21, 2025 )
 
 ### Features
