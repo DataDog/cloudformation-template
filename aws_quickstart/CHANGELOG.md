@@ -2,7 +2,7 @@
 
 ### Features
 
-- Add `bedrock:Get*` and `bedrock:List*` to integration role policy to support resource collection capabilities
+- Adding Bedrock Get and List permissions support Bedrock resource collection coverage
 
 ## 2.1.0 (January 21, 2025 )
 
