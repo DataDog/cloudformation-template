@@ -30,7 +30,7 @@ Parameters:
     Description: >-
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
     Type: String
-    Default: "464622532012"
+    Default: "727006795293"
 
 Conditions:
   DSPMEnabled: !Equals

@@ -22,6 +22,7 @@ Parameters:
     Description: Define your Datadog Site to send data to.
     AllowedValues:
       - datadoghq.com
+      - datad0g.com
       - datadoghq.eu
       - us3.datadoghq.com
       - us5.datadoghq.com
@@ -369,7 +370,7 @@ Resources:
               Fn::If:
                 - IsAP1
                 - AWS: !Sub "arn:${AWS::Partition}:iam::417141415827:root"
-                - AWS: !Sub "arn:${AWS::Partition}:iam::464622532012:root"
+                - AWS: !Sub "arn:${AWS::Partition}:iam::727006795293:root"
             Action:
               - "sts:AssumeRole"
             Condition:

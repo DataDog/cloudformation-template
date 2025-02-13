@@ -64,6 +64,7 @@ Parameters:
     Default: datadoghq.com
     AllowedValues:
       - datadoghq.com
+      - datad0g.com
       - datadoghq.eu
       - us3.datadoghq.com
       - us5.datadoghq.com
@@ -152,7 +153,7 @@ Parameters:
     Description: >-
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
     Type: String
-    Default: "464622532012"
+    Default: "727006795293"
 
 Conditions:
   ProvideSshKeyPair: !Not

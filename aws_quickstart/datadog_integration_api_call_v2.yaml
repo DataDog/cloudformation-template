@@ -19,6 +19,7 @@ Parameters:
     Description: Define your Datadog Site to send data to.
     AllowedValues:
       - datadoghq.com
+      - datad0g.com
       - datadoghq.eu
       - us3.datadoghq.com
       - us5.datadoghq.com
