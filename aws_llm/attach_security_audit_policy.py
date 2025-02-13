@@ -4,6 +4,8 @@ import signal
 import cfnresponse
 import boto3
 
+from botocore.exceptions import ClientError, BotoCoreError
+
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
 
@@ -24,13 +26,27 @@ def handler(event, context):
             reason=reason,
         )
         return
-    iam = boto3.client('iam')
-    role_name = event["ResourceProperties"]['RoleName']
+    
+    try: 
+        iam = boto3.client('iam')
+        role_name = event["ResourceProperties"]['RoleName']
 
-    iam.attach_role_policy(
-        RoleName=role_name,
-        PolicyArn="arn:{partition}:iam::aws:policy/SecurityAudit".format(partition=event["ResourceProperties"]["Partition"])
-    )
+        iam.attach_role_policy(
+            RoleName=role_name,
+            PolicyArn="arn:{partition}:iam::aws:policy/SecurityAudit".format(partition=event["ResourceProperties"]["Partition"])
+        )
+    except (ClientError, BotoCoreError) as e:
+        LOGGER.error("Error - Unable to attach policy to role.")
+        cfResponse = {"Message": "Error - Unable to attach policy to role. Exception: {0}".format(str(e))}
+        cfnresponse.send(
+            event,
+            context,
+            responseStatus="FAILED",
+            responseData=cfResponse,
+            reason=str(e),
+        )
+        return
+    
     LOGGER.info("Success - Policy added to given role.")
     cfResponse = {"Message": "SecurityAudit policy successfully attached to role."}
 
