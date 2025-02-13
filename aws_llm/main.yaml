@@ -1,0 +1,42 @@
+# version: <VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog LLM Observability Setup
+Parameters:
+  DatadogIntegrationRole:
+    Type: String
+    Description: The name of the IAM role that has been integrated with Datadog.
+  AttachSecurityAuditPolicy:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Determines whether to attach the AWS managed "SecurityAudit" policy to the Datadog integration role.
+    Default: true
+  AddLLMObservabilityPermissions:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Determines whether to attach the necessary permissions for LLM Observability to the Datadog integration role.
+    Default: true
+Conditions:
+  AttachSecurityAuditPolicyCondition: !Equals [!Ref AttachSecurityAuditPolicy, "true"]
+  AddLLMObservabilityPermissionsCondition: !Equals [!Ref AddLLMObservabilityPermissions, "true"]
+Resources:
+  DatadogAttachSecurityAuditPolicy:
+    Type: AWS::CloudFormation::Stack
+    Condition: AttachSecurityAuditPolicyCondition
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_llm/<VERSION_PLACEHOLDER>/attach_security_audit_policy.yaml"
+      Parameters:
+        DatadogIntegrationRole: !Ref DatadogIntegrationRole
+  DatadogAddLLMObservabilityPermissions:
+    Type: AWS::CloudFormation::Stack
+    Condition: AddLLMObservabilityPermissionsCondition
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_llm/<VERSION_PLACEHOLDER>/add_llm_observability_permissions.yaml"
+      Parameters:
+        DatadogIntegrationRole: !Ref DatadogIntegrationRole
+  

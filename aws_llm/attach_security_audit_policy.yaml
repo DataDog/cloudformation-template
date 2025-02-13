@@ -1,0 +1,119 @@
+# version: <VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog Resource Collection Setup
+Parameters:
+  DatadogIntegrationRole:
+    Type: String
+    Description: The name of the IAM role that has been integrated with Datadog.
+Resources:
+  DatadogResourceCollectionPermissionHandlerLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: AttachSecurityAuditPolicyToRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DatadogIntegrationRole}"
+                Condition: 
+                  ArnEquals: 
+                    'iam:PolicyARN': 
+                      - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  DatadogAttachSecurityAuditPolicy:
+    Type: "Custom::DatadogAttachSecurityAuditPolicy"
+    Properties:
+      ServiceToken: !GetAtt SecurityAuditFunction.Arn
+      RoleName: !Ref DatadogIntegrationRole
+      Partition: !Ref AWS::Partition
+  SecurityAuditFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.11
+      Role: !GetAtt DatadogResourceCollectionPermissionHandlerLambdaExecutionRole.Arn
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
+      Timeout: 5
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import signal
+          import cfnresponse
+          import boto3
+
+          from botocore.exceptions import ClientError, BotoCoreError
+
+          LOGGER = logging.getLogger()
+          LOGGER.setLevel(logging.INFO)
+
+          class TimeoutError(Exception):
+              """Exception for timeouts"""
+              pass
+
+          def handler(event, context):
+              # This function will only attach the SecurityAudit policy on a create request, and will do nothing on updates or deletes.
+              if event["RequestType"] != "Create":
+                  cfResponse = {"Message": "This resource will take no action for updates or deletes."}
+                  reason = json.dumps(cfResponse)
+                  cfnresponse.send(
+                      event,
+                      context,
+                      responseStatus="SUCCESS",
+                      responseData=cfResponse,
+                      reason=reason,
+                  )
+                  return
+              
+              try: 
+                  iam = boto3.client('iam')
+                  role_name = event["ResourceProperties"]['RoleName']
+
+                  iam.attach_role_policy(
+                      RoleName=role_name,
+                      PolicyArn="arn:{partition}:iam::aws:policy/SecurityAudit".format(partition=event["ResourceProperties"]["Partition"])
+                  )
+              except (ClientError, BotoCoreError) as e:
+                  LOGGER.error("Error - Unable to attach policy to role.")
+                  cfResponse = {"Message": "Error - Unable to attach policy to role. Exception: {0}".format(str(e))}
+                  cfnresponse.send(
+                      event,
+                      context,
+                      responseStatus="FAILED",
+                      responseData=cfResponse,
+                      reason=str(e),
+                  )
+                  return
+              
+              LOGGER.info("Success - Policy added to given role.")
+              cfResponse = {"Message": "SecurityAudit policy successfully attached to role."}
+
+              cfnresponse.send(
+                  event,
+                  context,
+                  responseStatus="SUCCESS",
+                  responseData=cfResponse,
+                  reason=None,
+              )
+
+          def timeout_handler(_signal, _frame):
+              """Handle SIGALRM"""
+              raise TimeoutError("Lambda function timeout exceeded - increase the timeout set in the api_call Cloudformation template.")
+
+          signal.signal(signal.SIGALRM, timeout_handler)
