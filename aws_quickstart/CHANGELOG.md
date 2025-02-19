@@ -1,3 +1,9 @@
+## 2.1.4 (February 19, 2025)
+
+### Features
+
+- Adding MemoryDB Describe permissions to support resource collection coverage
+
 ## 2.1.3 (February 11, 2025)
 
 ### Features
