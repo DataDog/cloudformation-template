@@ -1104,7 +1104,6 @@ Resources:
                       LOGGER.info('Received Create request.')
                       response = call_datadog_agentless_api(event, 'POST')
                       if response.getcode() == 201 or response.getcode() == 204:
-                          json_response = json.loads(response.read().decode("utf-8"))
                           send_response(event, context, "SUCCESS",
                                         {
                                             "Message": "Datadog AWS Agentless Scanning Integration created successfully.",
