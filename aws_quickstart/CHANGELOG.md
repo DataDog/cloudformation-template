@@ -1,3 +1,15 @@
+## 2.1.6 (February 26, 2025)
+
+### Features
+
+Adding permissions to support resource collection for the following services:
+
+- SES
+- Codepipeline
+- Codeartifact
+- Managed Blockchain
+- Redshift Serverless
+
 ## 2.1.4 (February 19, 2025)
 
 ### Features
