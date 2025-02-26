@@ -1075,15 +1075,27 @@ Resources:
                   }
                   data = json.dumps(values)
                   data = data.encode('utf-8')  # data should be bytes
-                  request = Request(url, data=data, headers=headers)
+                  url_account_id = url + '/' + account_id
+                  if is_agentless_scanning_enabled(url_account_id, headers):
+                      request = Request(url_account_id, data=data, headers=headers)
+                      request.get_method = lambda: 'PATCH'
+                  else:
+                      request = Request(url, data=data, headers=headers)
+                      request.get_method = lambda: 'POST'
                   request.add_header('Content-Type', 'application/vnd.api+json; charset=utf-8')
                   request.add_header('Content-Length', len(data))
-                  request.get_method = lambda: method
                   response = urllib.request.urlopen(request)
                   return response
               else:
                   LOGGER.error('Unsupported HTTP method.')
                   return None
+
+          def is_agentless_scanning_enabled(url_account_id, headers):
+              '''Check if agentless scanning is already enabled for the account'''
+              request = Request(url_account_id, headers=headers)
+              request.get_method = lambda: 'GET'
+              response = urllib.request.urlopen(request)
+              return response.getcode() == 200
 
           def handler(event, context):
               '''Handle Lambda event from AWS'''
@@ -1091,8 +1103,7 @@ Resources:
                   if event['RequestType'] == 'Create':
                       LOGGER.info('Received Create request.')
                       response = call_datadog_agentless_api(event, 'POST')
-                      if response.getcode() == 201:
-                          json_response = json.loads(response.read().decode("utf-8"))
+                      if response.getcode() == 201 or response.getcode() == 204:
                           send_response(event, context, "SUCCESS",
                                         {
                                             "Message": "Datadog AWS Agentless Scanning Integration created successfully.",
