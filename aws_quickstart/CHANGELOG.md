@@ -1,3 +1,21 @@
+## 2.1.7 (February 26, 2025)
+
+### Features
+
+Adding permissions to support resource collection for the following services:
+
+- EMR Containers
+- Grafana
+- IoT Greengrass v2
+- Macie
+- Opensearch Ingestion (osis)
+- Opensearch serverless
+- QLDB Ledgers
+- Proton
+- SESv2
+- SES Mail manager
+- Workmail
+
 ## 2.1.6 (February 26, 2025)
 
 ### Features
