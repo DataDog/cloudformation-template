@@ -380,7 +380,7 @@ Resources:
               api_key: $DD_API_KEY
               site: $DD_SITE
               installation_mode: cloudformation
-              installation_version: 0.11.4
+              installation_version: 0.11.5
               default_roles:
                 - "arn:aws:iam::${AWS::AccountId}:role/${ScannerDelegateRoleName}"
               EOF
