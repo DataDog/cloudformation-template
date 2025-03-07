@@ -331,12 +331,12 @@ Resources:
               [Unit]
               Description=Daily apt upgrade and clean activities
               After=apt-daily.timer
-              
+
               [Timer]
               OnActiveSec=10min
               OnCalendar=0/3:00:00
               Persistent=true
-              
+
               [Install]
               WantedBy=timers.target
               EOF
@@ -1029,7 +1029,7 @@ Resources:
           import json
           import logging
           import signal
-          from urllib.request import build_opener, HTTPHandler, Request
+          from urllib.request import build_opener, HTTPHandler, HTTPError, Request
           import urllib.parse
 
           LOGGER = logging.getLogger()
@@ -1058,8 +1058,13 @@ Resources:
                   url = url + '/' + account_id
                   request = Request(url, headers=headers)
                   request.get_method = lambda: method
-                  response = urllib.request.urlopen(request)
-                  return response
+                  try:
+                    return urllib.request.urlopen(request)
+                  except HTTPError as e:
+                    if e.code != 404:
+                      raise e
+                    else:
+                      return e
               elif method == "POST":
                   values = {
                       "data": {
@@ -1092,10 +1097,15 @@ Resources:
 
           def is_agentless_scanning_enabled(url_account_id, headers):
               '''Check if agentless scanning is already enabled for the account'''
-              request = Request(url_account_id, headers=headers)
-              request.get_method = lambda: 'GET'
-              response = urllib.request.urlopen(request)
-              return response.getcode() == 200
+              try:
+                request = Request(url_account_id, headers=headers)
+                request.get_method = lambda: 'GET'
+                response = urllib.request.urlopen(request)
+                return response.getcode() == 200
+              except HTTPError as e:
+                if e.code != 404:
+                  raise e
+                return False
 
           def handler(event, context):
               '''Handle Lambda event from AWS'''
