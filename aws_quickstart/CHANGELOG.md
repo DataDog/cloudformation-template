@@ -1,3 +1,12 @@
+## 2.1.8 (March 13, 2025)
+
+### Features
+
+Adding permissions to support resource collection for the following services:
+
+- Amplify
+- Deadline Cloud
+
 ## 2.1.7 (February 26, 2025)
 
 ### Features
