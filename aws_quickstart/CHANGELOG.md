@@ -6,6 +6,7 @@ Adding permissions to support resource collection for the following services:
 
 - Amplify
 - Deadline Cloud
+- Batch
 - Identity Store
 
 ## 2.1.7 (February 26, 2025)
