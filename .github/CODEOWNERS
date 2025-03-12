@@ -2,4 +2,4 @@
 
 # AWS templates
 
-/aws\* @DataDog/aws-ints-core
+/aws @DataDog/aws-ints-core
