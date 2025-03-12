@@ -5,9 +5,13 @@
 Adding permissions to support resource collection for the following services:
 
 - Amplify
-- Deadline Cloud
 - Batch
+- Deadline Cloud
 - Identity Store
+- Image builder (EC2)
+- Pinpoint (mobiletargeting)
+- SMS Voice
+- Social messaging
 
 ## 2.1.7 (February 26, 2025)
 
