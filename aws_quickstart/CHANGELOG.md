@@ -5,6 +5,7 @@
 Adding permissions to support resource collection for the following services:
 
 - Amplify
+- Appstream
 - Batch
 - Deadline Cloud
 - Identity Store
