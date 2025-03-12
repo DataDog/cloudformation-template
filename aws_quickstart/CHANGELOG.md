@@ -1,3 +1,19 @@
+## 2.1.8 (March 13, 2025)
+
+### Features
+
+Adding permissions to support resource collection for the following services:
+
+- Amplify
+- Appstream
+- Batch
+- Deadline Cloud
+- Identity Store
+- Image builder (EC2)
+- Pinpoint (mobiletargeting)
+- SMS Voice
+- Social messaging
+
 ## 2.1.7 (February 26, 2025)
 
 ### Features
