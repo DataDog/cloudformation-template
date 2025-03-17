@@ -1,3 +1,11 @@
+## 2.1.10 (March 13, 2025)
+
+### Features
+
+Adding permissions to support resource collection for the following services:
+
+- S3 tables
+
 ## 2.1.9 (March 13, 2025)
 
 Aligning template versions
