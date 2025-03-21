@@ -16,6 +16,10 @@ Parameters:
     Description: APP key for the Datadog account
     NoEcho: true
 
+  DatadogIntegrationRoleName:
+    Type: String
+    Description: The name of IAM role used by the Datadog AWS integration.
+
   AgentlessHostScanning:
     Type: String
     AllowedValues:
@@ -177,6 +181,26 @@ Rules:
         AssertDescription: 'DatadogApiKey and DatadogApiKeySecretArn should not be specified together'
 
 Resources:
+  DatadogAgentlessScannerAutoscalingPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref DatadogIntegrationRoleName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'autoscaling:StartInstanceRefresh'
+              - 'autoscaling:SetDesiredCapacity'
+              - 'autoscaling:DescribeAutoScalingGroups'
+              - 'ec2:GetConsoleOutput'
+            Resource:
+              - 'arn:aws:autoscaling:*:*:autoScalingGroup:*'
+              - 'arn:aws:ec2:*:*:instance/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+
   ScannerAPIKeySecret:
     Type: AWS::SecretsManager::Secret
     Condition: CreateDatadogApiKeySecret
