@@ -208,6 +208,7 @@ Resources:
         AgentlessContainerScanning: !Ref AgentlessContainerScanning
         AgentlessLambdaScanning: !Ref AgentlessLambdaScanning
         AgentlessSensitiveDataScanning: !Ref AgentlessSensitiveDataScanning
+        DatadogIntegrationRoleName: !Ref IAMRoleName
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
