@@ -55,7 +55,10 @@ cp main_extended.yaml main_extended.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_extended.yaml
 perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_extended.yaml
 
-trap 'mv main_v2.yaml.bak main_v2.yaml; mv main_extended.yaml.bak main_extended.yaml' EXIT
+cp datadog_agentless_scanning.yaml datadog_agentless_scanning.yaml.bak
+perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION#v}/g" datadog_agentless_scanning.yaml
+
+trap 'mv main_v2.yaml.bak main_v2.yaml; mv main_extended.yaml.bak main_extended.yaml; mv datadog_agentless_scanning.yaml.bak datadog_agentless_scanning.yaml' EXIT
 
 # Upload
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
