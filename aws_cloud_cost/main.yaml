@@ -44,12 +44,12 @@ Resources:
             Effect: Allow
             Action:
               - s3:ListBucket
-            Resource: !Sub "arn:aws:s3:::${DDCloudCostBucketName}"
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${DDCloudCostBucketName}"
           - Sid: GetBill
             Effect: Allow
             Action:
               - s3:GetObject
-            Resource: !Sub "arn:aws:s3:::${DDCloudCostBucketName}/${DDCloudCostBucketPrefix}/${DDCloudCostReportName}/*"
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${DDCloudCostBucketName}/${DDCloudCostBucketPrefix}/${DDCloudCostReportName}/*"
           - Sid: CheckAccuracy
             Effect: Allow
             Action:
@@ -95,8 +95,8 @@ Resources:
             Condition:
               StringLike:
                 aws:SourceArn:
-                  - !Sub arn:aws:cur:us-east-1:${AWS::AccountId}:definition/*
-                  - !Sub arn:aws:bcm-data-exports:us-east-1:${AWS::AccountId}:export/*
+                  - !Sub arn:{AWS::Partition}:cur:${AWS::Region}:${AWS::AccountId}:definition/*
+                  - !Sub arn:{AWS::Partition}:bcm-data-exports:${AWS::Region}:${AWS::AccountId}:export/*
                 aws:SourceAccount: !Sub ${AWS::AccountId}
 
   # DDCURReportDefinition can only be done after the bucket is created
