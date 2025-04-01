@@ -127,10 +127,20 @@ Parameters:
     Description: Whether to enable the offline mode for the Datadog Agentless Scanner
     Default: "false"
 
-  ScannerAutoScalingGroupSize:
+  DefaultScannerAutoScalingGroupSize:
     Type: Number
-    Description: The number of instances in the Auto Scaling Group
+    Description: Default number of instances in the Auto Scaling Group
     Default: 1
+
+  MinScannerAutoScalingGroupSize:
+    Type: Number
+    Description: Minimum number of instances in the Auto Scaling Group
+    Default: 0
+
+  MaxScannerAutoScalingGroupSize:
+    Type: Number
+    Description: Maximum number of instances in the Auto Scaling Group
+    Default: 50
 
   ScannerVersion:
     Type: String
@@ -761,9 +771,9 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref 'ScannerLaunchTemplate'
         Version: !GetAtt 'ScannerLaunchTemplate.LatestVersionNumber'
-      MinSize: !Ref 'ScannerAutoScalingGroupSize'
-      MaxSize: !Ref 'ScannerAutoScalingGroupSize'
-      DesiredCapacity: !Ref 'ScannerAutoScalingGroupSize'
+      MinSize: !Ref 'MinScannerAutoScalingGroupSize'
+      MaxSize: !Ref 'MaxScannerAutoScalingGroupSize'
+      DesiredCapacity: !Ref 'DefaultScannerAutoScalingGroupSize'
       Cooldown: 300
       HealthCheckType: EC2
       HealthCheckGracePeriod: 300
@@ -1224,7 +1234,9 @@ Metadata:
           default: Advanced
         Parameters:
           - DatadogAPIKeySecretArn
-          - ScannerAutoScalingGroupSize
+          - DefaultScannerAutoScalingGroupSize
+          - MinScannerAutoScalingGroupSize
+          - MaxScannerAutoScalingGroupSize
           - ScannerDelegateRoleName
           - ScannerInstanceMonitoring
           - ScannerInstanceType
