@@ -1225,6 +1225,7 @@ Metadata:
         Parameters:
           - DatadogAPIKey
           - DatadogAPPKey
+          - DatadogIntegrationRoleName
           - DatadogSite
           - AgentlessHostScanning
           - AgentlessContainerScanning
