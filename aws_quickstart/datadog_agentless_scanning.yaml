@@ -1253,6 +1253,8 @@ Metadata:
         default: "DatadogApiKey *"
       DatadogAPPKey:
         default: "DatadogAppKey *"
+      DatadogIntegrationRoleName:
+        default: "DatadogIntegrationRoleName *"
       DatadogSite:
         default: "DatadogSite *"
       AgentlessHostScanning:
