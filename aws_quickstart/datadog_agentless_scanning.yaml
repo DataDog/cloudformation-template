@@ -189,6 +189,11 @@ Rules:
     Assertions:
       - Assert: !Or [!Not [!Equals [!Ref DatadogAPIKey, '']], !Not [!Equals [!Ref DatadogAPIKeySecretArn, '']]]
         AssertDescription: 'DatadogApiKey and DatadogApiKeySecretArn should not be specified together'
+  MustMatchAccountId:
+    AssertDescription: 'Checking that provided account ID matches the actual AWS account ID'
+    Assertions:
+      - Assert: !Equals [!Ref AWS::AccountId, !Ref AccountId]
+        AssertDescription: 'Provided account ID must match the actual AWS account ID where the stack is being deployed'
 
 Resources:
   DatadogAgentlessScannerAutoscalingPolicy:
