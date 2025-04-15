@@ -16,6 +16,11 @@ Parameters:
     Description: APP key for the Datadog account
     NoEcho: true
 
+  AccountId:
+    Type: String
+    Description: Your current AWS account ID for stack deployment
+    AllowedPattern: "^[0-9]{12}$"
+  
   AgentlessHostScanning:
     Type: String
     AllowedValues:
@@ -179,7 +184,7 @@ Rules:
     AssertDescription: 'Checking that provided account ID matches the actual AWS account ID'
     Assertions:
       - Assert: !Equals [!Ref AWS::AccountId, !Ref AccountId]
-        AssertDescription: 'Provided account ID must match the actual AWS account ID where the stack is being deployed'
+        AssertDescription: 'The provided account ID must match the AWS account ID of your current session where the stack is being deployed.'
 
 Resources:
   ScannerAPIKeySecret:
@@ -1010,7 +1015,7 @@ Resources:
       APIKey: !Ref DatadogAPIKey
       APPKey: !Ref DatadogAPPKey
       ApiURL: !Ref DatadogSite
-      AccountId: !Ref AWS::AccountId
+      AccountId: !Ref AccountId
       Hosts: !Ref AgentlessHostScanning
       Containers: !Ref AgentlessContainerScanning
       Lambdas: !Ref AgentlessLambdaScanning
@@ -1196,6 +1201,7 @@ Metadata:
         Parameters:
           - DatadogAPIKey
           - DatadogAPPKey
+          - AccountId
           - DatadogSite
           - AgentlessHostScanning
           - AgentlessContainerScanning
@@ -1220,6 +1226,8 @@ Metadata:
         default: "DatadogApiKey *"
       DatadogAPPKey:
         default: "DatadogAppKey *"
+      AccountId:
+        default: "AWS Account ID *"
       DatadogSite:
         default: "DatadogSite *"
       AgentlessHostScanning:
