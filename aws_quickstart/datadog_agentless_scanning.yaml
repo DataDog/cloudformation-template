@@ -203,7 +203,6 @@ Resources:
             Action:
               - 'autoscaling:StartInstanceRefresh'
               - 'autoscaling:SetDesiredCapacity'
-              - 'autoscaling:DescribeAutoScalingGroups'
               - 'ec2:GetConsoleOutput'
             Resource:
               - 'arn:aws:autoscaling:*:*:autoScalingGroup:*'
@@ -211,6 +210,10 @@ Resources:
             Condition:
               StringEquals:
                 'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Effect: Allow
+            Action:
+              - 'autoscaling:DescribeAutoScalingGroups'
+            Resource: '*'
 
   ScannerAPIKeySecret:
     Type: AWS::SecretsManager::Secret
