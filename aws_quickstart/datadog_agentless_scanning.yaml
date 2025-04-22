@@ -965,6 +965,20 @@ Resources:
       SecurityGroupIds:
         - !Ref 'VPCEndpointsSecurityGroup'
 
+  VPCEndpointECRDkr:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: CreateVPCResources
+    Properties:
+      VpcEndpointType: Interface
+      VpcId: !GetAtt 'VPCSubnetPublic.VpcId'
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.dkr'
+      PolicyDocument: '{"Statement":[{"Action":"*","Effect":"Allow","Principal":"*","Resource":"*"}]}'
+      SubnetIds:
+        - !Ref 'VPCSubnetPrivate'
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref 'VPCEndpointsSecurityGroup'
+
   VPC:
     Type: AWS::EC2::VPC
     Condition: CreateVPCResources
