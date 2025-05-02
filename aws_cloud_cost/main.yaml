@@ -17,19 +17,32 @@ Parameters:
   DatadogIntegrationRole:
     Type: String
     Description: The name of the IAM role that has been integrated with Datadog.
+  CreateCloudCostReport:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+    Description: Should a new Cost and Usage Report be created, or use an existing one.
   CreateCloudCostBucket:
     Type: String
     Default: true
     AllowedValues:
       - true
       - false
-    Description: Should the S3 bucket for storing the cost and usage reports be created, or use an existing bucket.
+    Description: Should the S3 bucket for storing the cost and usage reports be created, or use an existing bucket. Ignored if CreateCloudCostReport is false.
 
 Conditions:
-  ShouldCreateCloudCostBucket:
+  ShouldCreateCloudCostReport:
     Fn::Equals:
-      - Ref: CreateCloudCostBucket
+      - Ref: CreateCloudCostReport
       - true
+  ShouldCreateCloudCostBucket:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: CreateCloudCostBucket
+          - true
+      - !Condition ShouldCreateCloudCostReport # If CUR already exists, we don't need to create the bucket
 
 Resources:
   DatadogCCMIAMPolicy:
@@ -128,6 +141,7 @@ Resources:
       Count: 0
 
   DDCURReportDefinition:
+    Condition: ShouldCreateCloudCostReport
     DependsOn: BucketWaitCondition
     Type: AWS::CUR::ReportDefinition
     Properties:
