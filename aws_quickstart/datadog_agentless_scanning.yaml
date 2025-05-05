@@ -16,6 +16,10 @@ Parameters:
     Description: APP key for the Datadog account
     NoEcho: true
 
+  DatadogIntegrationRoleName:
+    Type: String
+    Description: The name of IAM role used by the Datadog AWS integration.
+
   AgentlessHostScanning:
     Type: String
     AllowedValues:
@@ -123,10 +127,20 @@ Parameters:
     Description: Whether to enable the offline mode for the Datadog Agentless Scanner
     Default: "false"
 
-  ScannerAutoScalingGroupSize:
+  DefaultScannerAutoScalingGroupSize:
     Type: Number
-    Description: The number of instances in the Auto Scaling Group
+    Description: Default number of instances in the Auto Scaling Group
     Default: 1
+
+  MinScannerAutoScalingGroupSize:
+    Type: Number
+    Description: Minimum number of instances in the Auto Scaling Group
+    Default: 0
+
+  MaxScannerAutoScalingGroupSize:
+    Type: Number
+    Description: Maximum number of instances in the Auto Scaling Group
+    Default: 50
 
   ScannerVersion:
     Type: String
@@ -177,6 +191,30 @@ Rules:
         AssertDescription: 'DatadogApiKey and DatadogApiKeySecretArn should not be specified together'
 
 Resources:
+  DatadogAgentlessScannerAutoscalingPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref DatadogIntegrationRoleName
+      PolicyName: DatadogAgentlessScannerAutoscalingPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'autoscaling:StartInstanceRefresh'
+              - 'autoscaling:SetDesiredCapacity'
+              - 'ec2:GetConsoleOutput'
+            Resource:
+              - 'arn:aws:autoscaling:*:*:autoScalingGroup:*'
+              - 'arn:aws:ec2:*:*:instance/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Effect: Allow
+            Action:
+              - 'autoscaling:DescribeAutoScalingGroups'
+            Resource: '*'
+
   ScannerAPIKeySecret:
     Type: AWS::SecretsManager::Secret
     Condition: CreateDatadogApiKeySecret
@@ -737,9 +775,9 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref 'ScannerLaunchTemplate'
         Version: !GetAtt 'ScannerLaunchTemplate.LatestVersionNumber'
-      MinSize: !Ref 'ScannerAutoScalingGroupSize'
-      MaxSize: !Ref 'ScannerAutoScalingGroupSize'
-      DesiredCapacity: !Ref 'ScannerAutoScalingGroupSize'
+      MinSize: !Ref 'MinScannerAutoScalingGroupSize'
+      MaxSize: !Ref 'MaxScannerAutoScalingGroupSize'
+      DesiredCapacity: !Ref 'DefaultScannerAutoScalingGroupSize'
       Cooldown: 300
       HealthCheckType: EC2
       HealthCheckGracePeriod: 300
@@ -1191,6 +1229,7 @@ Metadata:
         Parameters:
           - DatadogAPIKey
           - DatadogAPPKey
+          - DatadogIntegrationRoleName
           - DatadogSite
           - AgentlessHostScanning
           - AgentlessContainerScanning
@@ -1200,7 +1239,9 @@ Metadata:
           default: Advanced
         Parameters:
           - DatadogAPIKeySecretArn
-          - ScannerAutoScalingGroupSize
+          - DefaultScannerAutoScalingGroupSize
+          - MinScannerAutoScalingGroupSize
+          - MaxScannerAutoScalingGroupSize
           - ScannerDelegateRoleName
           - ScannerInstanceMonitoring
           - ScannerInstanceType
@@ -1215,6 +1256,8 @@ Metadata:
         default: "DatadogApiKey *"
       DatadogAPPKey:
         default: "DatadogAppKey *"
+      DatadogIntegrationRoleName:
+        default: "DatadogIntegrationRoleName *"
       DatadogSite:
         default: "DatadogSite *"
       AgentlessHostScanning:

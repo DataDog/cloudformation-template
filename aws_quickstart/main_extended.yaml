@@ -197,6 +197,7 @@ Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
   DatadogAgentlessScanning:
     Type: AWS::CloudFormation::Stack
+    DependsOn: DatadogIntegrationRoleStack
     Condition: EnableAgentlessScanning
     Properties:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agentless_scanning.yaml"
@@ -208,6 +209,7 @@ Resources:
         AgentlessContainerScanning: !Ref AgentlessContainerScanning
         AgentlessLambdaScanning: !Ref AgentlessLambdaScanning
         AgentlessSensitiveDataScanning: !Ref AgentlessSensitiveDataScanning
+        DatadogIntegrationRoleName: !Ref IAMRoleName
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
