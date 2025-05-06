@@ -205,6 +205,7 @@ Resources:
         DatadogAPIKey: !Ref APIKey
         DatadogAPPKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
+        AccountId: !Ref AWS::AccountId
         AgentlessHostScanning: !Ref AgentlessHostScanning
         AgentlessContainerScanning: !Ref AgentlessContainerScanning
         AgentlessLambdaScanning: !Ref AgentlessLambdaScanning
