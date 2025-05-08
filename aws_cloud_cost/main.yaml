@@ -53,7 +53,7 @@ Resources:
   DatadogCCMIAMPolicy:
     Type: AWS::IAM::RolePolicy
     Properties:
-      PolicyName: datadog-ccm-iam-policy
+      PolicyName: !Sub "datadog-ccm-iam-policy--${DDCloudCostBucketName}-${DDCloudCostBucketPrefix}-${DDCloudCostReportName}"
       RoleName: !Ref DatadogIntegrationRole
       PolicyDocument:
         Version: "2012-10-17"
