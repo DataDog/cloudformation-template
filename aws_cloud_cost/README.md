@@ -8,7 +8,7 @@ This template creates the following AWS resources required for setting up Cloud 
 
 - An S3 Bucket (if not using an existing one)
   - With Bucket policies
-- Cost and Usage Report using the COST_AND_USAGE_REPORT table configurations
+- Cost and Usage Report using the COST_AND_USAGE_REPORT table configurations (if not using an existing one)
 - IAM policy needed to access the bucket and the CUR
   - Attaches the policy to the main Datadog integration role
 
