@@ -1,4 +1,4 @@
-# version: <VERSION_PLACEHOLDER>
+# version: 0.0.1
 AWSTemplateFormatVersion: 2010-09-09
 Description: Datadog Cloud Cost Management Setup
 Parameters:
