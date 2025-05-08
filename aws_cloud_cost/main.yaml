@@ -5,18 +5,23 @@ Parameters:
   DDCloudCostBucketName:
     Type: String
     Description: The name of the S3 bucket for storing the cost and usage reports.
+    MinLength: 1
   DDCloudCostBucketRegion:
     Type: String
     Description: The AWS region where the S3 bucket is located.
+    MinLength: 1
   DDCloudCostBucketPrefix:
     Type: String
     Description: The prefix to be added to the cost and usage report files in the S3 bucket.
+    MinLength: 1
   DDCloudCostReportName:
     Type: String
     Description: The name of the cost and usage report.
+    MinLength: 1
   DatadogIntegrationRole:
     Type: String
     Description: The name of the IAM role that has been integrated with Datadog.
+    MinLength: 1
   CreateCloudCostReport:
     Type: String
     Default: true
