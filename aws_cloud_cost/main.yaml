@@ -2,19 +2,19 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: Datadog Cloud Cost Management Setup
 Parameters:
-  DDCloudCostBucketName:
+  CloudCostBucketName:
     Type: String
     Description: The name of the S3 bucket for storing the cost and usage reports.
     MinLength: 1
-  DDCloudCostBucketRegion:
+  CloudCostBucketRegion:
     Type: String
     Description: The AWS region where the S3 bucket is located.
     MinLength: 1
-  DDCloudCostBucketPrefix:
+  CloudCostReportPrefix:
     Type: String
     Description: The prefix to be added to the cost and usage report files in the S3 bucket.
     MinLength: 1
-  DDCloudCostReportName:
+  CloudCostReportName:
     Type: String
     Description: The name of the cost and usage report.
     MinLength: 1
@@ -28,14 +28,14 @@ Parameters:
     AllowedValues:
       - true
       - false
-    Description: Should a new Cost and Usage Report be created, or use an existing one.
+    Description: Whether a new Cost and Usage Report is created, or an existing one is used.
   CreateCloudCostBucket:
     Type: String
     Default: true
     AllowedValues:
       - true
       - false
-    Description: Should the S3 bucket for storing the cost and usage reports be created, or use an existing bucket. Ignored if CreateCloudCostReport is false.
+    Description: Whether the S3 bucket for storing the Cost and Usage Report is created, or an existing one is used. Ignored if CreateCloudCostReport is false.
 
 Conditions:
   ShouldCreateCloudCostReport:
@@ -53,7 +53,7 @@ Resources:
   DatadogCCMIAMPolicy:
     Type: AWS::IAM::RolePolicy
     Properties:
-      PolicyName: !Sub "datadog-ccm-iam-policy--${DDCloudCostBucketName}-${DDCloudCostBucketPrefix}-${DDCloudCostReportName}"
+      PolicyName: !Sub "datadog-ccm-iam-policy--${CloudCostBucketName}-${CloudCostReportPrefix}-${CloudCostReportName}"
       RoleName: !Ref DatadogIntegrationRole
       PolicyDocument:
         Version: "2012-10-17"
@@ -62,12 +62,12 @@ Resources:
             Effect: Allow
             Action:
               - s3:ListBucket
-            Resource: !Sub "arn:${AWS::Partition}:s3:::${DDCloudCostBucketName}"
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${CloudCostBucketName}"
           - Sid: GetBill
             Effect: Allow
             Action:
               - s3:GetObject
-            Resource: !Sub "arn:${AWS::Partition}:s3:::${DDCloudCostBucketName}/${DDCloudCostBucketPrefix}/${DDCloudCostReportName}/*"
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${CloudCostBucketName}/${CloudCostReportPrefix}/${CloudCostReportName}/*"
           - Sid: CheckAccuracy
             Effect: Allow
             Action:
@@ -89,7 +89,7 @@ Resources:
     Condition: ShouldCreateCloudCostBucket
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Ref DDCloudCostBucketName
+      BucketName: !Ref CloudCostBucketName
 
   DDCloudCostBucketAccessPolicy:
     Condition: ShouldCreateCloudCostBucket
@@ -156,9 +156,9 @@ Resources:
       Compression: Parquet
       Format: Parquet
       RefreshClosedReports: true
-      ReportName: !Ref DDCloudCostReportName
+      ReportName: !Ref CloudCostReportName
       ReportVersioning: CREATE_NEW_REPORT
-      S3Bucket: !Ref DDCloudCostBucketName
-      S3Prefix: !Ref DDCloudCostBucketPrefix
-      S3Region: !Ref DDCloudCostBucketRegion
+      S3Bucket: !Ref CloudCostBucketName
+      S3Prefix: !Ref CloudCostReportPrefix
+      S3Region: !Ref CloudCostBucketRegion
       TimeUnit: HOURLY
