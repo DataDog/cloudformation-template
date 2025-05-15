@@ -744,10 +744,8 @@ Resources:
           - Sid: EC2AssumeRole
             Effect: Allow
             Principal:
-              AWS: '*'
+              AWS: !GetAtt 'ScannerInstanceRole.Arn'
             Condition:
-              ArnLike:
-                'aws:PrincipalArn': !GetAtt 'ScannerInstanceRole.Arn'
               StringEquals:
                 'aws:PrincipalTag/Datadog': 'true'
                 'aws:PrincipalTag/DatadogAgentlessScanner': 'true'
