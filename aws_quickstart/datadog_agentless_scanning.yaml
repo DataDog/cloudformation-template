@@ -24,7 +24,7 @@ Parameters:
     Type: String
     Description: Your current AWS account ID for stack deployment
     AllowedPattern: "^[0-9]{12}$"
-    Default: !Ref 'AWS::AccountId'
+    Default: !Sub '${AWS::AccountId}'
   
   AgentlessHostScanning:
     Type: String
