@@ -98,17 +98,6 @@ Resources:
             Action: 'kms:DescribeKey'
             Effect: Allow
             Resource: 'arn:aws:kms:*:*:key/*'
-          - Sid: DatadogAgentlessScannerCopyImage
-            Action: 'ec2:CopyImage'
-            Effect: Allow
-            Resource:
-            - 'arn:aws:ec2:*:*:image/*'
-            - 'arn:aws:ec2:*:*:snapshot/*'
-            Condition:
-              'ForAllValues:StringLike':
-                'aws:TagKeys': DatadogAgentlessScanner*
-              StringEquals:
-                'aws:RequestTag/DatadogAgentlessScanner': 'true'
           - Sid: DatadogAgentlessScannerImageCleanup
             Action: 'ec2:DeregisterImage'
             Effect: Allow
