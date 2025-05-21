@@ -1,3 +1,7 @@
+## 2.1.11 (May 21, 2025)
+
+Adding support for Govcloud AWS Account ID in AssumeRole policy.
+
 ## 2.1.10 (March 13, 2025)
 
 ### Features
