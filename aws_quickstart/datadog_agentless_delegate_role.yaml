@@ -2,8 +2,8 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Datadog Agentless Scanner CloudFormation deployment template
 Parameters:
   ScannerInstanceRoleARN:
-    Type: String
-    Description: The ARN of the role of the Datadog Agentless Scanner instance that will assume the delegate role.
+    Type: CommaDelimitedList
+    Description: The ARNs of the roles of the Datadog Agentless Scanner instances that will assume the delegate role.
     AllowedPattern: 'arn:aws:iam::[0-9]{12}:role/.*'
 
   ScannerDelegateRoleName:
@@ -211,7 +211,7 @@ Resources:
             Principal:
               AWS: '*'
             Condition:
-              ArnLike:
+              'ForAllValues:ArnLike':
                 'aws:PrincipalArn': !Ref 'ScannerInstanceRoleARN'
               StringEquals:
                 'aws:PrincipalTag/Datadog': 'true'
