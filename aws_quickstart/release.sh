@@ -64,11 +64,11 @@ perl -i.bak -pe '
         # Replace with the Python script, preserving the indentation
         $_ = join("\n", map { $1 . $_ } split(/\n/, $p)) . "\n"
     )
-' datadog_agentless_api_call.yaml < datadog_agentless_api_call.py
+' datadog_agentless_delegate_role.yaml < datadog_agentless_api_call.py
 
 trap 'mv main_v2.yaml.bak main_v2.yaml;
       mv main_extended.yaml.bak main_extended.yaml;
-      mv datadog_agentless_api_call.yaml.bak datadog_agentless_api_call.yaml;
+      mv datadog_agentless_delegate_role.yaml.bak datadog_agentless_delegate_role.yaml;
 ' EXIT
 
 # Upload

@@ -1,6 +1,62 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Datadog Agentless Scanner CloudFormation deployment template
+Description: Creates a Datadog Agentless Scanning delegate role
 Parameters:
+  DatadogAPIKey:
+    Type: String
+    AllowedPattern: "[0-9a-f]{32}"
+    Description: API key for the Datadog account
+    NoEcho: true
+
+  DatadogAPPKey:
+    Type: String
+    AllowedPattern: "[0-9a-f]{40}"
+    Description: Application key for the Datadog account
+    NoEcho: true
+
+  DatadogSite:
+    Type: String
+    Description: The Datadog site to use for the Datadog Agentless Scanner
+    Default: datadoghq.com
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ap1.datadoghq.com
+      - ap2.datadoghq.com
+
+  AgentlessHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of host vulnerabilities.
+    Default: false
+
+  AgentlessContainerScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of container vulnerabilities.
+    Default: false
+
+  AgentlessLambdaScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of Lambda vulnerabilities.
+    Default: false
+
+  AgentlessSensitiveDataScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of datastores (S3 buckets).
+    Default: false
+
   ScannerInstanceRoleARN:
     Type: CommaDelimitedList
     Description: The ARNs of the roles of the Datadog Agentless Scanner instances that will assume the delegate role.
@@ -10,15 +66,6 @@ Parameters:
     Type: String
     Description: The name of the role assumed by the Datadog Agentless Scanner
     Default: DatadogAgentlessScannerDelegateRole
-
-  AgentlessSensitiveDataScanning:
-    Type: String
-    AllowedValues:
-      - "true"
-      - "false"
-    Description: >-
-      Enable Agentless Scanning of datastores (S3 buckets). "CloudSecurityPostureManagement" must be set to 'true'.
-    Default: "false"
 
 Conditions:
   DSPMEnabled: !Equals
@@ -229,6 +276,50 @@ Resources:
           Value: 'true'
         - Key: Datadog
           Value: 'true'
+
+  LambdaExecutionRoleDatadogAgentlessAPICall:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+  DatadogAgentlessAPICall:
+    Type: "Custom::DatadogAgentlessAPICall"
+    Properties:
+      ServiceToken: !GetAtt "DatadogAgentlessAPICallFunction.Arn"
+      APIKey: !Ref "DatadogAPIKey"
+      APPKey: !Ref "DatadogAPPKey"
+      DatadogSite: !Ref "DatadogSite"
+      AccountId: !Ref "AWS::AccountId"
+      Hosts: !Ref "AgentlessHostScanning"
+      Containers: !Ref "AgentlessContainerScanning"
+      Lambdas: !Ref "AgentlessLambdaScanning"
+      SensitiveData: !Ref "AgentlessSensitiveDataScanning"
+
+  DatadogAgentlessAPICallFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: A function to call the Datadog Agentless API.
+      Role: !GetAtt LambdaExecutionRoleDatadogAgentlessAPICall.Arn
+      Handler: "index.handler"
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
+      Runtime: "python3.11"
+      Timeout: 30
+      Code:
+        ZipFile: |
+          <ZIPFILE_PLACEHOLDER>
 
 Metadata:
   AWS::CloudFormation::Interface:
