@@ -118,6 +118,12 @@ Parameters:
     Description: >-
       Enable Agentless Scanning of datastores (S3 buckets).
     Default: false
+  ScannerInstanceRoleARN:
+    Type: CommaDelimitedList
+    Description: >-
+      For cross-account Agentless Scanning: the ARNs of Agentless Scanner roles authorized to scan this account.
+    AllowedPattern: "|arn:aws:iam::[0-9]{12}:role/.+"
+    Default: ""
 Rules:
   CSPMResourceCollectionValidState:
     Assertions:
@@ -193,6 +199,11 @@ Conditions:
     Fn::Equals:
       - !Ref AWSAccountType
       - GovCloud
+  IsCrossAccountScanning:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Ref "ScannerInstanceRoleARN"]
+          - ""
 Resources:
   # A Macro used to generate policies for the integration IAM role based on user inputs
   DatadogAgentlessScanning:
@@ -200,7 +211,10 @@ Resources:
     DependsOn: DatadogIntegrationRoleStack
     Condition: EnableAgentlessScanning
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agentless_scanning.yaml"
+      TemplateURL: !If
+        - IsCrossAccountScanning
+        - 'https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agentless_delegate_role.yaml'
+        - 'https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agentless_scanning.yaml'
       Parameters:
         DatadogAPIKey: !Ref APIKey
         DatadogAPPKey: !Ref APPKey
@@ -210,7 +224,8 @@ Resources:
         AgentlessContainerScanning: !Ref AgentlessContainerScanning
         AgentlessLambdaScanning: !Ref AgentlessLambdaScanning
         AgentlessSensitiveDataScanning: !Ref AgentlessSensitiveDataScanning
-        DatadogIntegrationRoleName: !Ref IAMRoleName
+        ScannerInstanceRoleARN: !If [IsCrossAccountScanning, !Join [",", !Ref "ScannerInstanceRoleARN"], !Ref "AWS::NoValue"]
+        DatadogIntegrationRoleName: !If [IsCrossAccountScanning, !Ref "AWS::NoValue", !Ref "IAMRoleName"]
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -291,6 +306,7 @@ Metadata:
         default: Advanced
       Parameters:
         - IAMRoleName
+        - ScannerInstanceRoleARN
         - DisableMetricCollection
     ParameterLabels:
       APIKey:
