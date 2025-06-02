@@ -53,7 +53,7 @@ def cleanup_existing_policies(iam_client, role_name, account_id, base_policy_nam
             )
         except iam_client.exceptions.NoSuchEntityException:
             # Policy to detach doesn't exist
-            continue
+            pass
         except Exception as e:
             LOGGER.error(f"Error detaching policy {policy_name}: {str(e)}")
 
@@ -63,7 +63,7 @@ def cleanup_existing_policies(iam_client, role_name, account_id, base_policy_nam
             )
         except iam_client.exceptions.NoSuchEntityException:
             # Policy to delete doesn't exist
-            continue
+            pass
         except Exception as e:
             LOGGER.error(f"Error deleting policy {policy_name}: {str(e)}")
 

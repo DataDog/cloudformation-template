@@ -111,7 +111,7 @@ Resources:
                       )
                   except iam_client.exceptions.NoSuchEntityException:
                       # Policy to detach doesn't exist
-                      continue
+                      pass
                   except Exception as e:
                       LOGGER.error(f"Error detaching policy {policy_name}: {str(e)}")
 
@@ -121,7 +121,7 @@ Resources:
                       )
                   except iam_client.exceptions.NoSuchEntityException:
                       # Policy to delete doesn't exist
-                      continue
+                      pass
                   except Exception as e:
                       LOGGER.error(f"Error deleting policy {policy_name}: {str(e)}")
 
