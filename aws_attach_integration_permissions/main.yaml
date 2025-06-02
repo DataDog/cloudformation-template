@@ -46,7 +46,7 @@ Resources:
   DatadogAttachIntegrationPermissionsFunction:
     Type: AWS::Lambda::Function
     Properties:
-      Description: "A function to call the Datadog API."
+      Description: "A function to attach Datadog AWS integration permissions to an IAM role."
       Role: !GetAtt DatadogAttachIntegrationPermissionsLambdaExecutionRole.Arn
       Handler: "index.handler"
       LoggingConfig:
