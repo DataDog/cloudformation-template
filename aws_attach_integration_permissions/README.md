@@ -4,7 +4,7 @@
 
 ## Overview
 
-This CloudFormation template manages IAM permissions for the Datadog AWS integration. It automatically fetches [all required permissions for the integration](https://docs.datadoghq.com/integrations/amazon_web_services/#aws-iam-permissions) from the Datadog API and creates customer managed IAM policies which are attached to your Datadog integration role.
+This CloudFormation template manages IAM permissions for the Datadog AWS integration. It fetches [all required permissions for the integration](https://docs.datadoghq.com/integrations/amazon_web_services/#aws-iam-permissions) from the Datadog API and creates customer managed IAM policies which are attached to your Datadog integration role.
 
 ## Installation
 
