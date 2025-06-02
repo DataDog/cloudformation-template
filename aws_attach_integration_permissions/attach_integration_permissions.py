@@ -15,7 +15,7 @@ BASE_POLICY_PREFIX = "datadog-aws-integration-iam-permissions"
 def generate_policy_hash(role_name, account_id):
     """Generate a unique hash for policy naming."""
     unique_string = f"{role_name}-{account_id}"
-    return hashlib.md5(unique_string.encode()).hexdigest()[:8]
+    return hashlib.sha256(unique_string.encode()).hexdigest()[:8]
 
 def get_policy_arn(account_id, policy_name):
     """Generate a policy ARN."""
