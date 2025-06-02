@@ -70,6 +70,9 @@ Resources:
           CHUNK_SIZE = 150  # Maximum number of IAM permissions per customer managed policy
           BASE_POLICY_PREFIX = "datadog-aws-integration-iam-permissions"
 
+          class DatadogAPIError(Exception):
+              pass
+
           def generate_policy_hash(role_name, account_id):
               """Generate a unique hash for policy naming."""
               unique_string = f"{role_name}-{account_id}"
@@ -89,10 +92,11 @@ Resources:
               request.get_method = lambda: "GET"
               
               response = urllib.request.urlopen(request)
-              if response.getcode() != 200:
-                  raise Exception("Failed to fetch permissions from Datadog API")
-              
               json_response = json.loads(response.read())
+              if response.getcode() != 200:
+                  error_message = json_response.get('errors', ['Unknown error'])[0]
+                  raise DatadogAPIError(f"Datadog API error: {error_message}")
+              
               return json_response["data"]["attributes"]["permissions"]
 
           def cleanup_existing_policies(iam_client, role_name, account_id, base_policy_name, max_policies=10):
