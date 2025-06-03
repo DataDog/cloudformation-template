@@ -1,6 +1,12 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Creates a Datadog Agentless Scanning delegate role
 Parameters:
+  AccountId:
+    Type: String
+    Description: The current AWS account ID. This parameter is for validation purposes only, and may be left empty.
+    AllowedPattern: "|[0-9]{12}"
+    Default: ""
+
   DatadogAPIKey:
     Type: String
     AllowedPattern: "[0-9a-f]{32}"
@@ -71,6 +77,15 @@ Conditions:
   DSPMEnabled: !Equals
     - !Ref 'AgentlessSensitiveDataScanning'
     - 'true'
+
+Rules:
+  MustMatchAccountId:
+    AssertDescription: 'Checking that AccountId matches the current AWS account ID'
+    Assertions:
+      - Assert: !Or [!Equals [!Ref AccountId, !Ref AWS::AccountId], !Equals [!Ref AccountId, ""]]
+        AssertDescription: >-
+          The current AWS account ID does not match the AWS account selected in Datadog.
+          Please log in to the AWS account where you want to set up Datadog Agentless Scanning and try again.
 
 Resources:
   ScannerDelegateRoleOrchestratorPolicy:
@@ -333,3 +348,4 @@ Metadata:
           default: "Advanced"
         Parameters:
           - AgentlessSensitiveDataScanning
+          - AccountId
