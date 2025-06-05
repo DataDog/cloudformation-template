@@ -165,7 +165,7 @@ def send_response(event, context, response_status, response_data):
             "Status": response_status,
             "Reason": "See the details in CloudWatch Log Stream: "
             + context.log_stream_name,
-            "PhysicalResourceId": context.invoked_function_arn,
+            "PhysicalResourceId": event.get("PhysicalResourceId", context.invoked_function_arn),
             "StackId": event["StackId"],
             "RequestId": event["RequestId"],
             "LogicalResourceId": event["LogicalResourceId"],
