@@ -3,3 +3,6 @@
 # AWS templates
 
 /aws* @DataDog/aws-ints-core
+
+# Agentless Scanning templates
+/aws_quickstart/datadog_agentless_* @DataDog/k9-agentless @DataDog/aws-ints-core
