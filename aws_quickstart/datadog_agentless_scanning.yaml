@@ -115,7 +115,7 @@ Parameters:
   ScannerInstanceType:
     Type: String
     Description: The instance type to use for the Datadog Agentless Scanner
-    Default: t4g.large
+    Default: t4g.medium
 
   ScannerInstanceMonitoring:
     Type: String
