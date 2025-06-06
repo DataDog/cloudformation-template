@@ -55,10 +55,13 @@ cp main_extended.yaml main_extended.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_extended.yaml
 perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_extended.yaml
 
-# Agentless templates
-# Replace ZIPFILE_PLACEHOLDER with the contents of the Python file
+# Process Agentless Scanning templates
 for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml; do
-    perl -i.bak -pe '
+    # Note: unlike above, here we remove the 'v' prefix from the version
+    perl -i.bak -pe "s/<VERSION_PLACEHOLDER>/${VERSION#v}/g" "$template"
+
+    # Replace ZIPFILE_PLACEHOLDER with the contents of the Python file
+    perl -i -pe '
         # Read the Python script from stdin
         BEGIN { $p = do { local $/; <STDIN> } }
         # Find the placeholder and capture its indentation

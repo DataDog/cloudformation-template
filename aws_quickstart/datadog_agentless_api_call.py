@@ -8,8 +8,6 @@ import urllib.parse
 
 LOGGER = logging.getLogger()
 
-API_CALL_SOURCE_HEADER_VALUE = "cfn-agentless-quick-start"
-
 
 def call_datadog_agentless_api(event, method):
     api_key = event["ResourceProperties"]["APIKey"]
@@ -20,13 +18,15 @@ def call_datadog_agentless_api(event, method):
     containers = event["ResourceProperties"]["Containers"]
     lambdas = event["ResourceProperties"]["Lambdas"]
     sensitive_data = event["ResourceProperties"]["SensitiveData"]
+    template_version = event["ResourceProperties"]["TemplateVersion"]
 
     # Make the url Request
     url = "https://api." + dd_site + "/api/v2/agentless_scanning/accounts/aws"
     headers = {
         "DD-API-KEY": api_key,
         "DD-APPLICATION-KEY": app_key,
-        "Dd-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
+        "Dd-Call-Source": "cfn-agentless-quick-start",
+        "Dd-Installation-Version": template_version,
     }
 
     if method == "DELETE":
@@ -42,6 +42,10 @@ def call_datadog_agentless_api(event, method):
                 return e
     elif method == "POST":
         values = {
+            "meta": {
+                "installation_mode": "cloudformation",
+                "installation_version": template_version,
+            },
             "data": {
                 "id": account_id,
                 "type": "aws_scan_options",
@@ -51,7 +55,7 @@ def call_datadog_agentless_api(event, method):
                     "lambda": lambdas == "true",
                     "sensitive_data": sensitive_data == "true",
                 },
-            }
+            },
         }
         data = json.dumps(values)
         data = data.encode("utf-8")  # data should be bytes
