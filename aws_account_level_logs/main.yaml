@@ -17,6 +17,7 @@ Parameters:
       - 'https://aws-kinesis-http-intake.logs.ap1.datadoghq.com/api/v2/logs?dd-protocol=aws-kinesis-firehose'
       - 'https://aws-kinesis-http-intake.logs.us3.datadoghq.com/api/v2/logs?dd-protocol=aws-kinesis-firehose'
       - 'https://aws-kinesis-http-intake.logs.us5.datadoghq.com/api/v2/logs?dd-protocol=aws-kinesis-firehose'
+      - 'https://aws-kinesis-http-intake.logs.ddog-gov.com/v1/input'
       - 'https://aws-kinesis-http-intake.logs.datad0g.com/v1/input'
     Description: The URL of the Datadog HTTP endpoint to send logs to.
   Regions:
