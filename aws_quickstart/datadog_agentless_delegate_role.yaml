@@ -117,10 +117,14 @@ Resources:
             Condition:
               StringNotEquals:
                 'aws:ResourceTag/DatadogAgentlessScanner': 'false'
-          - Sid: DatadogAgentlessScannerCopySnapshot
+          - Sid: DatadogAgentlessScannerCopySnapshotSource
             Action: 'ec2:CopySnapshot'
             Effect: Allow
-            Resource: 'arn:aws:ec2:*:*:snapshot/*'
+            Resource: 'arn:aws:ec2:*:*:snapshot/snap-*'
+          - Sid: DatadogAgentlessScannerCopySnapshotDestination
+            Action: 'ec2:CopySnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/${*}'
             Condition:
               'ForAllValues:StringLike':
                 'aws:TagKeys': DatadogAgentlessScanner*
