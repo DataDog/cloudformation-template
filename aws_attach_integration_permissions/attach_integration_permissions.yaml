@@ -188,4 +188,3 @@ Resources:
       ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
       DatadogIntegrationRole: !Ref DatadogIntegrationRole
       AccountId: !Ref AccountId
-      
