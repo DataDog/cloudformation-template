@@ -13,7 +13,7 @@ Parameters:
     Default: ""
   APPKey:
     Description: >-
-      APP key for the Datadog account (find at https://app.datadoghq.com/organization-settings/application-keys). 
+      APP key for the Datadog account (find at https://app.datadoghq.com/organization-settings/application-keys).
       If this template was launched from the Datadog app, this key is tied to the user that launched the template,
       and is a key specifically generated for this integration.
     Type: String
@@ -22,7 +22,7 @@ Parameters:
     Default: ""
   AWSAccountType:
     Description: >-
-      Select the type of AWS account you are integrating with Datadog. 
+      Select the type of AWS account you are integrating with Datadog.
       If you are integrating with a GovCloud account, select "GovCloud", otherwise select "Standard".
     Type: String
     Default: Standard
@@ -39,6 +39,7 @@ Parameters:
       - us3.datadoghq.com
       - us5.datadoghq.com
       - ap1.datadoghq.com
+      - ap2.datadoghq.com
       - ddog-gov.com
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
@@ -50,8 +51,8 @@ Parameters:
       - true
       - false
     Description: >-
-      Determines whether the default configuration for the Datadog Lambda Log Forwarder is installed 
-      as part of this stack. This is useful for sending logs to Datadog for use in Log Management or Cloud SIEM. 
+      Determines whether the default configuration for the Datadog Lambda Log Forwarder is installed
+      as part of this stack. This is useful for sending logs to Datadog for use in Log Management or Cloud SIEM.
       Customers who want to customize this setup to include specific custom tags, data scrubbing or redaction rules,
       or send logs using AWS PrivateLink should select “no” and install this independently
       (https://docs.datadoghq.com/serverless/libraries_integrations/forwarder/#installation).
@@ -62,8 +63,8 @@ Parameters:
       - true
       - false
     Description: >-
-      Disabling metric collection for this account will lead to a loss in visibility into your AWS services. 
-      Disable this if you only want to collect tags or resource configuration information from this AWS account, 
+      Disabling metric collection for this account will lead to a loss in visibility into your AWS services.
+      Disable this if you only want to collect tags or resource configuration information from this AWS account,
       and do not want to use Datadog Infrastructure Monitoring.
     Default: false
   DisableResourceCollection:
@@ -72,7 +73,7 @@ Parameters:
       - true
       - false
     Description: >-
-      Disabling resource collection for this account will lead to a loss in visibility into your AWS services. 
+      Disabling resource collection for this account will lead to a loss in visibility into your AWS services.
       Disable this if you do not want to collect configuration information for the resources in this AWS account.
     Default: false
   CloudSecurityPostureManagement:
@@ -81,9 +82,9 @@ Parameters:
       - true
       - false
     Description: >-
-      Add the AWS Managed SecurityAudit policy to your Datadog AWS Integration role, and enable 
+      Add the AWS Managed SecurityAudit policy to your Datadog AWS Integration role, and enable
       Datadog Cloud Security Posture Management (CSPM) to start performing configuration checks across your AWS account.
-      Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to 
+      Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
   AgentlessHostScanning:
@@ -191,6 +192,10 @@ Conditions:
     Fn::Equals:
       - !Ref DatadogSite
       - ap1.datadoghq.com
+  IsAP2:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - ap2.datadoghq.com
   IsGov:
     Fn::Equals:
       - !Ref DatadogSite
@@ -251,11 +256,14 @@ Resources:
           - IsAP1
           - "417141415827"
           - !If
-            - IsGov
+            - IsAP2
+            - "412381753143"
             - !If
-              - IsAWSGovCloud
-              - "065115117704"
-              - "392588925713"
+              - IsGov
+              - !If
+                - IsAWSGovCloud
+                - "065115117704"
+                - "392588925713"
             - "464622532012"
   # The Lambda function to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
   # https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring
@@ -269,7 +277,7 @@ Resources:
         DdSite: !Ref DatadogSite
 Outputs:
   IAMRoleName:
-    Description: AWS IAM Role named to be used with the DataDog AWS Integration 
+    Description: AWS IAM Role named to be used with the DataDog AWS Integration
     Value: !Ref IAMRoleName
   AccountId:
     Description: AWS Account number

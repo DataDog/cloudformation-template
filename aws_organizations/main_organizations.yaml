@@ -27,6 +27,7 @@ Parameters:
       - us5.datadoghq.com
       - ddog-gov.com
       - ap1.datadoghq.com
+      - ap2.datadoghq.com
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
@@ -83,6 +84,10 @@ Conditions:
     Fn::Equals:
       - !Ref DatadogSite
       - ap1.datadoghq.com
+  IsAP2:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - ap2.datadoghq.com
   IsGov:
     Fn::Equals:
       - !Ref DatadogSite
@@ -378,12 +383,15 @@ Resources:
                 - IsAP1
                 - AWS: !Sub "arn:${AWS::Partition}:iam::417141415827:root"
                 - Fn::If:
-                    - IsGov
+                    - IsAP2
+                    - AWS: !Sub "arn:${AWS::Partition}:iam::412381753143:root"
                     - Fn::If:
-                        - IsAWSGovCloud
-                        - AWS: !Sub "arn:${AWS::Partition}:iam::065115117704:root"
-                        - AWS: !Sub "arn:${AWS::Partition}:iam::392588925713:root"
-                    - AWS: !Sub "arn:${AWS::Partition}:iam::464622532012:root"
+                      - IsGov
+                      - Fn::If:
+                          - IsAWSGovCloud
+                          - AWS: !Sub "arn:${AWS::Partition}:iam::065115117704:root"
+                          - AWS: !Sub "arn:${AWS::Partition}:iam::392588925713:root"
+                      - AWS: !Sub "arn:${AWS::Partition}:iam::464622532012:root"
             Action:
               - "sts:AssumeRole"
             Condition:
