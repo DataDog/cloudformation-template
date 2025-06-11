@@ -4,7 +4,7 @@ Description: Datadog AWS Integration Attach Permissions
 Parameters:
   DatadogIntegrationRole:
     Type: String
-    Description: The name of the IAM role that has been integrated with Datadog.
+    Description: The name of the IAM role used by the Datadog AWS integration
   AccountId:
     Type: String
     Description: The AWS account ID of the account integrated in Datadog.
