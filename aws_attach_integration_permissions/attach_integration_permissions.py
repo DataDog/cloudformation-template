@@ -112,6 +112,12 @@ def handle_create_update(event, context, role_name, account_id, base_policy_name
                 RoleName=role_name,
                 PolicyArn=policy['Policy']['Arn']
             )
+
+        # Attach the SecurityAudit policy
+        iam_client.attach_role_policy(
+            RoleName=role_name,
+            PolicyArn="arn:{partition}:iam::aws:policy/SecurityAudit".format(partition=event["ResourceProperties"]["Partition"])
+        )
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
         LOGGER.error(f"Error creating/attaching policy: {str(e)}")
