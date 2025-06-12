@@ -43,6 +43,7 @@ Resources:
                 Resource: 
                   - !Sub arn:aws:iam::${AWS::AccountId}:role/${DatadogIntegrationRole}
                   - !Sub arn:aws:iam::${AWS::AccountId}:policy/datadog-aws-integration-iam-permissions-*
+                  - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
   DatadogAttachIntegrationPermissionsFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -170,6 +171,11 @@ Resources:
                           RoleName=role_name,
                           PolicyArn=policy['Policy']['Arn']
                       )
+                  # Attach the SecurityAudit policy
+                  iam_client.attach_role_policy(
+                      RoleName=role_name,
+                      PolicyArn="arn:{partition}:iam::aws:policy/SecurityAudit".format(partition=event["ResourceProperties"]["Partition"])
+                  )
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
               except Exception as e:
                   LOGGER.error(f"Error creating/attaching policy: {str(e)}")
@@ -193,3 +199,4 @@ Resources:
       ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
       DatadogIntegrationRole: !Ref DatadogIntegrationRole
       AccountId: !Ref AccountId
+      Partition: !Ref "AWS::Partition"
