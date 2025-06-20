@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Extends the Datadog Agentless Scanner Delegate Role to allow copying snapshots.
+
+Parameters:
+  ScannerDelegateRoleName:
+    Type: String
+    Description: The name of the role assumed by the Datadog Agentless Scanner
+    Default: DatadogAgentlessScannerDelegateRole
+
+Resources:
+  ScannerDelegateRoleCopySnapshotPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref ScannerDelegateRoleName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DatadogAgentlessScannerCopySnapshotSource
+            Action: 'ec2:CopySnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/snap-*'
+          - Sid: DatadogAgentlessScannerCopySnapshotDestination
+            Action: 'ec2:CopySnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/${*}'
+            Condition:
+              'ForAllValues:StringLike':
+                'aws:TagKeys': DatadogAgentlessScanner*
+              StringEquals:
+                'aws:RequestTag/DatadogAgentlessScanner': 'true'
