@@ -56,7 +56,7 @@ perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_extended.yaml
 perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_extended.yaml
 
 # Process Agentless Scanning templates
-for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml; do
+for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml; do
     # Note: unlike above, here we remove the 'v' prefix from the version
     perl -i.bak -pe "s/<VERSION_PLACEHOLDER>/${VERSION#v}/g" "$template"
 
@@ -76,6 +76,7 @@ trap 'mv main_v2.yaml.bak main_v2.yaml;
       mv main_extended.yaml.bak main_extended.yaml;
       mv datadog_agentless_scanning.yaml.bak datadog_agentless_scanning.yaml;
       mv datadog_agentless_delegate_role.yaml.bak datadog_agentless_delegate_role.yaml;
+      mv datadog_agentless_delegate_role_snapshot.yaml.bak datadog_agentless_delegate_role_snapshot.yaml;
 ' EXIT
 
 # Upload
