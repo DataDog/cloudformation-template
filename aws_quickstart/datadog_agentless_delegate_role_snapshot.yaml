@@ -12,6 +12,7 @@ Resources:
     Type: AWS::IAM::RolePolicy
     Properties:
       RoleName: !Ref ScannerDelegateRoleName
+      PolicyName: ScannerDelegateRoleCopySnapshotPolicy
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
