@@ -10,7 +10,7 @@ Parameters:
   AccountId:
     Type: String
     Description: The AWS Account ID where this template is being deployed (optional validation)
-    AllowedPattern: "^[0-9]{12}$"
+    AllowedPattern: "|[0-9]{12}"
     Default: ""
 
 Rules:
