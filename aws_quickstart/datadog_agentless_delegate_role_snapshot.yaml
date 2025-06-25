@@ -1,3 +1,4 @@
+# version: v<VERSION_PLACEHOLDER>
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Extends the Datadog Agentless Scanner Delegate Role to allow copying snapshots.
 
@@ -6,6 +7,20 @@ Parameters:
     Type: String
     Description: The name of the role assumed by the Datadog Agentless Scanner
     Default: DatadogAgentlessScannerDelegateRole
+  AccountId:
+    Type: String
+    Description: The AWS Account ID where this template is being deployed (optional validation)
+    AllowedPattern: "|[0-9]{12}"
+    Default: ""
+
+Rules:
+  MustMatchAccountId:
+    AssertDescription: 'Checking that AccountId matches the current AWS account ID'
+    Assertions:
+      - Assert: !Or [!Equals [!Ref AccountId, !Ref AWS::AccountId], !Equals [!Ref AccountId, ""]]
+        AssertDescription: >-
+          The current AWS account ID does not match the AWS account selected in Datadog.
+          Please log in to the AWS account where you want to update the Agentless Scanning delegate role and try again.
 
 Resources:
   ScannerDelegateRoleCopySnapshotPolicy:
