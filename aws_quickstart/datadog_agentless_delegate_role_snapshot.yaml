@@ -13,19 +13,17 @@ Parameters:
     Type: String
     Description: The name of the role assumed by the Datadog Agentless Scanner
     Default: DatadogAgentlessScannerDelegateRole
-  AWSAccountId:
+  AccountId:
     Type: String
     Description: The AWS Account ID where this template is being deployed (optional validation)
-    Default: ''
-    AllowedPattern: '^$|[0-9]{12}'
-    ConstraintDescription: Must be empty or a valid 12-digit AWS Account ID
+    AllowedPattern: "^[0-9]{12}$"
 
 Rules:
-  ValidateAccountId:
-    RuleCondition: !Condition InvalidAccountId
+  MustMatchAccountId:
+    AssertDescription: 'Checking that provided account ID matches the actual AWS account ID'
     Assertions:
-      - Assert: !Not [!Condition InvalidAccountId]
-        AssertDescription: !Sub 'Account ID mismatch: provided ${AWSAccountId} does not match deployment account ${AWS::AccountId}'
+      - Assert: !Equals [!Ref AWS::AccountId, !Ref AccountId]
+        AssertDescription: 'The provided account ID must match the AWS account ID of your current session where the stack is being deployed.'
 
 Resources:
   ScannerDelegateRoleCopySnapshotPolicy:
