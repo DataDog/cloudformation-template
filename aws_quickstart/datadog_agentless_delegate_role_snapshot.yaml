@@ -19,13 +19,14 @@ Parameters:
     AllowedPattern: '^$|[0-9]{12}'
     ConstraintDescription: Must be empty or a valid 12-digit AWS Account ID
 
-Resources:
-  AccountValidationError:
-    Type: AWS::CloudFormation::WaitConditionHandle
-    Condition: InvalidAccountId
-    Metadata:
-      Error: !Sub 'Account ID mismatch: provided ${AWSAccountId} does not match deployment account ${AWS::AccountId}'
+Rules:
+  ValidateAccountId:
+    RuleCondition: !Condition InvalidAccountId
+    Assertions:
+      - Assert: !Not [!Condition InvalidAccountId]
+        AssertDescription: !Sub 'Account ID mismatch: provided ${AWSAccountId} does not match deployment account ${AWS::AccountId}'
 
+Resources:
   ScannerDelegateRoleCopySnapshotPolicy:
     Type: AWS::IAM::RolePolicy
     Properties:
