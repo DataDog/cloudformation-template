@@ -1,3 +1,4 @@
+# version: v<VERSION_PLACEHOLDER>
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Extends the Datadog Agentless Scanner Delegate Role to allow copying snapshots.
 
