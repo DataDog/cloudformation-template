@@ -2,7 +2,10 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Extends the Datadog Agentless Scanner Delegate Role to allow copying snapshots.
 
 Conditions:
-  ValidAccountId: !Equals [!Ref AWSAccountId, !Ref 'AWS::AccountId']
+  AccountIdProvided: !Not [!Equals [!Ref AWSAccountId, '']]
+  InvalidAccountId: !And
+    - !Condition AccountIdProvided
+    - !Not [!Equals [!Ref AWSAccountId, !Ref 'AWS::AccountId']]
 
 Parameters:
   ScannerDelegateRoleName:
@@ -11,14 +14,20 @@ Parameters:
     Default: DatadogAgentlessScannerDelegateRole
   AWSAccountId:
     Type: String
-    Description: The AWS Account ID where this template is being deployed
-    AllowedPattern: '[0-9]{12}'
-    ConstraintDescription: Must be a valid 12-digit AWS Account ID
+    Description: The AWS Account ID where this template is being deployed (optional validation)
+    Default: ''
+    AllowedPattern: '^$|[0-9]{12}'
+    ConstraintDescription: Must be empty or a valid 12-digit AWS Account ID
 
 Resources:
+  AccountValidationError:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Condition: InvalidAccountId
+    Metadata:
+      Error: !Sub 'Account ID mismatch: provided ${AWSAccountId} does not match deployment account ${AWS::AccountId}'
+
   ScannerDelegateRoleCopySnapshotPolicy:
     Type: AWS::IAM::RolePolicy
-    Condition: ValidAccountId
     Properties:
       RoleName: !Ref ScannerDelegateRoleName
       PolicyName: ScannerDelegateRoleCopySnapshotPolicy
