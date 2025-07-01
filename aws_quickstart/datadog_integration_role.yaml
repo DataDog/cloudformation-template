@@ -69,7 +69,6 @@ Resources:
               - Effect: Allow
                 Resource: "*"
                 Action:
-                  - "account:GetAccountInformation"
                   - "amplify:ListApps"
                   - "amplify:ListArtifacts"
                   - "amplify:ListBackendEnvironments"
