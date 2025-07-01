@@ -18,9 +18,8 @@ Parameters:
     Default: ''
   DdApiKeySecretArn:
     Type: String
-    AllowedPattern: '(arn:.*:secretsmanager:.*)?'
     Default: ''
-    Description: The ARN of the secret storing the Datadog API key, if you already have it stored in Secrets Manager. You must store the secret as a plaintext, rather than a key-value pair.
+    Description: The full ARN or name (if local) of the secret storing the Datadog API key, if you already have it stored in Secrets Manager. You must store the secret as a plaintext, rather than a key-value pair.
   DdSite:
     Type: String
     Default: datadoghq.com
