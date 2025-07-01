@@ -845,6 +845,7 @@ Resources:
   VPCRoutePublic:
     Type: AWS::EC2::Route
     Condition: CreateVPCResources
+    DependsOn: VPCGatewayAttachment
     Properties:
       DestinationCidrBlock: '0.0.0.0/0'
       GatewayId: !Ref 'VPCInternetGateway'
@@ -853,6 +854,7 @@ Resources:
   VPCRoutePrivate:
     Type: AWS::EC2::Route
     Condition: CreateVPCResources
+    DependsOn: VPCGatewayAttachment
     Properties:
       DestinationCidrBlock: '0.0.0.0/0'
       NatGatewayId: !Ref 'VPCNatGateway'
