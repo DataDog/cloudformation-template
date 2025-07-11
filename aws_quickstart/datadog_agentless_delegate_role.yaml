@@ -325,6 +325,7 @@ Resources:
       Containers: !Ref "AgentlessContainerScanning"
       Lambdas: !Ref "AgentlessLambdaScanning"
       SensitiveData: !Ref "AgentlessSensitiveDataScanning"
+      DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
       TemplateVersion: "<VERSION_PLACEHOLDER>"
 
   DatadogAgentlessAPICallFunction:

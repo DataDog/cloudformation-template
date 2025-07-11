@@ -18,6 +18,7 @@ def call_datadog_agentless_api(event, method):
     containers = event["ResourceProperties"]["Containers"]
     lambdas = event["ResourceProperties"]["Lambdas"]
     sensitive_data = event["ResourceProperties"]["SensitiveData"]
+    delegate_role_arn = event["ResourceProperties"]["DelegateRoleArn"]
     template_version = event["ResourceProperties"]["TemplateVersion"]
 
     # Make the url Request
@@ -45,6 +46,7 @@ def call_datadog_agentless_api(event, method):
             "meta": {
                 "installation_mode": "cloudformation",
                 "installation_version": template_version,
+                "delegate_role_arn": delegate_role_arn,
             },
             "data": {
                 "id": account_id,
