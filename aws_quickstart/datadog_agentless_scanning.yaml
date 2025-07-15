@@ -1047,6 +1047,7 @@ Resources:
     Type: "Custom::DatadogAgentlessAPICall"
     Properties:
       ServiceToken: !GetAtt "DatadogAgentlessAPICallFunction.Arn"
+      TemplateVersion: "<VERSION_PLACEHOLDER>"
       APIKey: !Ref "DatadogAPIKey"
       APPKey: !Ref "DatadogAPPKey"
       DatadogSite: !Ref "DatadogSite"
@@ -1055,7 +1056,8 @@ Resources:
       Containers: !Ref "AgentlessContainerScanning"
       Lambdas: !Ref "AgentlessLambdaScanning"
       SensitiveData: !Ref "AgentlessSensitiveDataScanning"
-      TemplateVersion: "<VERSION_PLACEHOLDER>"
+      DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
+      InstanceRoleArn: !GetAtt "ScannerInstanceRole.Arn"
 
   DatadogAgentlessAPICallFunction:
     Type: "AWS::Lambda::Function"

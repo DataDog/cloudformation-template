@@ -10,6 +10,7 @@ LOGGER = logging.getLogger()
 
 
 def call_datadog_agentless_api(event, method):
+    template_version = event["ResourceProperties"]["TemplateVersion"]
     api_key = event["ResourceProperties"]["APIKey"]
     app_key = event["ResourceProperties"]["APPKey"]
     dd_site = event["ResourceProperties"]["DatadogSite"]
@@ -18,7 +19,9 @@ def call_datadog_agentless_api(event, method):
     containers = event["ResourceProperties"]["Containers"]
     lambdas = event["ResourceProperties"]["Lambdas"]
     sensitive_data = event["ResourceProperties"]["SensitiveData"]
-    template_version = event["ResourceProperties"]["TemplateVersion"]
+    # Optional parameters
+    delegate_role_arn = event["ResourceProperties"].get("DelegateRoleArn")
+    instance_role_arn = event["ResourceProperties"].get("InstanceRoleArn")
 
     # Make the url Request
     url = "https://api." + dd_site + "/api/v2/agentless_scanning/accounts/aws"
@@ -45,6 +48,10 @@ def call_datadog_agentless_api(event, method):
             "meta": {
                 "installation_mode": "cloudformation",
                 "installation_version": template_version,
+                "resources": {
+                    "delegate_role_arn": delegate_role_arn,
+                    "instance_role_arn": instance_role_arn,
+                },
             },
             "data": {
                 "id": account_id,
@@ -169,7 +176,9 @@ def send_response(event, context, response_status, response_data):
             "Status": response_status,
             "Reason": "See the details in CloudWatch Log Stream: "
             + context.log_stream_name,
-            "PhysicalResourceId": event.get("PhysicalResourceId", context.invoked_function_arn),
+            "PhysicalResourceId": event.get(
+                "PhysicalResourceId", context.invoked_function_arn
+            ),
             "StackId": event["StackId"],
             "RequestId": event["RequestId"],
             "LogicalResourceId": event["LogicalResourceId"],
