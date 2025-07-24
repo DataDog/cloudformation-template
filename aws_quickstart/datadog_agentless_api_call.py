@@ -22,6 +22,10 @@ def call_datadog_agentless_api(event, method):
     # Optional parameters
     delegate_role_arn = event["ResourceProperties"].get("DelegateRoleArn")
     instance_role_arn = event["ResourceProperties"].get("InstanceRoleArn")
+    instance_profile_arn = event["ResourceProperties"].get("InstanceProfileArn")
+    orchestrator_policy_arn = event["ResourceProperties"].get("OrchestratorPolicyArn")
+    worker_policy_arn = event["ResourceProperties"].get("WorkerPolicyArn")
+    worker_dspm_policy_arn = event["ResourceProperties"].get("WorkerDSPMPolicyArn")
 
     # Make the url Request
     url = "https://api." + dd_site + "/api/v2/agentless_scanning/accounts/aws"
@@ -51,6 +55,10 @@ def call_datadog_agentless_api(event, method):
                 "resources": {
                     "delegate_role_arn": delegate_role_arn,
                     "instance_role_arn": instance_role_arn,
+                    "instance_profile_arn": instance_profile_arn,
+                    "orchestrator_policy_arn": orchestrator_policy_arn,
+                    "worker_policy_arn": worker_policy_arn,
+                    "worker_dspm_policy_arn": worker_dspm_policy_arn,
                 },
             },
             "data": {
