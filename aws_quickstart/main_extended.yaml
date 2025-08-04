@@ -119,6 +119,10 @@ Parameters:
     Description: >-
       Enable Agentless Scanning of datastores (S3 buckets).
     Default: false
+  ScannerDelegateRoleName:
+    Type: String
+    Description: The name of the role assumed by the Datadog Agentless Scanner
+    Default: DatadogAgentlessScannerDelegateRole
   ScannerInstanceRoleARN:
     Type: CommaDelimitedList
     Description: >-
@@ -229,6 +233,7 @@ Resources:
         AgentlessContainerScanning: !Ref AgentlessContainerScanning
         AgentlessLambdaScanning: !Ref AgentlessLambdaScanning
         AgentlessSensitiveDataScanning: !Ref AgentlessSensitiveDataScanning
+        ScannerDelegateRoleName: !Ref ScannerDelegateRoleName
         ScannerInstanceRoleARN: !If [IsCrossAccountScanning, !Join [",", !Ref "ScannerInstanceRoleARN"], !Ref "AWS::NoValue"]
         DatadogIntegrationRoleName: !If [IsCrossAccountScanning, !Ref "AWS::NoValue", !Ref "IAMRoleName"]
   DatadogAPICall:
@@ -314,6 +319,7 @@ Metadata:
         default: Advanced
       Parameters:
         - IAMRoleName
+        - ScannerDelegateRoleName
         - ScannerInstanceRoleARN
         - DisableMetricCollection
     ParameterLabels:
