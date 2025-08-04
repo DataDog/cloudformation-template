@@ -25,7 +25,7 @@ Parameters:
     Type: String
     Description: Your current AWS account ID for stack deployment
     AllowedPattern: "^[0-9]{12}$"
-  
+
   AgentlessHostScanning:
     Type: String
     AllowedValues:
@@ -377,6 +377,8 @@ Resources:
               Unattended-Upgrade::Automatic-Reboot "true";
               Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
               Unattended-Upgrade::Automatic-Reboot-Time "now";
+              Unattended-Upgrade::Remove-Unused-Dependencies "true";
+              Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
               EOF
 
               # Perform unattended upgrades 10 min after boot, then every 3 hours
