@@ -1,4 +1,56 @@
-## 2.1.11 (May 21, 2025)
+## 3.1.2 (August 4, 2025)
+
+[Agentless] Allow specifying delegate role name to quickstart main_extended
+
+## 3.1.1 (July 24, 2025)
+
+[Agentless] Send ARNs of Agentless IAM resources to backend
+
+## 3.1.0 (July 15, 2025)
+
+[Agentless] Send role ARNs in Agentless API call
+
+## 3.0.0 (July 9, 2025)
+
+Align cloudformation template permissions with generated docs
+
+## 2.2.7 (July 1, 2025)
+
+Add GetAccountInformation rule to integration policy
+
+## 2.2.6 (July 1, 2025)
+
+[Agentless] Fix race-condition when creating route tables
+
+## 2.2.4 (June 25, 2025)
+
+[Agentless] CF template extending delegate role to allow snapshot copies
+
+## 2.2.3 (June 13, 2025)
+
+Update templates to support new AP2 datacenter
+
+## 2.2.2 (June 12, 2025)
+
+[Agentless] Adapt CopySnapshot policy to latest IAM changes
+
+## 2.2.1 (June 6, 2025)
+
+[Agentless] Report template version when activating Agentless
+
+## 2.2.0 (June 3, 2025)
+
+[Agentless] Add cross-account scanning to main_extended for Agentless
+
+## 2.1.13 (May 28, 2025)
+
+[Agentless] Add Agentless API call to delegate role template
+
+## 2.1.12 (May 20, 2025)
+
+[Agentless] Add check to validate AWS Account ID in Agentless template.
+
+## 2.1.11 (May 5, 2025)
 
 Adding support for Govcloud AWS Account ID in AssumeRole policy.
 
