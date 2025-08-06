@@ -1,3 +1,8 @@
+## 4.0.0 (August 6, 2025)
+
+- Update inline policy to include core permissions only.
+- Add attached policies for resource collection permissions.
+
 ## 3.1.2 (August 4, 2025)
 
 [Agentless] Allow specifying delegate role name to quickstart main_extended
