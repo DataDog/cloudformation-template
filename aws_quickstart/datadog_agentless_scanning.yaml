@@ -1057,6 +1057,8 @@ Resources:
       Lambdas: !Ref "AgentlessLambdaScanning"
       SensitiveData: !Ref "AgentlessSensitiveDataScanning"
       # Optional parameters
+      LaunchTemplateId: !GetAtt "ScannerLaunchTemplate.LaunchTemplateId"
+      AutoScalingGroupArn: !GetAtt "ScannerAutoScalingGroup.AutoScalingGroupARN"
       DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
       InstanceRoleArn: !GetAtt "ScannerInstanceRole.Arn"
       InstanceProfileArn: !GetAtt "ScannerAgentInstanceProfile.Arn"

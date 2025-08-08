@@ -1,3 +1,7 @@
+## 4.0.1 (August 8, 2025)
+
+[Agentless] Send ASG ARN and Launch Template ID to backend
+
 ## 4.0.0 (August 6, 2025)
 
 - Update inline policy to include core permissions only.
