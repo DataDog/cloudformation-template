@@ -20,6 +20,8 @@ def call_datadog_agentless_api(event, method):
     lambdas = event["ResourceProperties"]["Lambdas"]
     sensitive_data = event["ResourceProperties"]["SensitiveData"]
     # Optional parameters
+    launch_template_id = event["ResourceProperties"].get("LaunchTemplateId")
+    asg_arn = event["ResourceProperties"].get("AutoScalingGroupArn")
     delegate_role_arn = event["ResourceProperties"].get("DelegateRoleArn")
     instance_role_arn = event["ResourceProperties"].get("InstanceRoleArn")
     instance_profile_arn = event["ResourceProperties"].get("InstanceProfileArn")
@@ -52,7 +54,10 @@ def call_datadog_agentless_api(event, method):
             "meta": {
                 "installation_mode": "cloudformation",
                 "installation_version": template_version,
+                "cloudformation_stack_id": event["StackId"],
                 "resources": {
+                    "launch_template_id": launch_template_id,
+                    "asg_arn": asg_arn,
                     "delegate_role_arn": delegate_role_arn,
                     "instance_role_arn": instance_role_arn,
                     "instance_profile_arn": instance_profile_arn,
