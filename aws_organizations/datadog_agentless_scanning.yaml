@@ -1,0 +1,1133 @@
+# version: v<VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Datadog Agentless Scanner CloudFormation deployment template
+Parameters:
+  DatadogAPIKey:
+    Type: String
+    AllowedPattern: "[0-9a-f]{32}"
+    Description: >-
+      API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys).
+      To enable Agentless Scanning (find at https://docs.datadoghq.com/security/cloud_security_management/agentless_scanning),
+      you must use a Remote Configuration-enabled API key (find at https://docs.datadoghq.com/security/cloud_security_management/setup/agentless_scanning/)
+    NoEcho: true
+
+  DatadogAPPKey:
+    Type: String
+    AllowedPattern: "[0-9a-f]{40}"
+    Description: APP key for the Datadog account
+    NoEcho: true
+
+  DatadogIntegrationRoleName:
+    Type: String
+    Description: The name of IAM role used by the Datadog AWS integration.
+
+  AccountId:
+    Type: String
+    Description: Your current AWS account ID for stack deployment
+    AllowedPattern: "^[0-9]{12}$"
+  
+  AgentlessHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of host vulnerabilities.
+    Default: false
+
+  AgentlessContainerScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of container vulnerabilities.
+    Default: false
+
+  AgentlessLambdaScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of Lambda vulnerabilities.
+    Default: false
+
+  AgentlessSensitiveDataScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of datastores (S3 buckets).
+    Default: false
+
+  DatadogAPIKeySecretArn:
+    Type: String
+    Description: The ARN of the secret storing the Datadog API key, if you already have it stored in Secrets Manager. You must store the secret as a plaintext, rather than a key-value pair.
+    AllowedPattern: "(arn:.*:secretsmanager:.*)?"
+    Default: ''
+
+  DatadogSite:
+    Type: String
+    Description: The Datadog site to use for the Datadog Agentless Scanner
+    Default: datadoghq.com
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ap1.datadoghq.com
+      - ap2.datadoghq.com
+
+  ScannerVPCId:
+    Type: String
+    Description: The VPC to use for the Datadog Agentless Scanner. If not provided, a new VPC will be created (should be specified along with ScannerSubnetId).
+    AllowedPattern: "(vpc-[0-9a-fA-F]+)?"
+    Default: ''
+
+  ScannerSubnetId:
+    Type: String
+    Description: The subnet to use for the Datadog Agentless Scanner. If not provided, a new VPC will be created (should be specified along with ScannerVPCId).
+    AllowedPattern: "(subnet-[0-9a-fA-F]+)?"
+    Default: ''
+
+  ScannerSecurityGroupId:
+    Type: String
+    Description: The security group to use for the Datadog Agentless Scanner. If not provided a new security group will be created.
+    AllowedPattern: "(sg-[0-9a-fA-F]+)?"
+    Default: ''
+
+  ScannerDelegateRoleName:
+    Type: String
+    Description: The name of the role assumed by the Datadog Agentless Scanner
+    Default: DatadogAgentlessScannerDelegateRole
+
+  ScannerSSHKeyPairName:
+    Type: String
+    Description: The key pair name to use for the Datadog Agentless Scanner. If not provided instance will not be accessible via SSH.
+    Default: ''
+
+  ScannerInstanceVolumeSize:
+    Type: Number
+    Description: The size of the volume in GB used by the Datadog Agentless Scanner
+    Default: 30
+
+  ScannerInstanceType:
+    Type: String
+    Description: The instance type to use for the Datadog Agentless Scanner
+    Default: t4g.medium
+
+  ScannerInstanceMonitoring:
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Whether to enable detailed monitoring for the Datadog Agentless Scanner instances
+    Default: "false"
+
+  ScannerOfflineModeEnabled:
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Whether to enable the offline mode for the Datadog Agentless Scanner
+    Default: "false"
+
+  DefaultScannerAutoScalingGroupSize:
+    Type: Number
+    Description: Default number of instances in the Auto Scaling Group
+    Default: 1
+
+  MinScannerAutoScalingGroupSize:
+    Type: Number
+    Description: Minimum number of instances in the Auto Scaling Group
+    Default: 0
+
+  MaxScannerAutoScalingGroupSize:
+    Type: Number
+    Description: Maximum number of instances in the Auto Scaling Group
+    Default: 50
+
+  ScannerVersion:
+    Type: String
+    Description: The version of the Agentless Scanner to install
+    Default: 0.11
+    AllowedPattern: "^[0-9]+\\.[0-9]+$"
+
+  ScannerChannel:
+    Type: String
+    Description: The channel of the Agentless Scanner to install from
+    Default: stable
+    AllowedValues:
+      - stable
+      - beta
+
+Conditions:
+  ProvideSshKeyPair: !Not
+    - !Equals
+      - !Ref 'ScannerSSHKeyPairName'
+      - ''
+  CreateVPCResources: !Equals
+    - !Ref 'ScannerSubnetId'
+    - ''
+  CreateSecurityGroup: !Equals
+    - !Ref 'ScannerSecurityGroupId'
+    - ''
+  CreateDatadogApiKeySecret: !Equals
+    - !Ref 'DatadogAPIKeySecretArn'
+    - ''
+  OfflineModeEnabled: !Equals
+    - !Ref 'ScannerOfflineModeEnabled'
+    - 'true'
+  DSPMEnabled: !Equals
+    - !Ref 'AgentlessSensitiveDataScanning'
+    - 'true'
+
+Rules:
+  MustSetScannerVPCIdAndSubnetId:
+    AssertDescription: 'Checking arguments ScannerVPCId and ScannerSubnetId'
+    RuleCondition: !Or [!Not [!Equals [!Ref 'ScannerVPCId', '']], !Not [!Equals [!Ref 'ScannerSubnetId', '']]]
+    Assertions:
+      - Assert: !And [!Not [!Equals [!Ref 'ScannerVPCId', '']], !Not [!Equals [!Ref 'ScannerSubnetId', '']]]
+        AssertDescription: 'ScannerVPCId and ScannerSubnetId should be specified together'
+  MustSetDatadogAPIKey:
+    AssertDescription: 'Checking arguments DatadogAPIKey and DatadogAPIKeySecretArn'
+    Assertions:
+      - Assert: !Or [!Not [!Equals [!Ref DatadogAPIKey, '']], !Not [!Equals [!Ref DatadogAPIKeySecretArn, '']]]
+        AssertDescription: 'DatadogApiKey and DatadogApiKeySecretArn should not be specified together'
+  MustMatchAccountId:
+    AssertDescription: 'Checking that provided account ID matches the actual AWS account ID'
+    Assertions:
+      - Assert: !Equals [!Ref AWS::AccountId, !Ref AccountId]
+        AssertDescription: 'The provided account ID must match the AWS account ID of your current session where the stack is being deployed.'
+
+Resources:
+  DatadogAgentlessScannerAutoscalingPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref DatadogIntegrationRoleName
+      PolicyName: DatadogAgentlessScannerAutoscalingPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'autoscaling:StartInstanceRefresh'
+              - 'autoscaling:SetDesiredCapacity'
+              - 'ec2:GetConsoleOutput'
+            Resource:
+              - 'arn:aws:autoscaling:*:*:autoScalingGroup:*'
+              - 'arn:aws:ec2:*:*:instance/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Effect: Allow
+            Action:
+              - 'autoscaling:DescribeAutoScalingGroups'
+            Resource: '*'
+
+  ScannerAPIKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: CreateDatadogApiKeySecret
+    Properties:
+      Description: Datadog API Key for the Datadog Agentless Scanner
+      SecretString: !Ref 'DatadogAPIKey'
+      Tags:
+        - Key: Datadog
+          Value: 'true'
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+
+  ScannerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateSecurityGroup
+    Properties:
+      GroupDescription: Security group for the Datadog Agentless Scanner
+      VpcId: !If [CreateVPCResources, !GetAtt 'VPCSubnetPrivate.VpcId', !Ref 'ScannerVPCId']
+      SecurityGroupEgress:
+        - CidrIp: '0.0.0.0/0'
+          FromPort: 0
+          ToPort: 65535
+          Description: All traffic
+          IpProtocol: 'tcp'
+        - CidrIpv6: '::/0'
+          FromPort: 0
+          ToPort: 65535
+          Description: All traffic
+          IpProtocol: 'tcp'
+      Tags:
+        - Key: Datadog
+          Value: 'true'
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+
+  ScannerLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      TagSpecifications:
+        - ResourceType: launch-template
+          Tags:
+            - Key: Datadog
+              Value: 'true'
+            - Key: DatadogAgentlessScanner
+              Value: 'true'
+      LaunchTemplateData:
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            DeleteOnTermination: true
+            SubnetId: !If [CreateVPCResources, !Ref 'VPCSubnetPrivate', !Ref 'ScannerSubnetId']
+            Groups:
+              - !If [CreateSecurityGroup, !Ref 'ScannerSecurityGroup', !Ref 'ScannerSecurityGroupId']
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Datadog
+                Value: 'true'
+              - Key: Name
+                Value: DatadogAgentlessScanner
+              - Key: DatadogAgentlessScanner
+                Value: 'true'
+          - ResourceType: network-interface
+            Tags:
+              - Key: Datadog
+                Value: 'true'
+              - Key: DatadogAgentlessScanner
+                Value: 'true'
+          - ResourceType: volume
+            Tags:
+              - Key: Datadog
+                Value: 'true'
+              - Key: DatadogAgentlessScanner
+                Value: 'true'
+        KeyName: !If [ProvideSshKeyPair, !Ref 'ScannerSSHKeyPairName', !Ref 'AWS::NoValue']
+        UserData:
+          Fn::Base64: !Sub
+            - |
+              #!/bin/bash
+              set +x
+              set -u
+              set -e
+              set -o pipefail
+
+              fatal_error () {
+                printf "FATAL ERROR: shutting down\n"
+                shutdown -h now
+              }
+
+              trap 'fatal_error' ERR
+
+              # Enable the nbd module
+              modprobe nbd nbds_max=128
+              echo "nbd" > /etc/modules-load.d/nbd.conf
+              echo "options nbd nbds_max=128" > /etc/modprobe.d/nbd.conf
+
+              # Install requirements
+              apt update
+              apt install -y curl
+
+              # Remove uneeded packages
+              apt remove -y libx11-6
+              apt autoremove -y
+
+              # Perform unattended upgrades
+              unattended-upgrade -v
+
+              # Get IMDS metadata to fetch the API Key from SecretsManager (without having to install awscli)
+              IMDS_TOKEN=$(      curl -sSL -XPUT "http://169.254.169.254/latest/api/token"                  -H "X-AWS-EC2-Metadata-Token-TTL-Seconds: 30")
+              IMDS_INSTANCE_ID=$(curl -sSL -XGET "http://169.254.169.254/latest/meta-data/instance-id"      -H "X-AWS-EC2-Metadata-Token: $IMDS_TOKEN")
+              IMDS_AWS_REGION=$( curl -sSL -XGET "http://169.254.169.254/latest/meta-data/placement/region" -H "X-AWS-EC2-Metadata-Token: $IMDS_TOKEN")
+              unset IMDS_TOKEN
+
+              DD_HOSTNAME="agentless-scanning-$IMDS_AWS_REGION-$IMDS_INSTANCE_ID"
+              DD_SITE="${DatadogSite}"
+              DD_API_KEY="ENC[${SecretAPIKeyArn}]"
+              DD_AGENTLESS_VERSION="${ScannerVersion}"
+              DD_AGENTLESS_CHANNEL="${ScannerChannel}"
+
+              hostnamectl hostname "$DD_HOSTNAME"
+
+              # Install the agent
+              DD_INSTALL_ONLY=true \
+                DD_API_KEY="TBD" \
+                DD_SITE="$DD_SITE" \
+                DD_HOSTNAME="$DD_HOSTNAME" \
+                bash -c "$(curl -L https://s3.amazonaws.com/dd-agent/scripts/install_script_agent7.sh)"
+
+              # Install the agentless-scanner
+              echo "deb [signed-by=/usr/share/keyrings/datadog-archive-keyring.gpg] https://apt.datadoghq.com/ $DD_AGENTLESS_CHANNEL agentless-scanner" >> /etc/apt/sources.list.d/datadog.list
+              apt update
+              agentless_pkg_pattern="([[:digit:]]:)?$DD_AGENTLESS_VERSION(\.[[:digit:]]+){0,1}(~rc\.[[:digit:]]+)?(-[[:digit:]])?"
+              agentless_version_custom="$(apt-cache madison datadog-agentless-scanner | grep -E "$agentless_pkg_pattern" -om1)" || true
+              if [ -z "$agentless_version_custom" ]; then
+                printf "Could not find a version of datadog-agentless-scanner from %s" "$DD_AGENTLESS_VERSION"
+                exit 1
+              fi
+              # We mask/unmask because apt auto-starts the service, and we do
+              # not want to start it before the configuration is in place.
+              systemctl mask datadog-agentless-scanner.service
+              apt install -y "datadog-agentless-scanner=$agentless_version_custom"
+              systemctl unmask datadog-agentless-scanner.service
+
+              # Adding automatic reboot on kernel updates
+              cat << EOF >> /etc/apt/apt.conf.d/50unattended-upgrades
+              Unattended-Upgrade::Automatic-Reboot "true";
+              Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+              Unattended-Upgrade::Automatic-Reboot-Time "now";
+              EOF
+
+              # Perform unattended upgrades 10 min after boot, then every 3 hours
+              cat << EOF > /etc/systemd/system/apt-daily-upgrade.timer
+              [Unit]
+              Description=Daily apt upgrade and clean activities
+              After=apt-daily.timer
+
+              [Timer]
+              OnActiveSec=10min
+              OnCalendar=0/3:00:00
+              Persistent=true
+
+              [Install]
+              WantedBy=timers.target
+              EOF
+
+              systemctl daemon-reload
+              systemctl restart apt-daily-upgrade.timer
+
+              # Activate agentless scanner logging
+              mkdir -p /etc/datadog-agent/conf.d/agentless-scanner.d
+              cat <<EOF > /etc/datadog-agent/conf.d/agentless-scanner.d/conf.yaml
+              logs:
+                - type: file
+                  path: "/var/log/datadog/agentless-scanner.log"
+                  service: "agentless-scanner"
+                  source: go
+                  sourcecategory: sourcecode
+              EOF
+
+              chown -R dd-agent: /etc/datadog-agent/conf.d/agentless-scanner.d
+
+              # Custom configuration for agent
+              cat <<EOF > /etc/datadog-agent/datadog.yaml
+              api_key: $DD_API_KEY
+              site: $DD_SITE
+              hostname: $DD_HOSTNAME
+              logs_enabled: true
+              ec2_prefer_imdsv2: true
+              tags: ["Datadog:true","DatadogAgentlessScanner:true"]
+              secret_backend_command: /usr/local/bin/dd-secret-backend
+              EOF
+
+              cat <<EOF > /usr/local/bin/dd-secret-backend
+              #!/bin/bash
+              datadog-agentless-scanner secrets || exit 1
+              EOF
+              chown dd-agent: /usr/local/bin/dd-secret-backend
+              chmod 700 /usr/local/bin/dd-secret-backend
+
+              cat <<EOF > /etc/datadog-agent/agentless-scanner.yaml
+              hostname: $DD_HOSTNAME
+              api_key: $DD_API_KEY
+              site: $DD_SITE
+              installation_mode: cloudformation
+              installation_version: <VERSION_PLACEHOLDER>
+              default_roles:
+                - "arn:aws:iam::${AWS::AccountId}:role/${ScannerDelegateRoleName}"
+              EOF
+
+              chown dd-agent: /etc/datadog-agent/agentless-scanner.yaml
+              chmod 600 /etc/datadog-agent/agentless-scanner.yaml
+
+              # Restart the agent
+              systemctl restart datadog-agent
+
+              # Enable and start datadog-agentless-scaner
+              systemctl enable --now datadog-agentless-scanner
+            - SecretAPIKeyArn: !If [CreateDatadogApiKeySecret, !Ref 'ScannerAPIKeySecret', !Ref 'DatadogAPIKeySecretArn']
+              ScannerVersion: !Ref 'ScannerVersion'
+              ScannerChannel: !Ref 'ScannerChannel'
+
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              Encrypted: true
+              DeleteOnTermination: true
+              VolumeSize: !Ref 'ScannerInstanceVolumeSize'
+              VolumeType: gp3
+        IamInstanceProfile:
+          Name: !Ref 'ScannerAgentInstanceProfile'
+        ImageId: resolve:ssm:/aws/service/canonical/ubuntu/server-minimal/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id
+        InstanceType: !Ref 'ScannerInstanceType'
+        Monitoring:
+          Enabled: !Ref 'ScannerInstanceMonitoring'
+        MetadataOptions:
+          HttpTokens: required
+
+  ScannerAgentInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref 'ScannerInstanceRole'
+
+  ScannerAgentPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeCrossAccountScanningRole
+            Action: 'sts:AssumeRole'
+            Effect: Allow
+            Resource: !Sub 'arn:aws:iam::*:role/${ScannerDelegateRoleName}'
+            Condition:
+              StringEquals:
+                'iam:ResourceTag/Datadog': 'true'
+                'iam:ResourceTag/DatadogAgentlessScanner': 'true'
+
+  ScannerAgentPolicyReadApiKeySecret:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ReadDatadogConfig
+            Action: 'secretsmanager:GetSecretValue'
+            Effect: Allow
+            Resource: !If [CreateDatadogApiKeySecret, !Ref 'ScannerAPIKeySecret', !Ref 'DatadogAPIKeySecretArn']
+
+  ScannerDelegateRoleOrchestratorPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for the Datadog Agentless Scanner orchestrator allowing the creation and deletion of snapshots.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DatadogAgentlessScannerResourceTagging
+            Action: 'ec2:CreateTags'
+            Effect: Allow
+            Resource:
+              - 'arn:aws:ec2:*:*:volume/*'
+              - 'arn:aws:ec2:*:*:snapshot/*'
+              - 'arn:aws:ec2:*:*:image/*'
+            Condition:
+              StringEquals:
+                'ec2:CreateAction':
+                  - CreateSnapshot
+                  - CreateVolume
+                  - CopySnapshot
+                  - CopyImage
+          - Sid: DatadogAgentlessScannerVolumeSnapshotCreation
+            Action: 'ec2:CreateSnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:volume/*'
+            Condition:
+              StringNotEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+          - Sid: DatadogAgentlessScannerCopySnapshotSource
+            Action: 'ec2:CopySnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/snap-*'
+          - Sid: DatadogAgentlessScannerCopySnapshotDestination
+            Action: 'ec2:CopySnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/${*}'
+            Condition:
+              'ForAllValues:StringLike':
+                'aws:TagKeys': DatadogAgentlessScanner*
+              StringEquals:
+                'aws:RequestTag/DatadogAgentlessScanner': 'true'
+          - Sid: DatadogAgentlessScannerSnapshotCreation
+            Action: 'ec2:CreateSnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/*'
+            Condition:
+              'ForAllValues:StringLike':
+                'aws:TagKeys': DatadogAgentlessScanner*
+              StringEquals:
+                'aws:RequestTag/DatadogAgentlessScanner': 'true'
+          - Sid: DatadogAgentlessScannerSnapshotCleanup
+            Action: 'ec2:DeleteSnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Sid: DatadogAgentlessScannerDescribeSnapshots
+            Action: 'ec2:DescribeSnapshots'
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerEncryptedCopyGrant
+            Action: 'kms:CreateGrant'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+            Condition:
+              'ForAnyValue:StringEquals':
+                'kms:EncryptionContextKeys': 'aws:ebs:id'
+              StringLike:
+                'kms:ViaService': 'ec2.*.amazonaws.com'
+              Bool:
+                'kms:GrantIsForAWSResource': true
+          - Sid: DatadogAgentlessScannerEncryptedCopyDescribe
+            Action: 'kms:DescribeKey'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+          - Sid: DatadogAgentlessScannerImageCleanup
+            Action: 'ec2:DeregisterImage'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:image/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+
+  ScannerDelegateRoleWorkerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for the Datadog Agentless Scanner worker allowing the listing and reading of snapshots.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DatadogAgentlessScannerSnapshotAccess
+            Action:
+              - 'ebs:ListSnapshotBlocks'
+              - 'ebs:ListChangedBlocks'
+              - 'ebs:GetSnapshotBlock'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Sid: DatadogAgentlessScannerDescribeSnapshots
+            Action: 'ec2:DescribeSnapshots'
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerDescribeVolumes
+            Action: 'ec2:DescribeVolumes'
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerDecryptEncryptedSnapshots
+            Action: 'kms:Decrypt'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+            Condition:
+              'ForAnyValue:StringEquals':
+                'kms:EncryptionContextKeys': 'aws:ebs:id'
+              StringLike:
+                'kms:ViaService': 'ec2.*.amazonaws.com'
+          - Sid: DatadogAgentlessScannerKMSDescribe
+            Action: 'kms:DescribeKey'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+          - Sid: DatadogAgentlessScannerGetLambdaDetails
+            Action: 'lambda:GetFunction'
+            Effect: Allow
+            Resource: 'arn:aws:lambda:*:*:function:*'
+            Condition:
+              StringNotEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+          - Sid: DatadogAgentlessScannerGetLambdaLayerDetails
+            Action: 'lambda:GetLayerVersion'
+            Effect: Allow
+            Resource: 'arn:aws:lambda:*:*:layer:*:*'
+            Condition:
+              StringNotEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+          - Sid: DatadogAgentlessScannerECRAuthorizationToken
+            Action:
+              - "ecr:GetAuthorizationToken"
+            Effect: Allow
+            Resource: "*"
+          - Sid: DatadogAgentlessScannerECRImages
+            Action:
+              - "ecr:GetDownloadUrlForLayer"
+              - "ecr:BatchGetImage"
+            Condition:
+              StringNotEquals:
+                "ecr:ResourceTag/DatadogAgentlessScanner": "false"
+            Effect: Allow
+            Resource: "arn:aws:ecr:*:*:repository/*"
+
+  ScannerDelegateRoleWorkerDSPMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: DSPMEnabled
+    Properties:
+      Description: Policy for the Datadog Agentless Scanner worker allowing the listing and reading of S3 buckets.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DatadogAgentlessScannerAccessS3Objects
+            Action: 's3:GetObject'
+            Effect: Allow
+            Resource: 'arn:aws:s3:::*/*'
+          - Sid: DatadogAgentlessScannerListS3Buckets
+            Action: 's3:ListBucket'
+            Effect: Allow
+            Resource: 'arn:aws:s3:::*'
+          - Sid: DatadogAgentlessScannerDecryptS3Objects
+            Action:
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+            Condition:
+              StringLike:
+                'kms:ViaService': 's3.*.amazonaws.com'
+
+  ScannerDelegateOfflineRolePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for the Datadog Agentless Scanner worker allowing the listing snapshots, instances, images to perform offline scans.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DatadogAgentlessScannerOfflineModeListLambdas
+            Action: lambda:ListFunctions
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerOfflineModeListInstances
+            Action: ec2:DescribeInstances
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerOfflineModeRegions
+            Action: ec2:DescribeRegions
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerOfflineModeListVolumes
+            Action: ec2:DescribeVolumes
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerOfflineModeListImages
+            Action: ec2:DescribeImages
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerOfflineModeListAllMyBuckets
+            Action: s3:ListAllMyBuckets
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerOfflineModeGetBucketTags
+            Action: s3:GetBucketTagging
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerOfflineModeListECRRepos
+            Action:
+              - ecr:DescribeRepositories
+              - ecr:DescribeImages
+            Effect: Allow
+            Resource: '*'
+
+  ScannerInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Sid: EC2AssumeRole
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+      MaxSessionDuration: 3600
+      ManagedPolicyArns:
+        - !Ref 'ScannerAgentPolicy'
+        - !Ref 'ScannerAgentPolicyReadApiKeySecret'
+      Description: Role used by the Datadog agentless scanner instance
+      Tags:
+        - Key: Datadog
+          Value: 'true'
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+
+  ScannerDelegateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref 'ScannerDelegateRoleName'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EC2AssumeRole
+            Effect: Allow
+            Principal:
+              AWS: '*'
+            Condition:
+              ArnLike:
+                'aws:PrincipalArn': !GetAtt 'ScannerInstanceRole.Arn'
+              StringEquals:
+                'aws:PrincipalTag/Datadog': 'true'
+                'aws:PrincipalTag/DatadogAgentlessScanner': 'true'
+            Action: 'sts:AssumeRole'
+
+      MaxSessionDuration: 3600
+      ManagedPolicyArns:
+        - !Ref 'ScannerDelegateRoleOrchestratorPolicy'
+        - !Ref 'ScannerDelegateRoleWorkerPolicy'
+        - !If [DSPMEnabled, !Ref 'ScannerDelegateRoleWorkerDSPMPolicy', !Ref 'AWS::NoValue']
+        - !If [OfflineModeEnabled, !Ref 'ScannerDelegateOfflineRolePolicy', !Ref 'AWS::NoValue']
+      Description: Role assumed by the Datadog Agentless scanner agent to perform scans
+      Tags:
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+        - Key: Datadog
+          Value: 'true'
+
+  ScannerAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: true
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref 'ScannerLaunchTemplate'
+        Version: !GetAtt 'ScannerLaunchTemplate.LatestVersionNumber'
+      MinSize: !Ref 'MinScannerAutoScalingGroupSize'
+      MaxSize: !Ref 'MaxScannerAutoScalingGroupSize'
+      DesiredCapacity: !Ref 'DefaultScannerAutoScalingGroupSize'
+      Cooldown: 300
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+      VPCZoneIdentifier:
+        - !If [CreateVPCResources, !Ref 'VPCSubnetPrivate', !Ref 'ScannerSubnetId']
+      TerminationPolicies:
+        - Default
+      Tags:
+        - Key: Datadog
+          Value: 'true'
+          PropagateAtLaunch: false
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+          PropagateAtLaunch: false
+        - Key: Name
+          Value: DatadogAgentlessScannerASG
+          PropagateAtLaunch: false
+      MaxInstanceLifetime: 86400
+      NewInstancesProtectedFromScaleIn: false
+
+  VPCNatElasticIP:
+    Type: AWS::EC2::EIP
+    Condition: CreateVPCResources
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: DatatogAgentlessScanner
+        - Key: Datadog
+          Value: 'true'
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+
+  VPCInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: CreateVPCResources
+    Properties:
+      Tags:
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+        - Key: Name
+          Value: DatatogAgentlessScanner
+        - Key: Datadog
+          Value: 'true'
+
+  VPCNatGateway:
+    Type: AWS::EC2::NatGateway
+    Condition: CreateVPCResources
+    Properties:
+      SubnetId: !Ref 'VPCSubnetPublic'
+      Tags:
+        - Key: Datadog
+          Value: 'true'
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+        - Key: Name
+          Value: DatatogAgentlessScanner
+      AllocationId: !GetAtt 'VPCNatElasticIP.AllocationId'
+
+  VPCRoutePublic:
+    Type: AWS::EC2::Route
+    Condition: CreateVPCResources
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref 'VPCInternetGateway'
+      RouteTableId: !Ref 'VPCRouteTablePublic'
+
+  VPCRoutePrivate:
+    Type: AWS::EC2::Route
+    Condition: CreateVPCResources
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref 'VPCNatGateway'
+      RouteTableId: !Ref 'VPCRouteTablePrivate'
+
+  VPCRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateVPCResources
+    Properties:
+      VpcId: !GetAtt 'VPCSubnetPublic.VpcId'
+
+  VPCRouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateVPCResources
+    Properties:
+      VpcId: !GetAtt 'VPCSubnetPublic.VpcId'
+      Tags:
+        - Key: Name
+          Value: DatatogAgentlessScanner-public
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+        - Key: Datadog
+          Value: 'true'
+
+  VPCRouteTablePrivate:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateVPCResources
+    Properties:
+      VpcId: !GetAtt 'VPCSubnetPublic.VpcId'
+      Tags:
+        - Key: Datadog
+          Value: 'true'
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+        - Key: Name
+          Value: DatatogAgentlessScanner-private
+
+  VPCSubnetRouteTableAssociationPrivate:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVPCResources
+    Properties:
+      RouteTableId: !Ref 'VPCRouteTablePrivate'
+      SubnetId: !Ref 'VPCSubnetPrivate'
+
+  VPCSubnetRouteTableAssociationPublic:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVPCResources
+    Properties:
+      RouteTableId: !Ref 'VPCRouteTablePublic'
+      SubnetId: !Ref 'VPCSubnetPublic'
+
+  VPCEndpointsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateVPCResources
+    Properties:
+      GroupDescription: VPC endpoint security group
+      Tags:
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+        - Key: Datadog
+          Value: 'true'
+      VpcId: !GetAtt 'VPCSubnetPublic.VpcId'
+      SecurityGroupIngress:
+        - CidrIp: !GetAtt 'VPC.CidrBlock'
+          Description: TLS from VPC
+          FromPort: 443
+          IpProtocol: tcp
+          ToPort: 443
+
+  VPCSubnetPublic:
+    Type: AWS::EC2::Subnet
+    Condition: CreateVPCResources
+    Properties:
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: AWS::Region
+      CidrBlock: 10.0.0.0/19
+      VpcId: !GetAtt 'VPCSubnetPrivate.VpcId'
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+        - Key: Datadog
+          Value: 'true'
+        - Key: Name
+          Value: DatatogAgentlessScanner-public
+
+  VPCSubnetPrivate:
+    Type: AWS::EC2::Subnet
+    Condition: CreateVPCResources
+    Properties:
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: AWS::Region
+      CidrBlock: 10.0.128.0/19
+      VpcId: !Ref 'VPC'
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+        - Key: Datadog
+          Value: 'true'
+        - Key: Name
+          Value: DatatogAgentlessScanner-private
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: CreateVPCResources
+    Properties:
+      InternetGatewayId: !Ref 'VPCInternetGateway'
+      VpcId: !GetAtt 'VPCSubnetPublic.VpcId'
+
+  VPCEndpointS3:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: CreateVPCResources
+    Properties:
+      VpcEndpointType: Gateway
+      VpcId: !GetAtt 'VPCSubnetPublic.VpcId'
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      PolicyDocument: '{"Statement":[{"Action":"*","Effect":"Allow","Principal":"*","Resource":"*"}]}'
+      RouteTableIds:
+        - !Ref 'VPCRouteTablePrivate'
+        - !Ref 'VPCRouteTablePublic'
+      PrivateDnsEnabled: false
+
+  VPCEndpointLambda:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: CreateVPCResources
+    Properties:
+      VpcEndpointType: Interface
+      VpcId: !GetAtt 'VPCSubnetPublic.VpcId'
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.lambda'
+      PolicyDocument: '{"Statement":[{"Action":"*","Effect":"Allow","Principal":"*","Resource":"*"}]}'
+      SubnetIds:
+        - !Ref 'VPCSubnetPrivate'
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref 'VPCEndpointsSecurityGroup'
+
+  VPCEndpointEBS:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: CreateVPCResources
+    Properties:
+      VpcEndpointType: Interface
+      VpcId: !GetAtt 'VPCSubnetPublic.VpcId'
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ebs'
+      PolicyDocument: '{"Statement":[{"Action":"*","Effect":"Allow","Principal":"*","Resource":"*"}]}'
+      SubnetIds:
+        - !Ref 'VPCSubnetPrivate'
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref 'VPCEndpointsSecurityGroup'
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Condition: CreateVPCResources
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: DatatogAgentlessScanner
+        - Key: Datadog
+          Value: 'true'
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+
+  LambdaExecutionRoleDatadogAgentlessAPICall:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+  # Retrieving secrets passed in via SecretsManager Arn
+  DatadogAgentlessAPICall:
+    Type: "Custom::DatadogAgentlessAPICall"
+    Properties:
+      ServiceToken: !GetAtt "DatadogAgentlessAPICallFunction.Arn"
+      TemplateVersion: "<VERSION_PLACEHOLDER>"
+      APIKey: !Ref "DatadogAPIKey"
+      APPKey: !Ref "DatadogAPPKey"
+      DatadogSite: !Ref "DatadogSite"
+      AccountId: !Ref "AWS::AccountId"
+      Hosts: !Ref "AgentlessHostScanning"
+      Containers: !Ref "AgentlessContainerScanning"
+      Lambdas: !Ref "AgentlessLambdaScanning"
+      SensitiveData: !Ref "AgentlessSensitiveDataScanning"
+      # Optional parameters
+      LaunchTemplateId: !GetAtt "ScannerLaunchTemplate.LaunchTemplateId"
+      AutoScalingGroupArn: !GetAtt "ScannerAutoScalingGroup.AutoScalingGroupARN"
+      DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
+      InstanceRoleArn: !GetAtt "ScannerInstanceRole.Arn"
+      InstanceProfileArn: !GetAtt "ScannerAgentInstanceProfile.Arn"
+      OrchestratorPolicyArn: !GetAtt "ScannerDelegateRoleOrchestratorPolicy.PolicyArn"
+      WorkerPolicyArn: !GetAtt "ScannerDelegateRoleWorkerPolicy.PolicyArn"
+      WorkerDSPMPolicyArn: !If [DSPMEnabled, !GetAtt "ScannerDelegateRoleWorkerDSPMPolicy.PolicyArn", !Ref "AWS::NoValue"]
+
+  DatadogAgentlessAPICallFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "A function to call the Datadog Agentless API."
+      Role: !GetAtt LambdaExecutionRoleDatadogAgentlessAPICall.Arn
+      Handler: "index.handler"
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
+      Runtime: "python3.11"
+      Timeout: 30
+      Code:
+        ZipFile: |
+          <ZIPFILE_PLACEHOLDER>
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Required
+        Parameters:
+          - DatadogAPIKey
+          - DatadogAPPKey
+          - DatadogIntegrationRoleName
+          - AccountId
+          - DatadogSite
+          - AgentlessHostScanning
+          - AgentlessContainerScanning
+          - AgentlessLambdaScanning
+          - AgentlessSensitiveDataScanning
+      - Label:
+          default: Advanced
+        Parameters:
+          - DatadogAPIKeySecretArn
+          - DefaultScannerAutoScalingGroupSize
+          - MinScannerAutoScalingGroupSize
+          - MaxScannerAutoScalingGroupSize
+          - ScannerDelegateRoleName
+          - ScannerInstanceMonitoring
+          - ScannerInstanceType
+          - ScannerInstanceVolumeSize
+          - ScannerOfflineModeEnabled
+          - ScannerSSHKeyPairName
+          - ScannerSecurityGroupId
+          - ScannerSubnetId
+          - ScannerVPCId
+    ParameterLabels:
+      DatadogAPIKey:
+        default: "DatadogApiKey *"
+      DatadogAPPKey:
+        default: "DatadogAppKey *"
+      DatadogIntegrationRoleName:
+        default: "DatadogIntegrationRoleName *"
+      AccountId:
+        default: "AWS Account ID *"
+      DatadogSite:
+        default: "DatadogSite *"
+      AgentlessHostScanning:
+        default: "AgentlessHostScanning *"
+      AgentlessContainerScanning:
+        default: "AgentlessContainerScanning *"
+      AgentlessLambdaScanning:
+        default: "AgentlessLambdaScanning *"
+      AgentlessSensitiveDataScanning:
+        default: "AgentlessSensitiveDataScanning *"
