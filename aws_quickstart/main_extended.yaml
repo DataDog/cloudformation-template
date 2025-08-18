@@ -2,6 +2,15 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: Datadog AWS Integration
 Parameters:
+  ScannerSSHKeyPairName:
+    Description: >-
+      The name of the SSH key pair to use for the Datadog Agentless Scanner.
+      This is used to connect to hosts for Agentless Scanning.
+      If you do not have an SSH key pair, you can create one in the AWS console.
+    Type: String
+    Default: "agentless"
+    MaxLength: 255
+    MinLength: 1
   APIKey:
     Description: >-
       API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys).
@@ -229,6 +238,7 @@ Resources:
         DatadogAPPKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
         AccountId: !Ref AWS::AccountId
+        ScannerSSHKeyPairName: !Ref ScannerSSHKeyPairName
         AgentlessHostScanning: !Ref AgentlessHostScanning
         AgentlessContainerScanning: !Ref AgentlessContainerScanning
         AgentlessLambdaScanning: !Ref AgentlessLambdaScanning
