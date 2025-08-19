@@ -819,7 +819,7 @@ Resources:
               - 'states:ListExecutions'
               - 'states:ListMapRuns'
               - 'states:ListStateMachineAliases'
-             - 'storagegateway:DescribeFileSystemAssociations'
+              - 'storagegateway:DescribeFileSystemAssociations'
               - 'storagegateway:DescribeSMBFileShares'
               - 'timestream:ListScheduledQueries'
               - 'timestream:ListTables'
