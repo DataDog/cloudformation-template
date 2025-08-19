@@ -412,7 +412,7 @@ Resources:
               - 'ec2:GetVerifiedAccessEndpointTargets'
               - 'ec2:GetVerifiedAccessGroupPolicy'
               - 'eks:DescribeAccessEntry'
-              - 'eks:DescribeAddon' 
+              - 'eks:DescribeAddon'
   DatadogIntegrationRoleManagedPolicy2:
     Type: 'AWS::IAM::ManagedPolicy'
     Condition: GrantFullPermissions
@@ -444,6 +444,17 @@ Resources:
               - 'emr-containers:ListManagedEndpoints'
               - 'emr-containers:ListSecurityConfigurations'
               - 'emr-containers:ListVirtualClusters'
+              - 'geo:DescribeGeofenceCollection'
+              - 'geo:DescribeKey'
+              - 'geo:DescribeMap'
+              - 'geo:DescribePlaceIndex'
+              - 'geo:DescribeRouteCalculator'
+              - 'geo:DescribeTracker'
+              - 'geo:ListGeofenceCollections'
+              - 'geo:ListKeys'
+              - 'geo:ListPlaceIndexes'
+              - 'geo:ListRouteCalculators'
+              - 'geo:ListTrackers'
               - 'glacier:GetVaultNotifications'
               - 'glue:ListRegistries'
               - 'grafana:DescribeWorkspace'
@@ -563,6 +574,20 @@ Resources:
               - 'medialive:ListReservations'
               - 'medialive:ListSdiSources'
               - 'medialive:ListSignalMaps'
+              - 'mediapackage-vod:DescribeAsset'
+              - 'mediapackage-vod:ListAssets'
+              - 'mediapackage-vod:ListPackagingConfigurations'
+              - 'mediapackage:ListChannels'
+              - 'mediapackage:ListHarvestJobs'
+              - 'mediapackagev2:GetChannel'
+              - 'mediapackagev2:GetChannelGroup'
+              - 'mediapackagev2:GetChannelPolicy'
+              - 'mediapackagev2:GetOriginEndpoint'
+              - 'mediapackagev2:GetOriginEndpointPolicy'
+              - 'mediapackagev2:ListChannelGroups'
+              - 'mediapackagev2:ListChannels'
+              - 'mediapackagev2:ListHarvestJobs'
+              - 'mediapackagev2:ListOriginEndpoints'
               - 'memorydb:DescribeAcls'
               - 'memorydb:DescribeMultiRegionClusters'
               - 'memorydb:DescribeParameterGroups'
@@ -582,29 +607,6 @@ Resources:
               - 'network-firewall:ListTLSInspectionConfigurations'
               - 'network-firewall:ListVpcEndpointAssociations'
               - 'networkmanager:GetConnectPeer'
-              - 'networkmanager:GetConnections'
-              - 'networkmanager:GetCoreNetwork'
-              - 'networkmanager:GetDevices'
-              - 'networkmanager:GetLinks'
-              - 'networkmanager:GetSites'
-              - 'networkmanager:ListAttachments'
-              - 'networkmanager:ListConnectPeers'
-              - 'networkmanager:ListCoreNetworks'
-              - 'networkmanager:ListPeerings'
-              - 'osis:GetPipeline'
-              - 'osis:GetPipelineB- lueprint'
-              - 'osis:ListPipelineBlueprints'
-              - 'osis:ListPipelines'
-              - 'payment-cryptography:GetKey'
-              - 'payment-cryptography:ListAliases'
-              - 'payment-cryptography:ListKeys'
-              - 'pca-connector-ad:ListConnectors'
-              - 'pca-connector-ad:ListDirectoryRegistrations'
-              - 'pca-connector-ad:ListTemplates'
-              - 'pca-connector-scep:ListConnectors'
-              - 'personalize:DescribeAlgorithm'
-              - 'personalize:DescribeBatchInferenceJob'
-              - 'personalize:DescribeBatchSegmentJob'
   DatadogIntegrationRoleManagedPolicy3:
     Type: 'AWS::IAM::ManagedPolicy'
     Condition: GrantFullPermissions
@@ -620,6 +622,29 @@ Resources:
           - Effect: Allow
             Resource: '*'
             Action:
+              - 'networkmanager:GetConnections'
+              - 'networkmanager:GetCoreNetwork'
+              - 'networkmanager:GetDevices'
+              - 'networkmanager:GetLinks'
+              - 'networkmanager:GetSites'
+              - 'networkmanager:ListAttachments'
+              - 'networkmanager:ListConnectPeers'
+              - 'networkmanager:ListCoreNetworks'
+              - 'networkmanager:ListPeerings'
+              - 'osis:GetPipeline'
+              - 'osis:GetPipelineBlueprint'
+              - 'osis:ListPipelineBlueprints'
+              - 'osis:ListPipelines'
+              - 'payment-cryptography:GetKey'
+              - 'payment-cryptography:ListAliases'
+              - 'payment-cryptography:ListKeys'
+              - 'pca-connector-ad:ListConnectors'
+              - 'pca-connector-ad:ListDirectoryRegistrations'
+              - 'pca-connector-ad:ListTemplates'
+              - 'pca-connector-scep:ListConnectors'
+              - 'personalize:DescribeAlgorithm'
+              - 'personalize:DescribeBatchInferenceJob'
+              - 'personalize:DescribeBatchSegmentJob'
               - 'personalize:DescribeCampaign'
               - 'personalize:DescribeDataDeletionJob'
               - 'personalize:DescribeDataset'
@@ -759,13 +784,36 @@ Resources:
               - 'sms-voice:DescribeRegistrations'
               - 'sms-voice:DescribeSenderIds'
               - 'sms-voice:DescribeVerifiedDestinationNumbers'
+              - 'snowball:DescribeCluster'
+              - 'snowball:DescribeJob'
               - 'sns:ListEndpointsByPlatformApplication'
               - 'sns:ListPlatformApplications'
               - 'social-messaging:GetLinkedWhatsAppBusinessAccount'
               - 'social-messaging:ListLinkedWhatsAppBusinessAccounts'
               - 'sqs:GetQueueUrl'
+              - 'ssm-incidents:GetIncidentRecord'
+              - 'ssm-incidents:GetReplicationSet'
+              - 'ssm-incidents:GetResponsePlan'
+              - 'ssm-incidents:ListIncidentRecords'
+              - 'ssm-incidents:ListReplicationSets'
+              - 'ssm-incidents:ListResponsePlans'
               - 'ssm:GetMaintenanceWindow'
               - 'ssm:GetOpsItem'
+  DatadogIntegrationRoleManagedPolicy4:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Condition: GrantFullPermissions
+    Properties:
+      ManagedPolicyName: !Sub
+        - '${IAMRoleName}-ManagedPolicy-4'
+        - { IAMRoleName: !Ref IAMRoleName }
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Resource: '*'
+            Action:
               - 'ssm:GetPatchBaseline'
               - 'states:ListActivities'
               - 'states:ListExecutions'
@@ -775,9 +823,15 @@ Resources:
               - 'storagegateway:DescribeSMBFileShares'
               - 'timestream:ListScheduledQueries'
               - 'timestream:ListTables'
+              - 'transcribe:GetCallAnalyticsJob'
+              - 'transcribe:GetMedicalScribeJob'
+              - 'transcribe:GetMedicalTranscriptionJob'
+              - 'transcribe:GetTranscriptionJob'
+              - 'transcribe:ListMedicalScribeJobs'
               - 'translate:GetParallelData'
               - 'translate:GetTerminology'
               - 'verifiedpermissions:GetPolicyStore'
+              - 'verifiedpermissions:ListIdentitySources'
               - 'verifiedpermissions:ListPolicies'
               - 'verifiedpermissions:ListPolicyStores'
               - 'verifiedpermissions:ListPolicyTemplates'
@@ -795,21 +849,6 @@ Resources:
               - 'vpc-lattice:ListResourceGateways'
               - 'vpc-lattice:ListRules'
               - 'vpc-lattice:ListServiceNetworkResourceAssociations'
-  DatadogIntegrationRoleManagedPolicy4:
-    Type: 'AWS::IAM::ManagedPolicy'
-    Condition: GrantFullPermissions
-    Properties:
-      ManagedPolicyName: !Sub
-        - '${IAMRoleName}-ManagedPolicy-4'
-        - { IAMRoleName: !Ref IAMRoleName }
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: '*'
-            Action:
               - 'vpc-lattice:ListServiceNetworkServiceAssociations'
               - 'vpc-lattice:ListServiceNetworkVpcAssociations'
               - 'vpc-lattice:ListServiceNetworks'
