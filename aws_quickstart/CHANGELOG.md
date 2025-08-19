@@ -1,3 +1,14 @@
+## 4.0.2 (August 19, 2025)
+
+Add permissions to support resource collection for the following services:
+
+- Amazon Location (`geo`)
+- AWS Elemental Mediapackage, Mediapackage V2 and Mediapackage VOD
+- AWS Snowball
+- AWS SSM incident manager
+- Amazon Transcribe
+- Amazon Verified Permissions
+
 ## 4.0.1 (August 8, 2025)
 
 [Agentless] Send ASG ARN and Launch Template ID to backend
