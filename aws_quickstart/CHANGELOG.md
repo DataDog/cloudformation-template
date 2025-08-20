@@ -1,3 +1,12 @@
+## 4.0.3 (August 20, 2025)
+
+Add permissions to support log autosubscription collection for the following services:
+
+- AWS Network Firewall
+- Amazon Elastic Kubernetes Services
+- Amazon Redshift Serverless
+- Amazon Parallel Computing Service (log deliveries change)
+
 ## 4.0.2 (August 19, 2025)
 
 Add permissions to support resource collection for the following services:
