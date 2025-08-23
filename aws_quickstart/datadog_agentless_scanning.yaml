@@ -1057,14 +1057,14 @@ Resources:
       Lambdas: !Ref "AgentlessLambdaScanning"
       SensitiveData: !Ref "AgentlessSensitiveDataScanning"
       # Optional parameters
-      LaunchTemplateId: !GetAtt "ScannerLaunchTemplate.LaunchTemplateId"
+      LaunchTemplateId: !Ref "ScannerLaunchTemplate"
       AutoScalingGroupArn: !GetAtt "ScannerAutoScalingGroup.AutoScalingGroupARN"
       DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
       InstanceRoleArn: !GetAtt "ScannerInstanceRole.Arn"
       InstanceProfileArn: !GetAtt "ScannerAgentInstanceProfile.Arn"
-      OrchestratorPolicyArn: !GetAtt "ScannerDelegateRoleOrchestratorPolicy.PolicyArn"
-      WorkerPolicyArn: !GetAtt "ScannerDelegateRoleWorkerPolicy.PolicyArn"
-      WorkerDSPMPolicyArn: !If [DSPMEnabled, !GetAtt "ScannerDelegateRoleWorkerDSPMPolicy.PolicyArn", !Ref "AWS::NoValue"]
+      OrchestratorPolicyArn: !Ref "ScannerDelegateRoleOrchestratorPolicy"
+      WorkerPolicyArn: !Ref "ScannerDelegateRoleWorkerPolicy"
+      WorkerDSPMPolicyArn: !If [DSPMEnabled, !Ref "ScannerDelegateRoleWorkerDSPMPolicy", !Ref "AWS::NoValue"]
 
   DatadogAgentlessAPICallFunction:
     Type: "AWS::Lambda::Function"

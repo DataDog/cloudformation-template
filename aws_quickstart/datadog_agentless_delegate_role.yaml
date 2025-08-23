@@ -328,9 +328,9 @@ Resources:
       SensitiveData: !Ref "AgentlessSensitiveDataScanning"
       # Optional parameters
       DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
-      OrchestratorPolicyArn: !GetAtt "ScannerDelegateRoleOrchestratorPolicy.PolicyArn"
-      WorkerPolicyArn: !GetAtt "ScannerDelegateRoleWorkerPolicy.PolicyArn"
-      WorkerDSPMPolicyArn: !If [DSPMEnabled, !GetAtt "ScannerDelegateRoleWorkerDSPMPolicy.PolicyArn", !Ref "AWS::NoValue"]
+      OrchestratorPolicyArn: !Ref "ScannerDelegateRoleOrchestratorPolicy"
+      WorkerPolicyArn: !Ref "ScannerDelegateRoleWorkerPolicy"
+      WorkerDSPMPolicyArn: !If [DSPMEnabled, !Ref "ScannerDelegateRoleWorkerDSPMPolicy", !Ref "AWS::NoValue"]
 
   DatadogAgentlessAPICallFunction:
     Type: "AWS::Lambda::Function"
