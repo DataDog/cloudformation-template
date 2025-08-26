@@ -40,8 +40,7 @@ def call_datadog_agentless_api(event, method):
 
     if method == "DELETE":
         url = f"${url}/${account_id}"
-        request = Request(url, headers=headers)
-        request.get_method = lambda: method
+        request = Request(url, headers=headers, method="DELETE")
         try:
             return urllib.request.urlopen(request)
         except HTTPError as e:
@@ -79,13 +78,11 @@ def call_datadog_agentless_api(event, method):
         }
         data = json.dumps(values)
         data = data.encode("utf-8")  # data should be bytes
-        url_account_id = f"${url}/${account_id}"
-        if is_agentless_scanning_enabled(url_account_id, headers):
-            request = Request(url_account_id, data=data, headers=headers)
-            request.get_method = lambda: "PATCH"
+        url_account = f"${url}/${account_id}"
+        if is_agentless_scanning_enabled(url_account, headers):
+            request = Request(url_account, data=data, headers=headers, method="PATCH")
         else:
-            request = Request(url, data=data, headers=headers)
-            request.get_method = lambda: "POST"
+            request = Request(url, data=data, headers=headers, method="POST")
         request.add_header("Content-Type", "application/vnd.api+json; charset=utf-8")
         request.add_header("Content-Length", len(data))
         response = urllib.request.urlopen(request)
@@ -95,11 +92,10 @@ def call_datadog_agentless_api(event, method):
         return None
 
 
-def is_agentless_scanning_enabled(url_account_id, headers):
+def is_agentless_scanning_enabled(url_account, headers):
     """Check if agentless scanning is already enabled for the account"""
     try:
-        request = Request(url_account_id, headers=headers)
-        request.get_method = lambda: "GET"
+        request = Request(url_account, headers=headers, method="GET")
         response = urllib.request.urlopen(request)
         return response.status == 200
     except HTTPError as e:
@@ -204,10 +200,9 @@ def send_response(event, context, response_status, response_data):
     LOGGER.info("ResponseBody: %s", response_body)
 
     opener = build_opener(HTTPHandler)
-    request = Request(event["ResponseURL"], data=formatted_response)
+    request = Request(event["ResponseURL"], data=formatted_response, method="PUT")
     request.add_header("Content-Type", "application/json; charset=utf-8")
     request.add_header("Content-Length", len(formatted_response))
-    request.get_method = lambda: "PUT"
     response = opener.open(request)
     LOGGER.info("Status code: %s", response.status)
     LOGGER.info("Status message: %s", response.msg)
