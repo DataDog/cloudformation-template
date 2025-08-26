@@ -1,0 +1,22 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    container:
+      image: python:3.11-slim
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Agentless API Call unit tests
+        run: |
+          cd aws_quickstart
+          python -B -S -m unittest datadog_agentless_api_call_test.py -v
