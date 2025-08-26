@@ -44,10 +44,11 @@ def call_datadog_agentless_api(event, method):
         try:
             return urllib.request.urlopen(request)
         except HTTPError as e:
-            if e.status != 404:
-                raise e
-            else:
+            if e.status == 404:
                 return e
+            else:
+                raise
+
     elif method == "POST":
         values = {
             "meta": {
@@ -94,14 +95,15 @@ def call_datadog_agentless_api(event, method):
 
 def is_agentless_scanning_enabled(url_account, headers):
     """Check if agentless scanning is already enabled for the account"""
+    request = Request(url_account, headers=headers, method="GET")
     try:
-        request = Request(url_account, headers=headers, method="GET")
-        response = urllib.request.urlopen(request)
-        return response.status == 200
+        urllib.request.urlopen(request)
     except HTTPError as e:
-        if e.status != 404:
-            raise e
-        return False
+        if e.status == 404:
+            return False
+        else:
+            raise
+    return True
 
 
 def handler(event, context):
@@ -110,24 +112,14 @@ def handler(event, context):
         if event["RequestType"] == "Create":
             LOGGER.info("Received Create request.")
             response = call_datadog_agentless_api(event, "POST")
-            if response.status >= 200 and response.status <= 299:
-                send_response(
-                    event,
-                    context,
-                    "SUCCESS",
-                    {
-                        "Message": "Datadog AWS Agentless Scanning Integration created successfully.",
-                    },
-                )
-            else:
-                LOGGER.error("Failed - unexpected status code: %d", response.status)
-                send_response(
-                    event,
-                    context,
-                    "FAILED",
-                    {"Message": "Http response: {}".format(response.msg)},
-                )
-
+            send_response(
+                event,
+                context,
+                "SUCCESS",
+                {
+                    "Message": f"Datadog Agentless Scanning activated (status: {response.status}).",
+                },
+            )
         elif event["RequestType"] == "Update":
             LOGGER.info("Received Update request.")
             send_response(
@@ -139,25 +131,14 @@ def handler(event, context):
         elif event["RequestType"] == "Delete":
             LOGGER.info("Received Delete request.")
             response = call_datadog_agentless_api(event, "DELETE")
-
-            if response.status >= 200 and response.status <= 299:
-                send_response(
-                    event,
-                    context,
-                    "SUCCESS",
-                    {
-                        "Message": "Datadog AWS Agentless Scanning Integration deleted successfully.",
-                    },
-                )
-            else:
-                LOGGER.error("Failed - unexpected status code: %d", response.status)
-                send_response(
-                    event,
-                    context,
-                    "FAILED",
-                    {"Message": "Http response: {}".format(response.msg)},
-                )
-
+            send_response(
+                event,
+                context,
+                "SUCCESS",
+                {
+                    "Message": f"Datadog Agentless Scanning deactivated (status: {response.status}).",
+                },
+            )
         else:
             LOGGER.error(
                 "Failed - received unexpected request: %s", event["RequestType"]
@@ -174,7 +155,7 @@ def handler(event, context):
             event,
             context,
             "FAILED",
-            {"Message": "Exception during processing: {}".format(e)},
+            {"Message": f"Exception during processing: {e}"},
         )
 
 
