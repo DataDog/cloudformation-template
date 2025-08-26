@@ -110,7 +110,7 @@ def handler(event, context):
         if event["RequestType"] == "Create":
             LOGGER.info("Received Create request.")
             response = call_datadog_agentless_api(event, "POST")
-            if response.status == 201 or response.status == 204:
+            if response.status >= 200 and response.status <= 299:
                 send_response(
                     event,
                     context,
@@ -140,7 +140,7 @@ def handler(event, context):
             LOGGER.info("Received Delete request.")
             response = call_datadog_agentless_api(event, "DELETE")
 
-            if response.status == 200:
+            if response.status >= 200 and response.status <= 299:
                 send_response(
                     event,
                     context,
