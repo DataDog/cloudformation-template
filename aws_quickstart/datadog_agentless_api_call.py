@@ -45,7 +45,7 @@ def call_datadog_agentless_api(event, method):
         try:
             return urllib.request.urlopen(request)
         except HTTPError as e:
-            if e.code != 404:
+            if e.status != 404:
                 raise e
             else:
                 return e
@@ -101,9 +101,9 @@ def is_agentless_scanning_enabled(url_account_id, headers):
         request = Request(url_account_id, headers=headers)
         request.get_method = lambda: "GET"
         response = urllib.request.urlopen(request)
-        return response.getcode() == 200
+        return response.status == 200
     except HTTPError as e:
-        if e.code != 404:
+        if e.status != 404:
             raise e
         return False
 
@@ -114,7 +114,7 @@ def handler(event, context):
         if event["RequestType"] == "Create":
             LOGGER.info("Received Create request.")
             response = call_datadog_agentless_api(event, "POST")
-            if response.getcode() == 201 or response.getcode() == 204:
+            if response.status == 201 or response.status == 204:
                 send_response(
                     event,
                     context,
@@ -124,7 +124,7 @@ def handler(event, context):
                     },
                 )
             else:
-                LOGGER.error("Failed - unexpected status code: %d", response.getcode())
+                LOGGER.error("Failed - unexpected status code: %d", response.status)
                 send_response(
                     event,
                     context,
@@ -144,7 +144,7 @@ def handler(event, context):
             LOGGER.info("Received Delete request.")
             response = call_datadog_agentless_api(event, "DELETE")
 
-            if response.getcode() == 200:
+            if response.status == 200:
                 send_response(
                     event,
                     context,
@@ -154,7 +154,7 @@ def handler(event, context):
                     },
                 )
             else:
-                LOGGER.error("Failed - unexpected status code: %d", response.getcode())
+                LOGGER.error("Failed - unexpected status code: %d", response.status)
                 send_response(
                     event,
                     context,
@@ -209,7 +209,7 @@ def send_response(event, context, response_status, response_data):
     request.add_header("Content-Length", len(formatted_response))
     request.get_method = lambda: "PUT"
     response = opener.open(request)
-    LOGGER.info("Status code: %s", response.getcode())
+    LOGGER.info("Status code: %s", response.status)
     LOGGER.info("Status message: %s", response.msg)
 
 
