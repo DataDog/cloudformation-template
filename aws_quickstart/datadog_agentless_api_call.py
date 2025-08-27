@@ -30,7 +30,7 @@ def call_datadog_agentless_api(event, method):
     worker_dspm_policy_arn = event["ResourceProperties"].get("WorkerDSPMPolicyArn")
 
     # Make the url Request
-    url = f"https://api.${dd_site}/api/v2/agentless_scanning/accounts/aws"
+    url = f"https://api.{dd_site}/api/v2/agentless_scanning/accounts/aws"
     headers = {
         "DD-API-KEY": api_key,
         "DD-APPLICATION-KEY": app_key,
@@ -39,7 +39,7 @@ def call_datadog_agentless_api(event, method):
     }
 
     if method == "DELETE":
-        url = f"${url}/${account_id}"
+        url = f"{url}/{account_id}"
         request = Request(url, headers=headers, method="DELETE")
         try:
             return urllib.request.urlopen(request)
@@ -79,7 +79,7 @@ def call_datadog_agentless_api(event, method):
         }
         data = json.dumps(values)
         data = data.encode("utf-8")  # data should be bytes
-        url_account = f"${url}/${account_id}"
+        url_account = f"{url}/{account_id}"
         if is_agentless_scanning_enabled(url_account, headers):
             request = Request(url_account, data=data, headers=headers, method="PATCH")
         else:
