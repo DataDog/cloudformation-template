@@ -44,7 +44,10 @@ def call_datadog_agentless_api(event, method):
         try:
             return urllib.request.urlopen(request)
         except HTTPError as e:
-            if e.status == 404:
+            if e.status < 500:
+                # For most client errors, the best option is to continue with the
+                # stack deletion, since users have no way to fix the request, and
+                # at least this way they can clean up the scanner resources.
                 return e
             else:
                 raise
