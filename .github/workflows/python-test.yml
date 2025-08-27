@@ -1,21 +1,19 @@
-name: Unit Tests
+name: Python tests
 
 on:
   push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
+    paths:
+      - "**.py"
 
 jobs:
-  test:
+  agentless_api_call_test:
     runs-on: ubuntu-latest
-
-    container:
-      image: python:3.13-slim
 
     steps:
       - uses: actions/checkout@v4
-
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - name: Run Agentless API Call unit tests
         run: |
           cd aws_quickstart
