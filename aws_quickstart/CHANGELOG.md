@@ -1,3 +1,10 @@
+## 4.1.0 (September 1, 2025)
+
+Agentless scanning fixes and improvements:
+
+- Fix for unsupported attribute type `PolicyArn` in `Fn::GetAtt`
+- Better handling of unexpected status codes in (de)activation call
+
 ## 4.0.3 (August 20, 2025)
 
 Add permissions to support log autosubscription collection for the following services:
