@@ -30,7 +30,7 @@ def call_datadog_agentless_api(event, method):
     worker_dspm_policy_arn = event["ResourceProperties"].get("WorkerDSPMPolicyArn")
 
     # Make the url Request
-    url = "https://api." + dd_site + "/api/v2/agentless_scanning/accounts/aws"
+    url = f"https://api.{dd_site}/api/v2/agentless_scanning/accounts/aws"
     headers = {
         "DD-API-KEY": api_key,
         "DD-APPLICATION-KEY": app_key,
@@ -39,16 +39,19 @@ def call_datadog_agentless_api(event, method):
     }
 
     if method == "DELETE":
-        url = url + "/" + account_id
-        request = Request(url, headers=headers)
-        request.get_method = lambda: method
+        url = f"{url}/{account_id}"
+        request = Request(url, headers=headers, method="DELETE")
         try:
             return urllib.request.urlopen(request)
         except HTTPError as e:
-            if e.code != 404:
-                raise e
-            else:
+            if e.status < 500:
+                # For most client errors, the best option is to continue with the
+                # stack deletion, since users have no way to fix the request, and
+                # at least this way they can clean up the scanner resources.
                 return e
+            else:
+                raise
+
     elif method == "POST":
         values = {
             "meta": {
@@ -79,13 +82,11 @@ def call_datadog_agentless_api(event, method):
         }
         data = json.dumps(values)
         data = data.encode("utf-8")  # data should be bytes
-        url_account_id = url + "/" + account_id
-        if is_agentless_scanning_enabled(url_account_id, headers):
-            request = Request(url_account_id, data=data, headers=headers)
-            request.get_method = lambda: "PATCH"
+        url_account = f"{url}/{account_id}"
+        if is_agentless_scanning_enabled(url_account, headers):
+            request = Request(url_account, data=data, headers=headers, method="PATCH")
         else:
-            request = Request(url, data=data, headers=headers)
-            request.get_method = lambda: "POST"
+            request = Request(url, data=data, headers=headers, method="POST")
         request.add_header("Content-Type", "application/vnd.api+json; charset=utf-8")
         request.add_header("Content-Length", len(data))
         response = urllib.request.urlopen(request)
@@ -95,17 +96,17 @@ def call_datadog_agentless_api(event, method):
         return None
 
 
-def is_agentless_scanning_enabled(url_account_id, headers):
+def is_agentless_scanning_enabled(url_account, headers):
     """Check if agentless scanning is already enabled for the account"""
+    request = Request(url_account, headers=headers, method="GET")
     try:
-        request = Request(url_account_id, headers=headers)
-        request.get_method = lambda: "GET"
-        response = urllib.request.urlopen(request)
-        return response.getcode() == 200
+        urllib.request.urlopen(request)
     except HTTPError as e:
-        if e.code != 404:
-            raise e
-        return False
+        if e.status == 404:
+            return False
+        else:
+            raise
+    return True
 
 
 def handler(event, context):
@@ -114,24 +115,14 @@ def handler(event, context):
         if event["RequestType"] == "Create":
             LOGGER.info("Received Create request.")
             response = call_datadog_agentless_api(event, "POST")
-            if response.getcode() == 201 or response.getcode() == 204:
-                send_response(
-                    event,
-                    context,
-                    "SUCCESS",
-                    {
-                        "Message": "Datadog AWS Agentless Scanning Integration created successfully.",
-                    },
-                )
-            else:
-                LOGGER.error("Failed - unexpected status code: %d", response.getcode())
-                send_response(
-                    event,
-                    context,
-                    "FAILED",
-                    {"Message": "Http response: {}".format(response.msg)},
-                )
-
+            send_response(
+                event,
+                context,
+                "SUCCESS",
+                {
+                    "Message": f"Datadog Agentless Scanning activated (status: {response.status}).",
+                },
+            )
         elif event["RequestType"] == "Update":
             LOGGER.info("Received Update request.")
             send_response(
@@ -143,25 +134,14 @@ def handler(event, context):
         elif event["RequestType"] == "Delete":
             LOGGER.info("Received Delete request.")
             response = call_datadog_agentless_api(event, "DELETE")
-
-            if response.getcode() == 200:
-                send_response(
-                    event,
-                    context,
-                    "SUCCESS",
-                    {
-                        "Message": "Datadog AWS Agentless Scanning Integration deleted successfully.",
-                    },
-                )
-            else:
-                LOGGER.error("Failed - unexpected status code: %d", response.getcode())
-                send_response(
-                    event,
-                    context,
-                    "FAILED",
-                    {"Message": "Http response: {}".format(response.msg)},
-                )
-
+            send_response(
+                event,
+                context,
+                "SUCCESS",
+                {
+                    "Message": f"Datadog Agentless Scanning deactivated (status: {response.status}).",
+                },
+            )
         else:
             LOGGER.error(
                 "Failed - received unexpected request: %s", event["RequestType"]
@@ -178,7 +158,7 @@ def handler(event, context):
             event,
             context,
             "FAILED",
-            {"Message": "Exception during processing: {}".format(e)},
+            {"Message": f"Exception during processing: {e}"},
         )
 
 
@@ -204,12 +184,11 @@ def send_response(event, context, response_status, response_data):
     LOGGER.info("ResponseBody: %s", response_body)
 
     opener = build_opener(HTTPHandler)
-    request = Request(event["ResponseURL"], data=formatted_response)
+    request = Request(event["ResponseURL"], data=formatted_response, method="PUT")
     request.add_header("Content-Type", "application/json; charset=utf-8")
     request.add_header("Content-Length", len(formatted_response))
-    request.get_method = lambda: "PUT"
     response = opener.open(request)
-    LOGGER.info("Status code: %s", response.getcode())
+    LOGGER.info("Status code: %s", response.status)
     LOGGER.info("Status message: %s", response.msg)
 
 
