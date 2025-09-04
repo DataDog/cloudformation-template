@@ -1,3 +1,19 @@
+## 4.1.1 (September 1, 2025)
+
+Add permissions to support resource collection for the following services:
+
+- AWS Audit Manager
+- Amazon CodeGuru
+- AWS Device Farm
+- Amazon Fraud Detector
+- Amazom GameLift
+- AWS IoT Greengrass
+- AWS IoT FleetWise
+- AWS Lake Formation
+- AWS Migration Hub Refactor Spaces
+- Amazon Textract
+- Amazon Workspaces Secure Browser
+
 ## 4.1.0 (September 1, 2025)
 
 Agentless scanning fixes and improvements:

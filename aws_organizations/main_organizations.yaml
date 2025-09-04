@@ -560,6 +560,9 @@ Resources:
               - "aps:ListWorkspaces"
               - "athena:BatchGetNamedQuery"
               - "athena:BatchGetPreparedStatement"
+              - "auditmanager:GetAssessment"
+              - "auditmanager:GetAssessmentFramework"
+              - "auditmanager:GetControl"
               - "b2bi:GetCapability"
               - "b2bi:GetPartnership"
               - "b2bi:GetProfile"
@@ -648,6 +651,13 @@ Resources:
               - "codeartifact:ListDomains"
               - "codeartifact:ListPackageGroups"
               - "codeartifact:ListPackages"
+              - "codeguru-profiler:ListFindingsReports"
+              - "codeguru-profiler:ListProfilingGroups"
+              - "codeguru-reviewer:ListCodeReviews"
+              - "codeguru-reviewer:ListRepositoryAssociations"
+              - "codeguru-security:GetFindings"
+              - "codeguru-security:GetScan"
+              - "codeguru-security:ListScans"
               - "codepipeline:GetActionType"
               - "codepipeline:ListActionTypes"
               - "codepipeline:ListWebhooks"
@@ -692,10 +702,35 @@ Resources:
               - "deadline:ListMonitors"
               - "deadline:ListQueues"
               - "deadline:ListWorkers"
+              - "devicefarm:ListDeviceInstances"
+              - "devicefarm:ListDevicePools"
+              - "devicefarm:ListDevices"
+              - "devicefarm:ListInstanceProfiles"
+              - "devicefarm:ListNetworkProfiles"
+              - "devicefarm:ListRemoteAccessSessions"
+              - "devicefarm:ListTestGridProjects"
+              - "devicefarm:ListTestGridSessions"
+              - "devicefarm:ListUploads"
+              - "devicefarm:ListVPCEConfigurations"
               - "dlm:GetLifecyclePolicies"
               - "dlm:GetLifecyclePolicy"
               - "docdb-elastic:GetCluster"
               - "docdb-elastic:GetClusterSnapshot"
+  DatadogIntegrationRoleManagedPolicy2:
+    Type: "AWS::IAM::ManagedPolicy"
+    Condition: ResourceCollectionPermissions
+    Properties:
+      ManagedPolicyName: !Sub
+        - "${IAMRoleName}-ManagedPolicy-2"
+        - { IAMRoleName: !Ref IAMRoleName }
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Resource: "*"
+            Action:
               - "docdb-elastic:ListClusterSnapshots"
               - "drs:DescribeJobs"
               - "drs:DescribeLaunchConfigurationTemplates"
@@ -717,21 +752,6 @@ Resources:
               - "ec2:GetVerifiedAccessGroupPolicy"
               - "eks:DescribeAccessEntry"
               - "eks:DescribeAddon"
-  DatadogIntegrationRoleManagedPolicy2:
-    Type: "AWS::IAM::ManagedPolicy"
-    Condition: ResourceCollectionPermissions
-    Properties:
-      ManagedPolicyName: !Sub
-        - "${IAMRoleName}-ManagedPolicy-2"
-        - { IAMRoleName: !Ref IAMRoleName }
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: "*"
-            Action:
               - "eks:DescribeIdentityProviderConfig"
               - "eks:DescribeInsight"
               - "eks:DescribePodIdentityAssociation"
@@ -748,6 +768,29 @@ Resources:
               - "emr-containers:ListManagedEndpoints"
               - "emr-containers:ListSecurityConfigurations"
               - "emr-containers:ListVirtualClusters"
+              - "frauddetector:DescribeDetector"
+              - "frauddetector:DescribeModelVersions"
+              - "frauddetector:GetBatchImportJobs"
+              - "frauddetector:GetBatchPredictionJobs"
+              - "frauddetector:GetDetectorVersion"
+              - "frauddetector:GetEntityTypes"
+              - "frauddetector:GetEventTypes"
+              - "frauddetector:GetExternalModels"
+              - "frauddetector:GetLabels"
+              - "frauddetector:GetListsMetadata"
+              - "frauddetector:GetModels"
+              - "frauddetector:GetOutcomes"
+              - "frauddetector:GetRules"
+              - "frauddetector:GetVariables"
+              - "gamelift:DescribeGameSessionQueues"
+              - "gamelift:DescribeMatchmakingConfigurations"
+              - "gamelift:DescribeMatchmakingRuleSets"
+              - "gamelift:ListAliases"
+              - "gamelift:ListContainerFleets"
+              - "gamelift:ListContainerGroupDefinitions"
+              - "gamelift:ListGameServerGroups"
+              - "gamelift:ListLocations"
+              - "gamelift:ListScripts"
               - "geo:DescribeGeofenceCollection"
               - "geo:DescribeKey"
               - "geo:DescribeMap"
@@ -762,10 +805,12 @@ Resources:
               - "glacier:GetVaultNotifications"
               - "glue:ListRegistries"
               - "grafana:DescribeWorkspace"
+              - "greengrass:GetBulkDeploymentStatus"
               - "greengrass:GetComponent"
               - "greengrass:GetConnectivityInfo"
               - "greengrass:GetCoreDevice"
               - "greengrass:GetDeployment"
+              - "greengrass:GetGroup"
               - "imagebuilder:GetContainerRecipe"
               - "imagebuilder:GetDistributionConfiguration"
               - "imagebuilder:GetImageRecipe"
@@ -781,6 +826,16 @@ Resources:
               - "imagebuilder:ListInfrastructureConfigurations"
               - "imagebuilder:ListLifecyclePolicies"
               - "imagebuilder:ListWorkflows"
+              - "iotfleetwise:GetCampaign"
+              - "iotfleetwise:GetSignalCatalog"
+              - "iotfleetwise:GetStateTemplate"
+              - "iotfleetwise:GetVehicle"
+              - "iotfleetwise:ListCampaigns"
+              - "iotfleetwise:ListDecoderManifests"
+              - "iotfleetwise:ListFleets"
+              - "iotfleetwise:ListSignalCatalogs"
+              - "iotfleetwise:ListStateTemplates"
+              - "iotfleetwise:ListVehicles"
               - "iotsitewise:DescribeAsset"
               - "iotsitewise:DescribeAssetModel"
               - "iotsitewise:DescribeDashboard"
@@ -835,6 +890,8 @@ Resources:
               - "ivschat:GetRoom"
               - "ivschat:ListLoggingConfigurations"
               - "ivschat:ListRooms"
+              - "lakeformation:GetDataLakeSettings"
+              - "lakeformation:ListPermissions"
               - "lambda:GetFunction"
               - "launchwizard:GetDeployment"
               - "launchwizard:ListDeployments"
@@ -857,6 +914,21 @@ Resources:
               - "managedblockchain:GetNetwork"
               - "managedblockchain:GetNode"
               - "managedblockchain:GetProposal"
+  DatadogIntegrationRoleManagedPolicy3:
+    Type: "AWS::IAM::ManagedPolicy"
+    Condition: ResourceCollectionPermissions
+    Properties:
+      ManagedPolicyName: !Sub
+        - "${IAMRoleName}-ManagedPolicy-3"
+        - { IAMRoleName: !Ref IAMRoleName }
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Resource: "*"
+            Action:
               - "managedblockchain:ListAccessors"
               - "managedblockchain:ListInvitations"
               - "managedblockchain:ListMembers"
@@ -911,21 +983,6 @@ Resources:
               - "network-firewall:ListTLSInspectionConfigurations"
               - "network-firewall:ListVpcEndpointAssociations"
               - "networkmanager:GetConnectPeer"
-  DatadogIntegrationRoleManagedPolicy3:
-    Type: "AWS::IAM::ManagedPolicy"
-    Condition: ResourceCollectionPermissions
-    Properties:
-      ManagedPolicyName: !Sub
-        - "${IAMRoleName}-ManagedPolicy-3"
-        - { IAMRoleName: !Ref IAMRoleName }
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: "*"
-            Action:
               - "networkmanager:GetConnections"
               - "networkmanager:GetCoreNetwork"
               - "networkmanager:GetDevices"
@@ -1016,6 +1073,10 @@ Resources:
               - "redshift-serverless:ListNamespaces"
               - "redshift-serverless:ListRecoveryPoints"
               - "redshift-serverless:ListSnapshots"
+              - "refactor-spaces:ListApplications"
+              - "refactor-spaces:ListEnvironments"
+              - "refactor-spaces:ListRoutes"
+              - "refactor-spaces:ListServices"
               - "resiliencehub:DescribeApp"
               - "resiliencehub:DescribeAppAssessment"
               - "resiliencehub:ListAppAssessments"
@@ -1038,6 +1099,21 @@ Resources:
               - "savingsplans:DescribeSavingsPlanRates"
               - "savingsplans:DescribeSavingsPlans"
               - "scheduler:GetSchedule"
+  DatadogIntegrationRoleManagedPolicy4:
+    Type: "AWS::IAM::ManagedPolicy"
+    Condition: ResourceCollectionPermissions
+    Properties:
+      ManagedPolicyName: !Sub
+        - "${IAMRoleName}-ManagedPolicy-4"
+        - { IAMRoleName: !Ref IAMRoleName }
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Resource: "*"
+            Action:
               - "scheduler:ListScheduleGroups"
               - "scheduler:ListSchedules"
               - "securitylake:ListDataLakes"
@@ -1103,21 +1179,6 @@ Resources:
               - "ssm-incidents:ListResponsePlans"
               - "ssm:GetMaintenanceWindow"
               - "ssm:GetOpsItem"
-  DatadogIntegrationRoleManagedPolicy4:
-    Type: "AWS::IAM::ManagedPolicy"
-    Condition: ResourceCollectionPermissions
-    Properties:
-      ManagedPolicyName: !Sub
-        - "${IAMRoleName}-ManagedPolicy-4"
-        - { IAMRoleName: !Ref IAMRoleName }
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: "*"
-            Action:
               - "ssm:GetPatchBaseline"
               - "states:ListActivities"
               - "states:ListExecutions"
@@ -1125,6 +1186,10 @@ Resources:
               - "states:ListStateMachineAliases"
               - "storagegateway:DescribeFileSystemAssociations"
               - "storagegateway:DescribeSMBFileShares"
+              - "textract:GetAdapter"
+              - "textract:GetAdapterVersion"
+              - "textract:ListAdapterVersions"
+              - "textract:ListAdapters"
               - "timestream:ListScheduledQueries"
               - "timestream:ListTables"
               - "transcribe:GetCallAnalyticsJob"
@@ -1171,6 +1236,23 @@ Resources:
               - "wafv2:GetRuleGroup"
               - "workmail:DescribeOrganization"
               - "workmail:ListOrganizations"
+              - "workspaces-web:GetBrowserSettings"
+              - "workspaces-web:GetDataProtectionSettings"
+              - "workspaces-web:GetIdentityProvider"
+              - "workspaces-web:GetIpAccessSettings"
+              - "workspaces-web:GetNetworkSettings"
+              - "workspaces-web:GetTrustStore"
+              - "workspaces-web:GetUserAccessLoggingSettings"
+              - "workspaces-web:GetUserSettings"
+              - "workspaces-web:ListBrowserSettings"
+              - "workspaces-web:ListDataProtectionSettings"
+              - "workspaces-web:ListIdentityProviders"
+              - "workspaces-web:ListIpAccessSettings"
+              - "workspaces-web:ListNetworkSettings"
+              - "workspaces-web:ListPortals"
+              - "workspaces-web:ListTrustStores"
+              - "workspaces-web:ListUserAccessLoggingSettings"
+              - "workspaces-web:ListUserSettings"
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
