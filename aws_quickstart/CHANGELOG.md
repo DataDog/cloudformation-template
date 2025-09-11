@@ -1,3 +1,7 @@
+## 4.1.2 (September 9, 2025)
+
+Add permission `redshift-serverless:GetSnapshot` to support extensive security audits for that service
+
 ## 4.1.1 (September 1, 2025)
 
 Add permissions to support resource collection for the following services:

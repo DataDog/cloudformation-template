@@ -772,6 +772,7 @@ Resources:
               - 'ram:GetResourceShareInvitations'
               - 'rbin:GetRule'
               - 'rbin:ListRules'
+              - 'redshift-serverless:GetSnapshot'
               - 'redshift-serverless:ListEndpointAccess'
               - 'redshift-serverless:ListManagedWorkgroups'
               - 'redshift-serverless:ListNamespaces'
