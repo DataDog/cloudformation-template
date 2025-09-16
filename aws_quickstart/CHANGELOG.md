@@ -1,3 +1,20 @@
+## 4.1.3 (September 16, 2025)
+
+Add support for more log sources for Log autosubscription. Preparing for the next release covering these services:
+
+- AppSync (CW)
+- Batch (CW)
+- CodeBuild (CW & S3)
+- Database Migration Service (CW)
+- DocDB (CW)
+- ECS (CW)
+- Route53 Resolver (CW & S3)
+- Verified Access (CW & S3)
+- VPC Flow logs (CW & S3)
+- VPN (CW)
+
+AWS updated the Security Audit policy. As a result, we're updating our sets of permissions for resource collection to match the ones already covered by that policy.
+
 ## 4.1.2 (September 9, 2025)
 
 Add permission `redshift-serverless:GetSnapshot` to support extensive security audits for that service

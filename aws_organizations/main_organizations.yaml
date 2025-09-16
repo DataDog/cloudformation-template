@@ -417,8 +417,10 @@ Resources:
                   - "airflow:GetEnvironment"
                   - "airflow:ListEnvironments"
                   - "apigateway:GET"
+                  - "appsync:ListGraphqlApis"
                   - "autoscaling:Describe*"
                   - "backup:List*"
+                  - "batch:DescribeJobDefinitions"
                   - "bcm-data-exports:GetExport"
                   - "bcm-data-exports:ListExports"
                   - "budgets:ViewBudget"
@@ -432,10 +434,13 @@ Resources:
                   - "cloudwatch:Describe*"
                   - "cloudwatch:Get*"
                   - "cloudwatch:List*"
+                  - "codebuild:BatchGetProjects"
+                  - "codebuild:ListProjects"
                   - "codedeploy:BatchGet*"
                   - "codedeploy:List*"
                   - "cur:DescribeReportDefinitions"
                   - "directconnect:Describe*"
+                  - "dms:DescribeReplicationInstances"
                   - "dynamodb:Describe*"
                   - "dynamodb:List*"
                   - "ec2:Describe*"
@@ -486,6 +491,7 @@ Resources:
                   - "redshift:DescribeLoggingStatus"
                   - "redshift-serverless:ListNamespaces"
                   - "route53:List*"
+                  - "route53resolver:ListResolverQueryLogConfigs"
                   - "s3:GetBucketLocation"
                   - "s3:GetBucketLogging"
                   - "s3:GetBucketNotification"
@@ -589,50 +595,20 @@ Resources:
               - "batch:ListSchedulingPolicies"
               - "bedrock:GetAgent"
               - "bedrock:GetAgentActionGroup"
-              - "bedrock:GetAgentAlias"
               - "bedrock:GetAsyncInvoke"
               - "bedrock:GetBlueprint"
               - "bedrock:GetDataSource"
               - "bedrock:GetEvaluationJob"
               - "bedrock:GetFlow"
-              - "bedrock:GetFlowAlias"
               - "bedrock:GetFlowVersion"
-              - "bedrock:GetFoundationModel"
               - "bedrock:GetGuardrail"
-              - "bedrock:GetImportedModel"
-              - "bedrock:GetInferenceProfile"
-              - "bedrock:GetIngestionJob"
               - "bedrock:GetKnowledgeBase"
-              - "bedrock:GetMarketplaceModelEndpoint"
-              - "bedrock:GetModelCopyJob"
-              - "bedrock:GetModelCustomizationJob"
               - "bedrock:GetModelInvocationJob"
               - "bedrock:GetPrompt"
-              - "bedrock:ListAgentActionGroups"
-              - "bedrock:ListAgentAliases"
               - "bedrock:ListAgentCollaborators"
-              - "bedrock:ListAgentVersions"
-              - "bedrock:ListAgents"
               - "bedrock:ListAsyncInvokes"
               - "bedrock:ListBlueprints"
-              - "bedrock:ListDataSources"
-              - "bedrock:ListEvaluationJobs"
-              - "bedrock:ListFlowAliases"
-              - "bedrock:ListFlows"
-              - "bedrock:ListFoundationModels"
-              - "bedrock:ListGuardrails"
-              - "bedrock:ListImportedModels"
-              - "bedrock:ListInferenceProfiles"
-              - "bedrock:ListIngestionJobs"
               - "bedrock:ListKnowledgeBaseDocuments"
-              - "bedrock:ListKnowledgeBases"
-              - "bedrock:ListMarketplaceModelEndpoints"
-              - "bedrock:ListModelCopyJobs"
-              - "bedrock:ListModelCustomizationJobs"
-              - "bedrock:ListModelInvocationJobs"
-              - "bedrock:ListPromptRouters"
-              - "bedrock:ListPrompts"
-              - "bedrock:ListProvisionedModelThroughputs"
               - "cassandra:Select"
               - "ce:DescribeCostCategoryDefinition"
               - "ce:GetAnomalyMonitors"
@@ -716,21 +692,6 @@ Resources:
               - "dlm:GetLifecyclePolicy"
               - "docdb-elastic:GetCluster"
               - "docdb-elastic:GetClusterSnapshot"
-  DatadogIntegrationRoleManagedPolicy2:
-    Type: "AWS::IAM::ManagedPolicy"
-    Condition: ResourceCollectionPermissions
-    Properties:
-      ManagedPolicyName: !Sub
-        - "${IAMRoleName}-ManagedPolicy-2"
-        - { IAMRoleName: !Ref IAMRoleName }
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: "*"
-            Action:
               - "docdb-elastic:ListClusterSnapshots"
               - "drs:DescribeJobs"
               - "drs:DescribeLaunchConfigurationTemplates"
@@ -760,6 +721,21 @@ Resources:
               - "eks:ListAddons"
               - "eks:ListAssociatedAccessPolicies"
               - "eks:ListEksAnywhereSubscriptions"
+  DatadogIntegrationRoleManagedPolicy2:
+    Type: "AWS::IAM::ManagedPolicy"
+    Condition: ResourceCollectionPermissions
+    Properties:
+      ManagedPolicyName: !Sub
+        - "${IAMRoleName}-ManagedPolicy-2"
+        - { IAMRoleName: !Ref IAMRoleName }
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Resource: "*"
+            Action:
               - "eks:ListIdentityProviderConfigs"
               - "eks:ListInsights"
               - "eks:ListPodIdentityAssociations"
@@ -914,21 +890,6 @@ Resources:
               - "managedblockchain:GetNetwork"
               - "managedblockchain:GetNode"
               - "managedblockchain:GetProposal"
-  DatadogIntegrationRoleManagedPolicy3:
-    Type: "AWS::IAM::ManagedPolicy"
-    Condition: ResourceCollectionPermissions
-    Properties:
-      ManagedPolicyName: !Sub
-        - "${IAMRoleName}-ManagedPolicy-3"
-        - { IAMRoleName: !Ref IAMRoleName }
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: "*"
-            Action:
               - "managedblockchain:ListAccessors"
               - "managedblockchain:ListInvitations"
               - "managedblockchain:ListMembers"
@@ -956,6 +917,21 @@ Resources:
               - "mediapackage:ListChannels"
               - "mediapackage:ListHarvestJobs"
               - "mediapackagev2:GetChannel"
+  DatadogIntegrationRoleManagedPolicy3:
+    Type: "AWS::IAM::ManagedPolicy"
+    Condition: ResourceCollectionPermissions
+    Properties:
+      ManagedPolicyName: !Sub
+        - "${IAMRoleName}-ManagedPolicy-3"
+        - { IAMRoleName: !Ref IAMRoleName }
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Resource: "*"
+            Action:
               - "mediapackagev2:GetChannelGroup"
               - "mediapackagev2:GetChannelPolicy"
               - "mediapackagev2:GetOriginEndpoint"
@@ -1100,21 +1076,6 @@ Resources:
               - "savingsplans:DescribeSavingsPlanRates"
               - "savingsplans:DescribeSavingsPlans"
               - "scheduler:GetSchedule"
-  DatadogIntegrationRoleManagedPolicy4:
-    Type: "AWS::IAM::ManagedPolicy"
-    Condition: ResourceCollectionPermissions
-    Properties:
-      ManagedPolicyName: !Sub
-        - "${IAMRoleName}-ManagedPolicy-4"
-        - { IAMRoleName: !Ref IAMRoleName }
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: "*"
-            Action:
               - "scheduler:ListScheduleGroups"
               - "scheduler:ListSchedules"
               - "securitylake:ListDataLakes"
@@ -1147,6 +1108,21 @@ Resources:
               - "ses:ListAddressLists"
               - "ses:ListArchives"
               - "ses:ListContactLists"
+  DatadogIntegrationRoleManagedPolicy4:
+    Type: "AWS::IAM::ManagedPolicy"
+    Condition: ResourceCollectionPermissions
+    Properties:
+      ManagedPolicyName: !Sub
+        - "${IAMRoleName}-ManagedPolicy-4"
+        - { IAMRoleName: !Ref IAMRoleName }
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Resource: "*"
+            Action:
               - "ses:ListCustomVerificationEmailTemplates"
               - "ses:ListIngressPoints"
               - "ses:ListMultiRegionEndpoints"
