@@ -25,6 +25,7 @@ Parameters:
       - ap1.datadoghq.com
       - ap2.datadoghq.com
       - ddog-gov.com
+      - datad0g.com
   IAMRoleName:
     Description: >-
       The name of the IAM role created for Datadog's use.
