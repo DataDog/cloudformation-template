@@ -62,6 +62,38 @@ Parameters:
       Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
+  ScannerInstanceRoleARN:
+    Type: CommaDelimitedList
+    Description: The ARNs of the Datadog Agentless Scanner roles authorized to scan this account. Leave empty to skip installing the delegate role.
+    Default: ""
+  AgentlessHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of host vulnerabilities.
+    Default: false
+  AgentlessContainerScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of container vulnerabilities.
+    Default: false
+  AgentlessLambdaScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of Lambda vulnerabilities.
+    Default: false
+  AgentlessSensitiveDataScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of datastores (S3 buckets).
+    Default: false
 Rules:
   ResourceCollectionValidState:
     Assertions:
@@ -96,6 +128,19 @@ Conditions:
     Fn::Equals:
       - !Ref AWS::Partition
       - aws-us-gov
+  IsAgentlessScanningEnabled:
+    Fn::Or:
+      - Fn::Equals: [!Ref AgentlessHostScanning, true]
+      - Fn::Equals: [!Ref AgentlessContainerScanning, true]
+      - Fn::Equals: [!Ref AgentlessLambdaScanning, true]
+      - Fn::Equals: [!Ref AgentlessSensitiveDataScanning, true]
+  IsAgentlessDelegateRequested:
+    Fn::And:
+      - Fn::Not:
+          - Fn::Equals:
+              - !Join ["", !Ref "ScannerInstanceRoleARN"]
+              - ""
+      - !Ref IsAgentlessScanningEnabled
 
 Resources:
   DatadogAPIHandlerLambdaExecutionRole:
@@ -361,6 +406,21 @@ Resources:
               raise TimeoutError("Lambda function timeout exceeded - increase the timeout set in the api_call Cloudformation template.")
 
           signal.signal(signal.SIGALRM, timeout_handler)
+  AgentlessDelegateRoleStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: IsAgentlessDelegateRequested
+    Properties:
+      TemplateURL: 'https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agentless_delegate_role.yaml'
+      Parameters:
+        DatadogAPIKey: !Ref DatadogApiKey
+        DatadogAPPKey: !Ref DatadogAppKey
+        DatadogSite: !Ref DatadogSite
+        AccountId: !Ref AWS::AccountId
+        AgentlessHostScanning: !Ref AgentlessHostScanning
+        AgentlessContainerScanning: !Ref AgentlessContainerScanning
+        AgentlessLambdaScanning: !Ref AgentlessLambdaScanning
+        AgentlessSensitiveDataScanning: !Ref AgentlessSensitiveDataScanning
+        ScannerInstanceRoleARN: !Join [",", !Ref "ScannerInstanceRoleARN"]
   DatadogIntegrationRole:
     Type: "AWS::IAM::Role"
     Metadata:
@@ -1240,12 +1300,17 @@ Metadata:
           - DatadogAppKey
           - DatadogSite
           - CloudSecurityPostureManagement
+          - AgentlessHostScanning
+          - AgentlessContainerScanning
+          - AgentlessLambdaScanning
+          - AgentlessSensitiveDataScanning
       - Label:
           default: "Advanced"
         Parameters:
           - IAMRoleName
           - DisableMetricCollection
           - DisableResourceCollection
+          - ScannerInstanceRoleARN
     ParameterLabels:
       DatadogApiKey:
         default: "DatadogApiKey *"
