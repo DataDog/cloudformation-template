@@ -66,26 +66,12 @@ Parameters:
     Type: CommaDelimitedList
     Description: The ARNs of the Datadog Agentless Scanner roles authorized to scan this account. Leave empty to skip installing the delegate role.
     Default: ""
-  AgentlessHostScanning:
+  AgentlessScanning:
     Type: String
     AllowedValues:
       - true
       - false
-    Description: Enable Agentless Scanning of host vulnerabilities.
-    Default: false
-  AgentlessContainerScanning:
-    Type: String
-    AllowedValues:
-      - true
-      - false
-    Description: Enable Agentless Scanning of container vulnerabilities.
-    Default: false
-  AgentlessLambdaScanning:
-    Type: String
-    AllowedValues:
-      - true
-      - false
-    Description: Enable Agentless Scanning of Lambda vulnerabilities.
+    Description: Enable Agentless Scanning of host, container, and Lambda vulnerabilities.
     Default: false
   AgentlessSensitiveDataScanning:
     Type: String
@@ -130,9 +116,7 @@ Conditions:
       - aws-us-gov
   IsAgentlessScanningEnabled:
     Fn::Or:
-      - Fn::Equals: [!Ref AgentlessHostScanning, true]
-      - Fn::Equals: [!Ref AgentlessContainerScanning, true]
-      - Fn::Equals: [!Ref AgentlessLambdaScanning, true]
+      - Fn::Equals: [!Ref AgentlessScanning, true]
       - Fn::Equals: [!Ref AgentlessSensitiveDataScanning, true]
   IsAgentlessDelegateRequested:
     Fn::And:
@@ -410,15 +394,15 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Condition: IsAgentlessDelegateRequested
     Properties:
-      TemplateURL: 'https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agentless_delegate_role.yaml'
+      TemplateURL: 'https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/v4.1.3/datadog_agentless_scanning.yaml'
       Parameters:
         DatadogAPIKey: !Ref DatadogApiKey
         DatadogAPPKey: !Ref DatadogAppKey
         DatadogSite: !Ref DatadogSite
         AccountId: !Ref AWS::AccountId
-        AgentlessHostScanning: !Ref AgentlessHostScanning
-        AgentlessContainerScanning: !Ref AgentlessContainerScanning
-        AgentlessLambdaScanning: !Ref AgentlessLambdaScanning
+        AgentlessHostScanning: !Ref AgentlessScanning
+        AgentlessContainerScanning: !Ref AgentlessScanning
+        AgentlessLambdaScanning: !Ref AgentlessScanning
         AgentlessSensitiveDataScanning: !Ref AgentlessSensitiveDataScanning
         ScannerInstanceRoleARN: !Join [",", !Ref "ScannerInstanceRoleARN"]
   DatadogIntegrationRole:
@@ -1300,9 +1284,7 @@ Metadata:
           - DatadogAppKey
           - DatadogSite
           - CloudSecurityPostureManagement
-          - AgentlessHostScanning
-          - AgentlessContainerScanning
-          - AgentlessLambdaScanning
+          - AgentlessScanning
           - AgentlessSensitiveDataScanning
       - Label:
           default: "Advanced"
