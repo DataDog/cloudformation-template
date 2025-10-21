@@ -9,7 +9,7 @@ The Datadog Cloudformation StackSet performs the following steps:
 - Deploys the Datadog AWS integration CloudFormation StackSet template in the root account of an AWS Organization or Organization Unit.
 - Automatically creates the necessary IAM role and policies in the target accounts.
 - Automatically initiates ingestion of AWS CloudWatch metrics and events from the AWS resources in the accounts.
-- Optionally configures Datadog Cloud Security Management to monitor resource misconfigurations in your AWS accounts.
+- Optionally configures Datadog Cloud Security Management to monitor resource misconfigurations and vulnerabilities in your AWS accounts.
 
 ## Prerequisites
 
@@ -29,6 +29,7 @@ Before getting started, ensure you have the following prerequisites:
 5. Under Specify template, paste the template URL from Step 2 and click Next.
 6. Name your StackSet and fill in the API and APP keys you selected in Step 2.
    1. Optionally, enable Cloud Security Posture Management (CSPM) to scan your cloud environment, hosts, and containers for misconfigurations and security risks.
+   2. Optionally, enable Vulnerability Management via Agentless scanning to scan your cloud resources (hosts, containers, ECR images, lambda functions...) for vulnerabilities.
 7. In Step 3 of the StackSet template, choose to either deploy the Datadog integration across an Organization or a specific Organizational Unit.
 8. Keep Automatic deployment enabled in order to automatically deploy the Datadog AWS Integration in new accounts that are added to the Organization or OU.
 9. Select which regions in which you’d like to deploy the integration. Note that you can modify regions to monitor from the Datadog AWS configuration page after deploying the stack.
