@@ -92,6 +92,7 @@ Resources:
                 Resource: 
                   - !Sub arn:aws:iam::${AWS::AccountId}:role/${IAMRoleName}
                   - !Sub arn:aws:iam::${AWS::AccountId}:policy/datadog-aws-integration-iam-permissions-*
+                  - !Sub arn:aws:iam::${AWS::AccountId}:policy/${IAMRoleName}-ManagedPolicy-*
                   - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
   DatadogAttachIntegrationPermissionsFunction:
     Type: AWS::Lambda::Function
