@@ -417,16 +417,15 @@ Resources:
                   handle_delete(event, context, role_name, account_id, BASE_POLICY_PREFIX)
               else:
                   handle_create_update(event, context, role_name, account_id, BASE_POLICY_PREFIX)
-
-            DatadogAttachIntegrationPermissionsFunctionTrigger:
-              Type: Custom::DatadogAttachIntegrationPermissionsFunctionTrigger
-              Condition: ShouldInstallSecurityAuditPolicy
-              Properties:
-                ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
-                DatadogIntegrationRole: !Ref IAMRoleName
-                AccountId: !Ref AWS::AccountId
-                Partition: !Ref AWS::Partition
-                ResourceCollectionPermissions: !Ref ResourceCollectionPermissions
+  DatadogAttachIntegrationPermissionsFunctionTrigger:
+    Type: Custom::DatadogAttachIntegrationPermissionsFunctionTrigger
+    Condition: ShouldInstallSecurityAuditPolicy
+    Properties:
+      ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
+      DatadogIntegrationRole: !Ref IAMRoleName
+      AccountId: !Ref AWS::AccountId
+      Partition: !Ref AWS::Partition
+      ResourceCollectionPermissions: !Ref ResourceCollectionPermissions
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
