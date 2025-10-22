@@ -241,7 +241,7 @@ def handle_create_update(event, context, role_name, account_id, base_policy_name
     try:
         iam_client = boto3.client('iam')
         cleanup_existing_policies(iam_client, role_name, account_id, base_policy_name)
-        attach_standard_permissions(iam_client)
+        attach_standard_permissions(iam_client, role_name)
         attach_resource_collection_permissions(iam_client)
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
