@@ -286,7 +286,7 @@ Resources:
               iam_client.put_role_policy(
                   RoleName=role_name,
                   PolicyName=policy_name,
-                  PolicyDOcument=json.dumps(policy_document, separators=(',', ':'))
+                  PolicyDocument=json.dumps(policy_document, separators=(',', ':'))
               )
               
 
