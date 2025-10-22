@@ -1,3 +1,24 @@
+# 4.1.4 (October 22, 2025)
+
+Add permissions to support resource collection for the following services:
+
+- AWS AppConfig
+- Amazon AppFlow
+- Amazon CloudWatch Application Signals
+- AWS Billing Conductor
+- AWS Clean Rooms
+- AWS Fault Ingestion Service
+- Amazon Kendra
+- AWS License Manager
+- AWS Elemental Mediaconvert
+- AWS Elemental Mediatailor
+- AWS Health Omics
+- AWS Identity and Access Management Roles Anywhere
+- Amazon Route 53 Profiles
+- AWS Serverless Application Repository
+- AWS Well-Architected Tool
+- Amazon Q in Connect (wisdom)
+
 ## 4.1.3 (September 16, 2025)
 
 Add support for more log sources for Log autosubscription. Preparing for the next release covering these services:
