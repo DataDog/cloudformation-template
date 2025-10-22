@@ -11,6 +11,8 @@ LOGGER.setLevel(logging.INFO)
 API_CALL_SOURCE_HEADER_VALUE = "cfn-iam-permissions"
 MAX_POLICY_SIZE = 6144  # Maximum characters for AWS managed policy document
 BASE_POLICY_PREFIX = "datadog-aws-integration-iam-permissions"
+STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
+RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection"
 
 class DatadogAPIError(Exception):
     pass
@@ -76,9 +78,9 @@ def create_smart_chunks(permissions):
     
     return chunks
 
-def fetch_permissions_from_datadog():
+def fetch_permissions_from_datadog(api_url):
     """Fetch permissions from Datadog API."""
-    api_url = f"https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
+    # api_url = f"https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
     headers = {
         "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
     }
@@ -150,6 +152,80 @@ def cleanup_existing_policies(iam_client, role_name, account_id, base_policy_nam
         except Exception as e:
             LOGGER.error(f"Error deleting old policy {old_policy_name}: {str(e)}")
 
+def attach_standard_permissions(iam_client, role_name):
+    # Fetch permissions
+    permissions = fetch_permissions_from_datadog(STANDARD_PERMISSIONS_API_URL)
+    # policy_name = f"{BASE_POLICY_PREFIX}-part{i+1}"
+    policy_name = "DatadogAWSIntegrationPolicy"
+    policy_document = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": permissions,
+                "Resource": "*"
+            }
+        ]
+    }
+
+    # policy = iam_client.create_policy(
+    #     PolicyName=policy_name,
+    #     PolicyDocument=json.dumps(policy_document, separators=(',', ':'))
+    # )
+    # Attach policy to role
+    iam_client.put_role_policy(
+        RoleName=role_name,
+        PolicyName=policy_name,
+        PolicyDOcument=json.dumps(policy_document, separators=(',', ':'))
+    )
+    
+
+def attach_resource_collection_permissions(iam_client):
+    # Fetch and smart chunk permissions based on character limits
+    permissions = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
+    permission_chunks = create_smart_chunks(permissions)
+    
+    LOGGER.info(f"Created {len(permission_chunks)} policy chunks from {len(permissions)} permissions")
+    
+    # Clean up existing policies
+    iam_client = boto3.client('iam')
+    # cleanup_existing_policies(iam_client, role_name, account_id, base_policy_name)
+
+    # Create and attach new policies
+    for i, chunk in enumerate(permission_chunks):
+        # Create policy
+        policy_name = f"{BASE_POLICY_PREFIX}-part{i+1}"
+        policy_document = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": chunk,
+                    "Resource": "*"
+                }
+            ]
+        }
+        
+        # Verify policy size before creating
+        policy_json = json.dumps(policy_document, separators=(',', ':'))
+        policy_size = len(policy_json)
+        LOGGER.info(f"Creating policy {policy_name} with {len(chunk)} permissions ({policy_size} characters)")
+        
+        if policy_size > MAX_POLICY_SIZE:
+            LOGGER.error(f"Policy {policy_name} exceeds size limit: {policy_size} > {MAX_POLICY_SIZE}")
+            raise Exception(f"Policy size exceeds AWS limit: {policy_size} > {MAX_POLICY_SIZE}")
+        
+        policy = iam_client.create_policy(
+            PolicyName=policy_name,
+            PolicyDocument=policy_json
+        )
+        
+        # Attach policy to role
+        iam_client.attach_role_policy(
+            RoleName=role_name,
+            PolicyArn=policy['Policy']['Arn']
+        )
+
 def handle_delete(event, context, role_name, account_id, base_policy_name):
     """Handle stack deletion."""
     iam_client = boto3.client('iam')
@@ -163,64 +239,64 @@ def handle_delete(event, context, role_name, account_id, base_policy_name):
 def handle_create_update(event, context, role_name, account_id, base_policy_name):
     """Handle stack creation or update."""
     try:
-        # Fetch and smart chunk permissions based on character limits
-        permissions = fetch_permissions_from_datadog()
-        permission_chunks = create_smart_chunks(permissions)
-        
-        LOGGER.info(f"Created {len(permission_chunks)} policy chunks from {len(permissions)} permissions")
-        
-        # Clean up existing policies
         iam_client = boto3.client('iam')
         cleanup_existing_policies(iam_client, role_name, account_id, base_policy_name)
-
-        # Create and attach new policies
-        for i, chunk in enumerate(permission_chunks):
-            # Create policy
-            policy_name = f"{BASE_POLICY_PREFIX}-part{i+1}"
-            policy_document = {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Effect": "Allow",
-                        "Action": chunk,
-                        "Resource": "*"
-                    }
-                ]
-            }
-            
-            # Verify policy size before creating
-            policy_json = json.dumps(policy_document, separators=(',', ':'))
-            policy_size = len(policy_json)
-            LOGGER.info(f"Creating policy {policy_name} with {len(chunk)} permissions ({policy_size} characters)")
-            
-            if policy_size > MAX_POLICY_SIZE:
-                LOGGER.error(f"Policy {policy_name} exceeds size limit: {policy_size} > {MAX_POLICY_SIZE}")
-                raise Exception(f"Policy size exceeds AWS limit: {policy_size} > {MAX_POLICY_SIZE}")
-            
-            policy = iam_client.create_policy(
-                PolicyName=policy_name,
-                PolicyDocument=policy_json
-            )
-            
-            # Attach policy to role
-            iam_client.attach_role_policy(
-                RoleName=role_name,
-                PolicyArn=policy['Policy']['Arn']
-            )
-
-        # probably not needed########################################################
-        # # Attach the SecurityAudit policy if ResourceCollectionPermissions is enabled
-        # if event["ResourceProperties"].get("ResourceCollectionPermissions", "false") == "true":
-        #     iam_client.attach_role_policy(
-        #         RoleName=role_name,
-        #         PolicyArn="arn:{partition}:iam::aws:policy/SecurityAudit".format(partition=event["ResourceProperties"]["Partition"])
-        #     )
-        #########################################################
-        
+        attach_standard_permissions(iam_client)
+        attach_resource_collection_permissions(iam_client)
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
         LOGGER.error(f"Error creating/attaching policy: {str(e)}")
         cfnresponse.send(event, context, cfnresponse.FAILED, responseData={"Message": str(e)})
+    # try:
+    #     # Fetch and smart chunk permissions based on character limits
+    #     permissions = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
+    #     permission_chunks = create_smart_chunks(permissions)
+        
+    #     LOGGER.info(f"Created {len(permission_chunks)} policy chunks from {len(permissions)} permissions")
+        
+    #     # Clean up existing policies
+    #     iam_client = boto3.client('iam')
+    #     cleanup_existing_policies(iam_client, role_name, account_id, base_policy_name)
+
+    #     # Create and attach new policies
+    #     for i, chunk in enumerate(permission_chunks):
+    #         # Create policy
+    #         policy_name = f"{BASE_POLICY_PREFIX}-part{i+1}"
+    #         policy_document = {
+    #             "Version": "2012-10-17",
+    #             "Statement": [
+    #                 {
+    #                     "Effect": "Allow",
+    #                     "Action": chunk,
+    #                     "Resource": "*"
+    #                 }
+    #             ]
+    #         }
+            
+    #         # Verify policy size before creating
+    #         policy_json = json.dumps(policy_document, separators=(',', ':'))
+    #         policy_size = len(policy_json)
+    #         LOGGER.info(f"Creating policy {policy_name} with {len(chunk)} permissions ({policy_size} characters)")
+            
+    #         if policy_size > MAX_POLICY_SIZE:
+    #             LOGGER.error(f"Policy {policy_name} exceeds size limit: {policy_size} > {MAX_POLICY_SIZE}")
+    #             raise Exception(f"Policy size exceeds AWS limit: {policy_size} > {MAX_POLICY_SIZE}")
+            
+    #         policy = iam_client.create_policy(
+    #             PolicyName=policy_name,
+    #             PolicyDocument=policy_json
+    #         )
+            
+    #         # Attach policy to role
+    #         iam_client.attach_role_policy(
+    #             RoleName=role_name,
+    #             PolicyArn=policy['Policy']['Arn']
+    #         )
+        
+    #     cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
+    # except Exception as e:
+    #     LOGGER.error(f"Error creating/attaching policy: {str(e)}")
+    #     cfnresponse.send(event, context, cfnresponse.FAILED, responseData={"Message": str(e)})
 
 def handler(event, context):
     LOGGER.info("Event received: %s", json.dumps(event))
