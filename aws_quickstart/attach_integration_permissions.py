@@ -176,11 +176,11 @@ def attach_standard_permissions(iam_client, role_name):
     iam_client.put_role_policy(
         RoleName=role_name,
         PolicyName=policy_name,
-        PolicyDOcument=json.dumps(policy_document, separators=(',', ':'))
+        PolicyDocument=json.dumps(policy_document, separators=(',', ':'))
     )
     
 
-def attach_resource_collection_permissions(iam_client):
+def attach_resource_collection_permissions(iam_client, role_name):
     # Fetch and smart chunk permissions based on character limits
     permissions = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
     permission_chunks = create_smart_chunks(permissions)
@@ -242,7 +242,7 @@ def handle_create_update(event, context, role_name, account_id, base_policy_name
         iam_client = boto3.client('iam')
         cleanup_existing_policies(iam_client, role_name, account_id, base_policy_name)
         attach_standard_permissions(iam_client, role_name)
-        attach_resource_collection_permissions(iam_client)
+        attach_resource_collection_permissions(iam_client, role_name)
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
         LOGGER.error(f"Error creating/attaching policy: {str(e)}")
