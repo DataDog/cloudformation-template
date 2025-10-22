@@ -89,6 +89,7 @@ Resources:
                   - iam:DeletePolicy
                   - iam:AttachRolePolicy
                   - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
                 Resource: 
                   - !Sub arn:aws:iam::${AWS::AccountId}:role/${IAMRoleName}
                   - !Sub arn:aws:iam::${AWS::AccountId}:policy/datadog-aws-integration-iam-permissions-*
