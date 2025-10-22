@@ -244,7 +244,6 @@ Resources:
               """Create chunks based on character limit rather than permission count."""
               chunks = []
               current_chunk = []
-              current_size = 0
               
               # Base policy structure size (without permissions)
               base_policy = {
@@ -337,7 +336,7 @@ Resources:
                       iam_client.delete_policy(
                           PolicyArn=policy_arn
                       )
-                  except iam_client.exceptions.NoSuchEntityException:
+                  except (iam_client.exceptions.NoSuchEntityException, iam_client.exceptions.DeleteConflictException):
                       # Policy to delete doesn't exist
                       pass
                   except Exception as e:
@@ -366,7 +365,7 @@ Resources:
                           PolicyArn=old_policy_arn
                       )
                       LOGGER.info(f"Deleted old policy: {old_policy_name}")
-                  except iam_client.exceptions.NoSuchEntityException:
+                  except (iam_client.exceptions.NoSuchEntityException, iam_client.exceptions.DeleteConflictException):
                       # Policy to delete doesn't exist
                       pass
                   except Exception as e:
@@ -430,13 +429,14 @@ Resources:
                           PolicyArn=policy['Policy']['Arn']
                       )
 
-                  # Attach the SecurityAudit policy if ResourceCollectionPermissions is enabled
-                  #if event["ResourceProperties"].get("ResourceCollectionPermissions", "false") == "true":
-                  #    iam_client.attach_role_policy(
-                  #        RoleName=role_name,
-                  #        PolicyArn="arn:{partition}:iam::aws:policy/SecurityAudit".format(partition=event["ResourceProperties"]["Partition"])
-                  #    )
-                  #
+                  # probably not needed########################################################
+                  # # Attach the SecurityAudit policy if ResourceCollectionPermissions is enabled
+                  # if event["ResourceProperties"].get("ResourceCollectionPermissions", "false") == "true":
+                  #     iam_client.attach_role_policy(
+                  #         RoleName=role_name,
+                  #         PolicyArn="arn:{partition}:iam::aws:policy/SecurityAudit".format(partition=event["ResourceProperties"]["Partition"])
+                  #     )
+                  #########################################################
                   
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
               except Exception as e:
