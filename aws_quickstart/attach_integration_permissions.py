@@ -23,7 +23,7 @@ def create_chunks(permissions):
     current_chunk = []
     
     for permission in permissions:
-        # Calculate size if we add this permission
+        # Determine policy size if we add this permission
         next_chunk = current_chunk + [permission]
         policy = {
             "Version": "2012-10-17",
@@ -77,7 +77,6 @@ def cleanup_existing_policies(iam_client, role_name, account_id, max_policies=10
                 PolicyArn=policy_arn
             )
         except iam_client.exceptions.NoSuchEntityException:
-            # Policy to detach doesn't exist
             pass
         except Exception as e:
             LOGGER.error(f"Error detaching policy {policy_name}: {str(e)}")
@@ -86,11 +85,14 @@ def cleanup_existing_policies(iam_client, role_name, account_id, max_policies=10
             iam_client.delete_policy(
                 PolicyArn=policy_arn
             )
-        except (iam_client.exceptions.NoSuchEntityException, iam_client.exceptions.DeleteConflictException):
-            # Policy to delete doesn't exist
+            iam_client.delete_role_policy(
+                RoleName=role_name,
+                PolicyName=POLICY_NAME_STANDARD
+            )
+        except iam_client.exceptions.NoSuchEntityException:
             pass
         except Exception as e:
-            LOGGER.error(f"Error deleting policy {policy_name}: {str(e)}")
+            LOGGER.error(f"Error deleting policy: {str(e)}")
     
 def attach_standard_permissions(iam_client, role_name):
     permissions = fetch_permissions_from_datadog(STANDARD_PERMISSIONS_API_URL)
@@ -111,9 +113,7 @@ def attach_standard_permissions(iam_client, role_name):
         PolicyDocument=json.dumps(policy_document, separators=(',', ':'))
     )
     
-
 def attach_resource_collection_permissions(iam_client, role_name):
-    # Fetch and smart chunk permissions based on character limits
     permissions = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
     permission_chunks = create_chunks(permissions)
     
