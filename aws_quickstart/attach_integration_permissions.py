@@ -122,7 +122,7 @@ def attach_resource_collection_permissions(iam_client, role_name):
     # Create and attach new policies
     for i, chunk in enumerate(permission_chunks):
         # Create policy
-        policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-part{i+1}"
+        policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{i+1}"
         policy_document = {
             "Version": "2012-10-17",
             "Statement": [
