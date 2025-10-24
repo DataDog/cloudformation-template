@@ -69,7 +69,7 @@ def fetch_permissions_from_datadog(api_url):
 def cleanup_existing_policies(iam_client, role_name, account_id, max_policies=10):
     """Clean up existing policies"""
     for i in range(max_policies):
-        policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-part{i+1}"
+        policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{i+1}"
         policy_arn = f"arn:aws:iam::{account_id}:policy/{policy_name}"
         try:
             iam_client.detach_role_policy(
