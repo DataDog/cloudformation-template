@@ -74,7 +74,7 @@ Parameters:
     AllowedValues:
       - true
       - false
-    Description: Enable Agentless Scanning of datastores (S3 buckets).
+    Description: Enable Agentless Scanning of datastores (S3 buckets). Requires ScannerInstanceRoleARN to be provided.
     Default: false
 Rules:
   ResourceCollectionValidState:
