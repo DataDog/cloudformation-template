@@ -1,3 +1,8 @@
+# 4.2.4 (October 24, 2025)
+
+- Remove enumerated IAM permissions
+- Add Lambda function to attach IAM permissions
+
 # 4.1.4 (October 22, 2025)
 
 Add permissions to support resource collection for the following services:
