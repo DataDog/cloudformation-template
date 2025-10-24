@@ -175,7 +175,7 @@ def handler(event, context):
     
     role_name = event['ResourceProperties']['DatadogIntegrationRole']
     account_id = event['ResourceProperties']['AccountId']
-    should_install_security_audit_policy = event['ResourceProperties']['ShouldInstallSecurityAuditPolicy']
+    should_install_security_audit_policy = str(event['ResourceProperties']['ResourceCollectionPermissions']).lower() == 'true'
     
     if event['RequestType'] == 'Delete':
         handle_delete(event, context, role_name, account_id)
