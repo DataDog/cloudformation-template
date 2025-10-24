@@ -85,6 +85,7 @@ Resources:
                 Action:
                   - iam:CreatePolicy
                   - iam:DeletePolicy
+                  - iam:DeleteRolePolicy
                   - iam:AttachRolePolicy
                   - iam:DetachRolePolicy
                   - iam:PutRolePolicy
