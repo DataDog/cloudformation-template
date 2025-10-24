@@ -61,10 +61,8 @@ Resources:
           [!Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"],
           !Ref AWS::NoValue,
         ]
-  # Lambda function to dynamically attach permissions from DataDog API
   DatadogAttachIntegrationPermissionsLambdaExecutionRole:
     Type: AWS::IAM::Role
-    # Condition: ShouldInstallSecurityAuditPolicy
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -96,7 +94,6 @@ Resources:
                   - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
   DatadogAttachIntegrationPermissionsFunction:
     Type: AWS::Lambda::Function
-    Condition: ShouldInstallSecurityAuditPolicy
     Properties:
       Description: "A function to attach Datadog AWS integration permissions to an IAM role."
       Role: !GetAtt DatadogAttachIntegrationPermissionsLambdaExecutionRole.Arn
@@ -267,13 +264,14 @@ Resources:
                   LOGGER.error(f"Error deleting policy: {str(e)}")
                   cfnresponse.send(event, context, cfnresponse.FAILED, responseData={"Message": str(e)})
 
-          def handle_create_update(event, context, role_name, account_id):
+          def handle_create_update(event, context, role_name, account_id, should_install_security_audit_policy):
               """Handle stack creation or update."""
               try:
                   iam_client = boto3.client('iam')
                   cleanup_existing_policies(iam_client, role_name, account_id)
                   attach_standard_permissions(iam_client, role_name)
-                  attach_resource_collection_permissions(iam_client, role_name)
+                  if should_install_security_audit_policy:
+                      attach_resource_collection_permissions(iam_client, role_name)
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
               except Exception as e:
                   LOGGER.error(f"Error creating/attaching policy: {str(e)}")
@@ -284,18 +282,19 @@ Resources:
               
               role_name = event['ResourceProperties']['DatadogIntegrationRole']
               account_id = event['ResourceProperties']['AccountId']
+              should_install_security_audit_policy = event['ResourceProperties']['ShouldInstallSecurityAuditPolicy']
               
               if event['RequestType'] == 'Delete':
                   handle_delete(event, context, role_name, account_id)
               else:
-                  handle_create_update(event, context, role_name, account_id)
+                  handle_create_update(event, context, role_name, account_id, should_install_security_audit_policy)
   DatadogAttachIntegrationPermissionsFunctionTrigger:
     Type: Custom::DatadogAttachIntegrationPermissionsFunctionTrigger
-    Condition: ShouldInstallSecurityAuditPolicy
     Properties:
       ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
       DatadogIntegrationRole: !Ref IAMRoleName
       AccountId: !Ref AWS::AccountId
+      ShouldInstallSecurityAuditPolicy: !Ref ShouldInstallSecurityAuditPolicy
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:

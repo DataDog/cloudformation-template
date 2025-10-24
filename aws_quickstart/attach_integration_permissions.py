@@ -133,12 +133,9 @@ def attach_resource_collection_permissions(iam_client, role_name):
                 }
             ]
         }
-        
-        # Verify policy size before creating
         policy_json = json.dumps(policy_document, separators=(',', ':'))
         policy_size = len(policy_json)
         LOGGER.info(f"Creating policy {policy_name} with {len(chunk)} permissions ({policy_size} characters)")
-        
         policy = iam_client.create_policy(
             PolicyName=policy_name,
             PolicyDocument=policy_json
@@ -160,13 +157,14 @@ def handle_delete(event, context, role_name, account_id):
         LOGGER.error(f"Error deleting policy: {str(e)}")
         cfnresponse.send(event, context, cfnresponse.FAILED, responseData={"Message": str(e)})
 
-def handle_create_update(event, context, role_name, account_id):
+def handle_create_update(event, context, role_name, account_id, should_install_security_audit_policy):
     """Handle stack creation or update."""
     try:
         iam_client = boto3.client('iam')
         cleanup_existing_policies(iam_client, role_name, account_id)
         attach_standard_permissions(iam_client, role_name)
-        attach_resource_collection_permissions(iam_client, role_name)
+        if should_install_security_audit_policy:
+            attach_resource_collection_permissions(iam_client, role_name)
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
         LOGGER.error(f"Error creating/attaching policy: {str(e)}")
@@ -177,8 +175,9 @@ def handler(event, context):
     
     role_name = event['ResourceProperties']['DatadogIntegrationRole']
     account_id = event['ResourceProperties']['AccountId']
+    should_install_security_audit_policy = event['ResourceProperties']['ShouldInstallSecurityAuditPolicy']
     
     if event['RequestType'] == 'Delete':
         handle_delete(event, context, role_name, account_id)
     else:
-        handle_create_update(event, context, role_name, account_id)
+        handle_create_update(event, context, role_name, account_id, should_install_security_audit_policy)
