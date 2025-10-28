@@ -1,3 +1,10 @@
+# 4.1.5 (October 27, 2025)
+
+Add permissions to support AWS Batch integration:
+
+- `batch:DescribeJobs`
+- `batch:ListJobs`
+
 # 4.1.4 (October 22, 2025)
 
 Add permissions to support resource collection for the following services:
