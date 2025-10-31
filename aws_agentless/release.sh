@@ -18,7 +18,7 @@ VERSION=$(head -n 1 version.txt)
 # Update the pinned version in aws_quickstart/main_extended.yaml
 MAIN_EXTENDED_PATH="../aws_quickstart/main_extended.yaml"
 if [ -f "$MAIN_EXTENDED_PATH" ]; then
-    echo "⚠️  WARNING: Updating pinned agentless version in aws_quickstart/main_extended.yaml to ${VERSION}"
+    echo "⚠️  Checking if we need to update pinned agentless version in aws_quickstart/main_extended.yaml to ${VERSION}"
     # Check if the version is already set in main_extended.yaml
     if grep -q "aws_agentless/${VERSION}/" "$MAIN_EXTENDED_PATH"; then
         echo "✓ Version ${VERSION} is already pinned in main_extended.yaml"
