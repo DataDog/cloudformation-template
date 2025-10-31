@@ -55,28 +55,8 @@ cp main_extended.yaml main_extended.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_extended.yaml
 perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_extended.yaml
 
-# Process Agentless Scanning templates
-for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml; do
-    # Note: unlike above, here we remove the 'v' prefix from the version
-    perl -i.bak -pe "s/<VERSION_PLACEHOLDER>/${VERSION#v}/g" "$template"
-
-    # Replace ZIPFILE_PLACEHOLDER with the contents of the Python file
-    perl -i -pe '
-        # Read the Python script from stdin
-        BEGIN { $p = do { local $/; <STDIN> } }
-        # Find the placeholder and capture its indentation
-        /^(\s+)<ZIPFILE_PLACEHOLDER>/ && (
-            # Replace with the Python script, preserving the indentation
-            $_ = join("\n", map { $1 . $_ } split(/\n/, $p)) . "\n"
-        )
-    ' "$template" < datadog_agentless_api_call.py
-done
-
 trap 'mv main_v2.yaml.bak main_v2.yaml;
       mv main_extended.yaml.bak main_extended.yaml;
-      mv datadog_agentless_scanning.yaml.bak datadog_agentless_scanning.yaml;
-      mv datadog_agentless_delegate_role.yaml.bak datadog_agentless_delegate_role.yaml;
-      mv datadog_agentless_delegate_role_snapshot.yaml.bak datadog_agentless_delegate_role_snapshot.yaml;
 ' EXIT
 
 # Upload

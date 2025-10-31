@@ -44,3 +44,4 @@ Resources:
                 'aws:TagKeys': DatadogAgentlessScanner*
               StringEquals:
                 'aws:RequestTag/DatadogAgentlessScanner': 'true'
+
