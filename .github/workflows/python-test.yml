@@ -19,5 +19,5 @@ jobs:
           python-version: "3.13"
       - name: Run Agentless API Call unit tests
         run: |
-          cd aws_quickstart
+          cd aws_agentless
           python -B -S -m unittest datadog_agentless_api_call_test.py -v
