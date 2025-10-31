@@ -15,6 +15,28 @@ fi
 # Read the version
 VERSION=$(head -n 1 version.txt)
 
+# Update the pinned version in aws_quickstart/main_extended.yaml
+MAIN_EXTENDED_PATH="../aws_quickstart/main_extended.yaml"
+if [ -f "$MAIN_EXTENDED_PATH" ]; then
+    echo "⚠️  WARNING: Updating pinned agentless version in aws_quickstart/main_extended.yaml to ${VERSION}"
+    # Check if the version is already set in main_extended.yaml
+    if grep -q "aws_agentless/${VERSION}/" "$MAIN_EXTENDED_PATH"; then
+        echo "✓ Version ${VERSION} is already pinned in main_extended.yaml"
+    else
+        # Update both TemplateURL lines that reference aws_agentless versions
+        sed -i.bak -E "s|(https://datadog-cloudformation-template\.s3\.amazonaws\.com/aws_agentless/)v[0-9]+\.[0-9]+\.[0-9]+/|\1${VERSION}/|g" "$MAIN_EXTENDED_PATH"
+        if [ -f "${MAIN_EXTENDED_PATH}.bak" ]; then
+            echo "✓ Updated pinned version in main_extended.yaml (backup saved as main_extended.yaml.bak)"
+            echo "  Please review and commit this change along with the agentless templates"
+            # Clean up backup file after informing user
+            rm "${MAIN_EXTENDED_PATH}.bak"
+        fi
+    fi
+else
+    echo "⚠️  WARNING: Could not find ${MAIN_EXTENDED_PATH} - skipping version pin update"
+fi
+echo ""
+
 # Confirm the bucket for the current release doesn't already exist so we don't overwrite it
 set +e
 EXIT_CODE=0

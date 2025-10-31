@@ -12,7 +12,7 @@ Datadog Agentless Scanning enables vulnerability scanning of your AWS resources 
 - **`datadog_agentless_api_call.py`**: Python Lambda function that registers the Agentless Scanning features with the Datadog API.
 - **`datadog_agentless_api_call_test.py`**: Unit tests for the API call Lambda function.
 
-## Prerequisite## Release Process
+## Release Process
 
 **Important:** These templates must be released to the `datadog-cloudformation-template` S3 bucket before they can be used by customers.
 
@@ -27,4 +27,12 @@ Datadog Agentless Scanning enables vulnerability scanning of your AWS resources 
    ```bash
    ./release.sh datadog-cloudformation-template
    ```
-3. Update the pinned version in `aws_quickstart/main_extended.yaml` 
+
+The release script will automatically:
+- Update the pinned agentless version in `aws_quickstart/main_extended.yaml` to match the new version
+- Validate that the version doesn't already exist in S3
+- Replace version placeholders in templates
+- Inject the Python Lambda code into the YAML templates
+- Upload templates to `s3://<S3_BUCKET_NAME>/aws_agentless/<VERSION>/`
+
+**Note:** After running the release script, you must commit both the agentless templates AND the updated `aws_quickstart/main_extended.yaml` file to ensure version consistency.
