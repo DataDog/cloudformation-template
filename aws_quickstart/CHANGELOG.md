@@ -1,3 +1,7 @@
+# 4.1.6 (October 31, 2025)
+
+[Agentless] Send scanner instance policy ARN to backend to reduce first scan latency
+
 # 4.1.5 (October 27, 2025)
 
 Add permissions to support AWS Batch integration:

@@ -25,6 +25,7 @@ def call_datadog_agentless_api(event, method):
     delegate_role_arn = event["ResourceProperties"].get("DelegateRoleArn")
     instance_role_arn = event["ResourceProperties"].get("InstanceRoleArn")
     instance_profile_arn = event["ResourceProperties"].get("InstanceProfileArn")
+    scanner_policy_arn = event["ResourceProperties"].get("ScannerPolicyArn")
     orchestrator_policy_arn = event["ResourceProperties"].get("OrchestratorPolicyArn")
     worker_policy_arn = event["ResourceProperties"].get("WorkerPolicyArn")
     worker_dspm_policy_arn = event["ResourceProperties"].get("WorkerDSPMPolicyArn")
@@ -64,6 +65,7 @@ def call_datadog_agentless_api(event, method):
                     "delegate_role_arn": delegate_role_arn,
                     "instance_role_arn": instance_role_arn,
                     "instance_profile_arn": instance_profile_arn,
+                    "scanner_policy_arn": scanner_policy_arn,
                     "orchestrator_policy_arn": orchestrator_policy_arn,
                     "worker_policy_arn": worker_policy_arn,
                     "worker_dspm_policy_arn": worker_dspm_policy_arn,

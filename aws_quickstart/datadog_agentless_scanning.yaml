@@ -1062,6 +1062,7 @@ Resources:
       DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
       InstanceRoleArn: !GetAtt "ScannerInstanceRole.Arn"
       InstanceProfileArn: !GetAtt "ScannerAgentInstanceProfile.Arn"
+      ScannerPolicyArn: !Ref "ScannerAgentPolicy"
       OrchestratorPolicyArn: !Ref "ScannerDelegateRoleOrchestratorPolicy"
       WorkerPolicyArn: !Ref "ScannerDelegateRoleWorkerPolicy"
       WorkerDSPMPolicyArn: !If [DSPMEnabled, !Ref "ScannerDelegateRoleWorkerDSPMPolicy", !Ref "AWS::NoValue"]
