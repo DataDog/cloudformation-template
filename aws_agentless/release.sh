@@ -1,0 +1,104 @@
+#!/bin/bash
+
+# Usage: ./release.sh <S3_Bucket>
+
+set -e
+
+# Read the S3 bucket
+if [ -z "$1" ]; then
+    echo "Must specify a S3 bucket to publish the template"
+    exit 1
+else
+    BUCKET=$1
+fi
+
+# Read the version
+VERSION=$(head -n 1 version.txt)
+
+# Update the pinned version in aws_quickstart/main_extended.yaml
+MAIN_EXTENDED_PATH="../aws_quickstart/main_extended.yaml"
+if [ -f "$MAIN_EXTENDED_PATH" ]; then
+    echo "⚠️  Checking if we need to update pinned agentless version in aws_quickstart/main_extended.yaml to ${VERSION}"
+    # Check if the version is already set in main_extended.yaml
+    if grep -q "aws_agentless/${VERSION}/" "$MAIN_EXTENDED_PATH"; then
+        echo "✓ Version ${VERSION} is already pinned in main_extended.yaml"
+    else
+        # Update both TemplateURL lines that reference aws_agentless versions
+        sed -i.bak -E "s|(https://datadog-cloudformation-template\.s3\.amazonaws\.com/aws_agentless/)v[0-9]+\.[0-9]+\.[0-9]+/|\1${VERSION}/|g" "$MAIN_EXTENDED_PATH"
+        if [ -f "${MAIN_EXTENDED_PATH}.bak" ]; then
+            echo "✓ Updated pinned version in main_extended.yaml (backup saved as main_extended.yaml.bak)"
+            echo "  Please review and commit this change along with the agentless templates"
+            # Clean up backup file after informing user
+            rm "${MAIN_EXTENDED_PATH}.bak"
+        fi
+    fi
+else
+    echo "⚠️  WARNING: Could not find ${MAIN_EXTENDED_PATH} - skipping version pin update"
+fi
+echo ""
+
+# Confirm the bucket for the current release doesn't already exist so we don't overwrite it
+set +e
+EXIT_CODE=0
+response=$(aws s3api head-object \
+    --bucket "${BUCKET}" \
+    --key "aws_agentless/${VERSION}/datadog_agentless_scanning.yaml" > /dev/null 2>&1)
+
+if [[ ${?} -eq 0 ]]; then
+    echo "S3 bucket path ${BUCKET}/aws_agentless/${VERSION} already exists. Please up the version."
+    exit 1
+fi
+set -e
+
+# Upload templates to a private bucket -- useful for testing
+if [[ $# -eq 2 ]] && [[ $2 = "--private" ]]; then
+    PRIVATE_TEMPLATE=true
+else
+    PRIVATE_TEMPLATE=false
+fi
+
+# Confirm to proceed
+for i in *.yaml; do
+    [ -f "$i" ] || break
+    echo "About to upload $i to s3://${BUCKET}/aws_agentless/${VERSION}/$i"
+done
+read -p "Continue (y/n)?" CONT
+if [ "$CONT" != "y" ]; then
+  echo "Exiting"
+  exit 1
+fi
+
+# Process Agentless Scanning templates
+for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml; do
+    # Note: unlike main templates, here we remove the 'v' prefix from the version
+    perl -i.bak -pe "s/<VERSION_PLACEHOLDER>/${VERSION#v}/g" "$template"
+
+    # Replace ZIPFILE_PLACEHOLDER with the contents of the Python file
+    perl -i -pe '
+        # Read the Python script from stdin
+        BEGIN { $p = do { local $/; <STDIN> } }
+        # Find the placeholder and capture its indentation
+        /^(\s+)<ZIPFILE_PLACEHOLDER>/ && (
+            # Replace with the Python script, preserving the indentation
+            $_ = join("\n", map { $1 . $_ } split(/\n/, $p)) . "\n"
+        )
+    ' "$template" < datadog_agentless_api_call.py
+done
+
+trap 'mv datadog_agentless_scanning.yaml.bak datadog_agentless_scanning.yaml;
+      mv datadog_agentless_delegate_role.yaml.bak datadog_agentless_delegate_role.yaml;
+      mv datadog_agentless_delegate_role_snapshot.yaml.bak datadog_agentless_delegate_role_snapshot.yaml;
+' EXIT
+
+# Upload
+if [ "$PRIVATE_TEMPLATE" = true ] ; then
+    aws s3 cp . s3://${BUCKET}/aws_agentless/${VERSION} --recursive --exclude "*" --include "*.yaml"
+else
+    aws s3 cp . s3://${BUCKET}/aws_agentless/${VERSION} --recursive --exclude "*" --include "*.yaml" \
+        --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+fi
+echo "Done uploading the agentless templates, and here is the CloudFormation quick launch URL"
+echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-agentless-scanning&templateURL=https://${BUCKET}.s3.amazonaws.com/aws_agentless/${VERSION}/datadog_agentless_scanning.yaml"
+
+echo "Done!"
+
