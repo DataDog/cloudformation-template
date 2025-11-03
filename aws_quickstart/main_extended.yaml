@@ -222,8 +222,8 @@ Resources:
     Properties:
       TemplateURL: !If
         - IsCrossAccountScanning
-        - 'https://datadog-cloudformation-template.s3.amazonaws.com/aws_agentless/v1.0.0/datadog_agentless_delegate_role.yaml'
-        - 'https://datadog-cloudformation-template.s3.amazonaws.com/aws_agentless/v1.0.0/datadog_agentless_scanning.yaml'
+        - 'https://datadog-cloudformation-template.s3.amazonaws.com/aws_agentless/v5.0.0/datadog_agentless_delegate_role.yaml'
+        - 'https://datadog-cloudformation-template.s3.amazonaws.com/aws_agentless/v5.0.0/datadog_agentless_scanning.yaml'
       Parameters:
         DatadogAPIKey: !Ref APIKey
         DatadogAPPKey: !Ref APPKey
