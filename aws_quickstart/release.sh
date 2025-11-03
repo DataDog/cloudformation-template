@@ -15,6 +15,9 @@ fi
 # Read the version
 VERSION=$(head -n 1 version.txt)
 
+# Read the agentless version
+AGENTLESS_VERSION=$(head -n 1 ../aws_agentless/version.txt)
+
 # Confirm the bucket for the current release doesn't already exist so we don't overwrite it
 set +e
 EXIT_CODE=0
@@ -54,6 +57,7 @@ perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_v2.yaml
 cp main_extended.yaml main_extended.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_extended.yaml
 perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_extended.yaml
+perl -pi -e "s/<AGENTLESS_VERSION_PLACEHOLDER>/${AGENTLESS_VERSION}/g" main_extended.yaml
 
 trap 'mv main_v2.yaml.bak main_v2.yaml;
       mv main_extended.yaml.bak main_extended.yaml;
