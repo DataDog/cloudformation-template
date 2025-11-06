@@ -1,0 +1,206 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a StackSet to deploy Datadog Agentless Scanning delegate roles across multiple AWS accounts
+Parameters:
+  DatadogAPIKey:
+    Type: String
+    AllowedPattern: "[0-9a-f]{32}"
+    Description: API key for the Datadog account
+    NoEcho: true
+
+  DatadogAPPKey:
+    Type: String
+    AllowedPattern: "[0-9a-f]{40}"
+    Description: Application key for the Datadog account
+    NoEcho: true
+
+  DatadogSite:
+    Type: String
+    Description: The Datadog site to use for the Datadog Agentless Scanner
+    Default: datadoghq.com
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ap1.datadoghq.com
+      - ap2.datadoghq.com
+
+  AgentlessHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of host vulnerabilities.
+    Default: false
+
+  AgentlessContainerScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of container vulnerabilities.
+    Default: false
+
+  AgentlessLambdaScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of Lambda vulnerabilities.
+    Default: false
+
+  AgentlessSensitiveDataScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of datastores (S3 buckets).
+    Default: false
+
+  ScannerInstanceRoleARN:
+    Type: CommaDelimitedList
+    Description: The ARNs of the roles of the Datadog Agentless Scanner instances that will assume the delegate role.
+    AllowedPattern: 'arn:aws:iam::[0-9]{12}:role/.*'
+
+  ScannerDelegateRoleName:
+    Type: String
+    Description: The name of the role assumed by the Datadog Agentless Scanner
+    Default: DatadogAgentlessScannerDelegateRole
+
+  TargetAccountIds:
+    Type: CommaDelimitedList
+    Description: Comma-separated list of AWS account IDs where the delegate role should be deployed (e.g., 123456789012,234567890123)
+
+  StackSetAdministrationRoleARN:
+    Type: String
+    Description: (Optional) ARN of the administration role to use for StackSet operations. If not provided, the service-managed permissions model will be used.
+    Default: ""
+
+  StackSetExecutionRoleName:
+    Type: String
+    Description: Name of the execution role in target accounts for StackSet operations
+    Default: AWSCloudFormationStackSetExecutionRole
+
+Conditions:
+  UseServiceManagedPermissions: !Equals [!Ref StackSetAdministrationRoleARN, ""]
+  UseSelfManagedPermissions: !Not [!Equals [!Ref StackSetAdministrationRoleARN, ""]]
+
+Resources:
+  DatadogAgentlessDelegateRoleStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Properties:
+      StackSetName: DatadogAgentlessScannerDelegateRoleStackSet
+      Description: Deploys Datadog Agentless Scanning delegate roles across multiple AWS accounts
+      PermissionModel: !If [UseServiceManagedPermissions, SERVICE_MANAGED, SELF_MANAGED]
+      AdministrationRoleARN: !If [UseSelfManagedPermissions, !Ref StackSetAdministrationRoleARN, !Ref AWS::NoValue]
+      ExecutionRoleName: !If [UseSelfManagedPermissions, !Ref StackSetExecutionRoleName, !Ref AWS::NoValue]
+      CallAs: DELEGATED_ADMIN
+      Capabilities:
+        - CAPABILITY_NAMED_IAM
+      # TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agentless_delegate_role.yaml"
+      TemplateURL: "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agentless_delegate_role.yaml"
+      Parameters:
+        - ParameterKey: AccountId
+          ParameterValue: $ACCOUNT_ID
+        - ParameterKey: DatadogAPIKey
+          ParameterValue: !Ref DatadogAPIKey
+        - ParameterKey: DatadogAPPKey
+          ParameterValue: !Ref DatadogAPPKey
+        - ParameterKey: DatadogSite
+          ParameterValue: !Ref DatadogSite
+        - ParameterKey: AgentlessHostScanning
+          ParameterValue: !Ref AgentlessHostScanning
+        - ParameterKey: AgentlessContainerScanning
+          ParameterValue: !Ref AgentlessContainerScanning
+        - ParameterKey: AgentlessLambdaScanning
+          ParameterValue: !Ref AgentlessLambdaScanning
+        - ParameterKey: AgentlessSensitiveDataScanning
+          ParameterValue: !Ref AgentlessSensitiveDataScanning
+        - ParameterKey: ScannerInstanceRoleARN
+          ParameterValue: !Join [',', !Ref ScannerInstanceRoleARN]
+        - ParameterKey: ScannerDelegateRoleName
+          ParameterValue: !Ref ScannerDelegateRoleName
+      OperationPreferences:
+        MaxConcurrentCount: 1
+        FailureToleranceCount: 0
+        RegionConcurrencyType: PARALLEL
+      StackInstancesGroup:
+        - DeploymentTargets:
+            Accounts: !Ref TargetAccountIds
+          Regions:
+            - us-east-1
+      Tags:
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+        - Key: Datadog
+          Value: 'true'
+
+Outputs:
+  StackSetId:
+    Description: The ID of the created StackSet
+    Value: !Ref DatadogAgentlessDelegateRoleStackSet
+    Export:
+      Name: !Sub '${AWS::StackName}-StackSetId'
+
+  StackSetName:
+    Description: The name of the created StackSet
+    Value: DatadogAgentlessScannerDelegateRoleStackSet
+    Export:
+      Name: !Sub '${AWS::StackName}-StackSetName'
+
+  TargetAccounts:
+    Description: List of target AWS accounts where delegate roles are deployed
+    Value: !Join [',', !Ref TargetAccountIds]
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "StackSet Configuration"
+        Parameters:
+          - TargetAccountIds
+          - StackSetAdministrationRoleARN
+          - StackSetExecutionRoleName
+      - Label:
+          default: "Datadog Configuration"
+        Parameters:
+          - DatadogAPIKey
+          - DatadogAPPKey
+          - DatadogSite
+      - Label:
+          default: "Scanner Configuration"
+        Parameters:
+          - ScannerInstanceRoleARN
+          - ScannerDelegateRoleName
+      - Label:
+          default: "Scanning Options"
+        Parameters:
+          - AgentlessHostScanning
+          - AgentlessContainerScanning
+          - AgentlessLambdaScanning
+          - AgentlessSensitiveDataScanning
+    ParameterLabels:
+      TargetAccountIds:
+        default: Target Account IDs
+      StackSetAdministrationRoleARN:
+        default: StackSet Administration Role ARN
+      StackSetExecutionRoleName:
+        default: StackSet Execution Role Name
+      DatadogAPIKey:
+        default: Datadog API Key
+      DatadogAPPKey:
+        default: Datadog Application Key
+      DatadogSite:
+        default: Datadog Site
+      ScannerInstanceRoleARN:
+        default: Scanner Instance Role ARN
+      ScannerDelegateRoleName:
+        default: Scanner Delegate Role Name
+      AgentlessHostScanning:
+        default: Enable Host Scanning
+      AgentlessContainerScanning:
+        default: Enable Container Scanning
+      AgentlessLambdaScanning:
+        default: Enable Lambda Scanning
+      AgentlessSensitiveDataScanning:
+        default: Enable Sensitive Data Scanning
