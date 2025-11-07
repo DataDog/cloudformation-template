@@ -1025,6 +1025,8 @@ Resources:
               - "osis:GetPipelineBlueprint"
               - "osis:ListPipelineBlueprints"
               - "osis:ListPipelines"
+              - 'outposts:ListOutposts'
+              - 'outposts:ListSites'
               - "payment-cryptography:GetKey"
               - "payment-cryptography:ListAliases"
               - "payment-cryptography:ListKeys"
@@ -1106,10 +1108,6 @@ Resources:
               - "refactor-spaces:ListEnvironments"
               - "refactor-spaces:ListRoutes"
               - "refactor-spaces:ListServices"
-              - "resiliencehub:DescribeApp"
-              - "resiliencehub:DescribeAppAssessment"
-              - "resiliencehub:ListAppAssessments"
-              - "resiliencehub:ListApps"
   DatadogIntegrationRoleManagedPolicy4:
     Type: "AWS::IAM::ManagedPolicy"
     Condition: ResourceCollectionPermissions
@@ -1125,6 +1123,10 @@ Resources:
           - Effect: Allow
             Resource: "*"
             Action:
+              - "resiliencehub:DescribeApp"
+              - "resiliencehub:DescribeAppAssessment"
+              - "resiliencehub:ListAppAssessments"
+              - "resiliencehub:ListApps"
               - "resiliencehub:ListResiliencyPolicies"
               - "resource-explorer-2:GetIndex"
               - "resource-explorer-2:GetManagedView"
