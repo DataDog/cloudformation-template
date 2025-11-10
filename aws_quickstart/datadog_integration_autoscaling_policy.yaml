@@ -1,0 +1,65 @@
+# version: v<VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Attach autoscaling SetDesiredCapacity policy to the existing Datadog AWS Integration IAM role
+Parameters:
+  IAMRoleName:
+    Description: Name of the existing IAM role for Datadog AWS integration
+    Type: String
+    Default: DatadogIntegrationRole
+  AccountId:
+    Type: String
+    Description:  The AWS Account ID where this template is being deployed (optional validation)
+    AllowedPattern: "|[0-9]{12}"
+    Default: ""
+
+Rules:
+  MustMatchAccountId:
+    AssertDescription: 'Checking that AccountId matches the current AWS account ID'
+    Assertions:
+      - Assert: !Or [!Equals [!Ref AccountId, !Ref AWS::AccountId], !Equals [!Ref AccountId, ""]]
+        AssertDescription: >-
+          The current AWS account ID does not match the AWS account selected in Datadog.
+          Please log in to the AWS account where you want to update the Datadog AWS Integration role and try again. 
+Resources:
+  DatadogAutoscalingPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: !Sub "${IAMRoleName}-AutoscalingPolicy"
+      Roles:
+        - !Ref IAMRoleName
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: SetDesiredCapacityScoped
+            Effect: Allow
+            Action:
+              - autoscaling:SetDesiredCapacity
+              - autoscaling:StartInstanceRefresh
+              - ec2:GetConsoleOutput
+            Resource:
+              - arn:aws:autoscaling:*:*:autoScalingGroup:*
+              - arn:aws:ec2:*:*:instance/*
+            Condition:
+              StringEquals:
+                aws:ResourceTag/DatadogAgentlessScanner: "true"
+          - Sid: DescribeASGsScoped
+            Effect: Allow
+            Action:
+              - autoscaling:DescribeAutoScalingGroups
+            Resource: "*"
+           
+Outputs:
+  PolicyName:
+    Description: Name of the created inline policy
+    Value: !Ref DatadogAutoscalingPolicy
+  AttachedRoleName:
+    Description: Name of the IAM role the policy was attached to
+    Value: !Ref IAMRoleName
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Required
+        Parameters:
+          - IAMRoleName
+
