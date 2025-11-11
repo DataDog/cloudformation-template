@@ -9,7 +9,7 @@ import urllib.parse
 LOGGER = logging.getLogger()
 
 
-def call_datadog_agentless_api(event, method):
+def call_datadog_agentless_api(context, event, method):
     template_version = event["ResourceProperties"]["TemplateVersion"]
     api_key = event["ResourceProperties"]["APIKey"]
     app_key = event["ResourceProperties"]["APPKey"]
@@ -69,6 +69,7 @@ def call_datadog_agentless_api(event, method):
                     "orchestrator_policy_arn": orchestrator_policy_arn,
                     "worker_policy_arn": worker_policy_arn,
                     "worker_dspm_policy_arn": worker_dspm_policy_arn,
+                    "invoked_function_arn": context.invoked_function_arn,
                 },
             },
             "data": {
@@ -116,7 +117,7 @@ def handler(event, context):
     try:
         if event["RequestType"] == "Create":
             LOGGER.info("Received Create request.")
-            response = call_datadog_agentless_api(event, "POST")
+            response = call_datadog_agentless_api(context, event, "POST")
             send_response(
                 event,
                 context,
@@ -135,7 +136,7 @@ def handler(event, context):
             )
         elif event["RequestType"] == "Delete":
             LOGGER.info("Received Delete request.")
-            response = call_datadog_agentless_api(event, "DELETE")
+            response = call_datadog_agentless_api(context, event, "DELETE")
             send_response(
                 event,
                 context,
