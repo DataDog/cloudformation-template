@@ -77,6 +77,7 @@ trap 'mv main_v2.yaml.bak main_v2.yaml;
       mv datadog_agentless_scanning.yaml.bak datadog_agentless_scanning.yaml;
       mv datadog_agentless_delegate_role.yaml.bak datadog_agentless_delegate_role.yaml;
       mv datadog_agentless_delegate_role_snapshot.yaml.bak datadog_agentless_delegate_role_snapshot.yaml;
+      mv datadog_integration_autoscaling_policy.yaml.bak datadog_integration_autoscaling_policy.yaml;
 ' EXIT
 
 # Upload

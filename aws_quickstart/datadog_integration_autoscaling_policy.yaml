@@ -24,32 +24,28 @@ Rules:
           Please log in to the AWS account where you want to update the Datadog AWS Integration role and try again. 
 Resources:
   DatadogAgentlessScannerAutoscalingPolicy:
-    Type: "AWS::IAM::Policy"
+    Type: AWS::IAM::RolePolicy
     Properties:
-      PolicyName: !Sub "${IAMRoleName}-AutoscalingPolicy"
-      Roles:
-        - !Ref IAMRoleName
+      RoleName: !Ref DatadogIntegrationRoleName
+      PolicyName: DatadogAgentlessScannerAutoscalingPolicy
       PolicyDocument:
-        Version: 2012-10-17
+        Version: '2012-10-17'
         Statement:
-          - Sid: SetDesiredCapacityScoped
-            Effect: Allow
+          - Effect: Allow
             Action:
-              - autoscaling:SetDesiredCapacity
-              - autoscaling:StartInstanceRefresh
-              - ec2:GetConsoleOutput
+              - 'autoscaling:StartInstanceRefresh'
+              - 'autoscaling:SetDesiredCapacity'
+              - 'ec2:GetConsoleOutput'
             Resource:
-              - arn:aws:autoscaling:*:*:autoScalingGroup:*
-              - arn:aws:ec2:*:*:instance/*
+              - 'arn:aws:autoscaling:*:*:autoScalingGroup:*'
+              - 'arn:aws:ec2:*:*:instance/*'
             Condition:
               StringEquals:
-                aws:ResourceTag/Datadog: "true"
-                aws:ResourceTag/DatadogAgentlessScanner: "true"
-          - Sid: DescribeASGsScoped
-            Effect: Allow
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Effect: Allow
             Action:
-              - autoscaling:DescribeAutoScalingGroups
-            Resource: "*"
+              - 'autoscaling:DescribeAutoScalingGroups'
+            Resource: '*'
            
 Outputs:
   PolicyName:
