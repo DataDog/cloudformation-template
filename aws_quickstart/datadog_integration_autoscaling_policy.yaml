@@ -2,9 +2,11 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: Attach autoscaling SetDesiredCapacity policy to the existing Datadog AWS Integration IAM role
 Parameters:
-  IAMRoleName:
+  DatadogIntegrationRoleName:
     Description: Name of the existing IAM role for Datadog AWS integration
     Type: String
+    MinLength: 1
+    MaxLength: 64
     Default: DatadogIntegrationRole
   AccountId:
     Type: String
@@ -21,7 +23,7 @@ Rules:
           The current AWS account ID does not match the AWS account selected in Datadog.
           Please log in to the AWS account where you want to update the Datadog AWS Integration role and try again. 
 Resources:
-  DatadogAutoscalingPolicy:
+  DatadogAgentlessScannerAutoscalingPolicy:
     Type: "AWS::IAM::Policy"
     Properties:
       PolicyName: !Sub "${IAMRoleName}-AutoscalingPolicy"
@@ -41,6 +43,7 @@ Resources:
               - arn:aws:ec2:*:*:instance/*
             Condition:
               StringEquals:
+                aws:ResourceTag/Datadog: "true"
                 aws:ResourceTag/DatadogAgentlessScanner: "true"
           - Sid: DescribeASGsScoped
             Effect: Allow
@@ -52,14 +55,4 @@ Outputs:
   PolicyName:
     Description: Name of the created inline policy
     Value: !Ref DatadogAutoscalingPolicy
-  AttachedRoleName:
-    Description: Name of the IAM role the policy was attached to
-    Value: !Ref IAMRoleName
-Metadata:
-  AWS::CloudFormation::Interface:
-    ParameterGroups:
-      - Label:
-          default: Required
-        Parameters:
-          - IAMRoleName
 
