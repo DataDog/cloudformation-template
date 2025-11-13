@@ -9,7 +9,7 @@ import urllib.parse
 LOGGER = logging.getLogger()
 
 
-def call_datadog_agentless_api(event, method):
+def call_datadog_agentless_api(context, event, method):
     template_version = event["ResourceProperties"]["TemplateVersion"]
     api_key = event["ResourceProperties"]["APIKey"]
     app_key = event["ResourceProperties"]["APPKey"]
@@ -25,6 +25,7 @@ def call_datadog_agentless_api(event, method):
     delegate_role_arn = event["ResourceProperties"].get("DelegateRoleArn")
     instance_role_arn = event["ResourceProperties"].get("InstanceRoleArn")
     instance_profile_arn = event["ResourceProperties"].get("InstanceProfileArn")
+    scanner_policy_arn = event["ResourceProperties"].get("ScannerPolicyArn")
     orchestrator_policy_arn = event["ResourceProperties"].get("OrchestratorPolicyArn")
     worker_policy_arn = event["ResourceProperties"].get("WorkerPolicyArn")
     worker_dspm_policy_arn = event["ResourceProperties"].get("WorkerDSPMPolicyArn")
@@ -64,9 +65,11 @@ def call_datadog_agentless_api(event, method):
                     "delegate_role_arn": delegate_role_arn,
                     "instance_role_arn": instance_role_arn,
                     "instance_profile_arn": instance_profile_arn,
+                    "scanner_policy_arn": scanner_policy_arn,
                     "orchestrator_policy_arn": orchestrator_policy_arn,
                     "worker_policy_arn": worker_policy_arn,
                     "worker_dspm_policy_arn": worker_dspm_policy_arn,
+                    "invoked_function_arn": context.invoked_function_arn,
                 },
             },
             "data": {
@@ -114,7 +117,7 @@ def handler(event, context):
     try:
         if event["RequestType"] == "Create":
             LOGGER.info("Received Create request.")
-            response = call_datadog_agentless_api(event, "POST")
+            response = call_datadog_agentless_api(context, event, "POST")
             send_response(
                 event,
                 context,
@@ -133,7 +136,7 @@ def handler(event, context):
             )
         elif event["RequestType"] == "Delete":
             LOGGER.info("Received Delete request.")
-            response = call_datadog_agentless_api(event, "DELETE")
+            response = call_datadog_agentless_api(context, event, "DELETE")
             send_response(
                 event,
                 context,

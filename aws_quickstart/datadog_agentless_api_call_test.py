@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch, Mock
 from urllib.error import HTTPError
 
@@ -17,6 +18,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
+        self.context = SimpleNamespace(invoked_function_arn="arn:aws:lambda:us-east-1:012345678901:function:DatadogAgentlessAPICallFunction")
         self.base_event = {
             "ResourceProperties": {
                 "TemplateVersion": "1.0.0",
@@ -55,7 +57,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_response = self.create_mock_response(200)
         mock_urlopen.return_value = mock_response
 
-        result = call_datadog_agentless_api(self.base_event, "POST")
+        result = call_datadog_agentless_api(self.context, self.base_event, "POST")
 
         self.assertEqual(result.status, 200)
 
@@ -71,7 +73,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_response = self.create_mock_response(201)
         mock_urlopen.return_value = mock_response
 
-        result = call_datadog_agentless_api(self.base_event, "POST")
+        result = call_datadog_agentless_api(self.context, self.base_event, "POST")
 
         self.assertEqual(result.status, 201)
 
@@ -83,7 +85,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_response = self.create_mock_response(204)
         mock_urlopen.return_value = mock_response
 
-        result = call_datadog_agentless_api(self.base_event, "POST")
+        result = call_datadog_agentless_api(self.context, self.base_event, "POST")
 
         self.assertEqual(result.status, 204)
 
@@ -96,7 +98,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_urlopen.side_effect = mock_error
 
         with self.assertRaises(HTTPError):
-            call_datadog_agentless_api(self.base_event, "POST")
+            call_datadog_agentless_api(self.context, self.base_event, "POST")
 
     @patch("datadog_agentless_api_call.urllib.request.urlopen")
     @patch("datadog_agentless_api_call.is_agentless_scanning_enabled")
@@ -107,7 +109,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_urlopen.side_effect = mock_error
 
         with self.assertRaises(HTTPError):
-            call_datadog_agentless_api(self.base_event, "POST")
+            call_datadog_agentless_api(self.context, self.base_event, "POST")
 
     @patch("datadog_agentless_api_call.urllib.request.urlopen")
     @patch("datadog_agentless_api_call.is_agentless_scanning_enabled")
@@ -118,7 +120,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_urlopen.side_effect = mock_error
 
         with self.assertRaises(HTTPError):
-            call_datadog_agentless_api(self.base_event, "POST")
+            call_datadog_agentless_api(self.context, self.base_event, "POST")
 
     @patch("datadog_agentless_api_call.urllib.request.urlopen")
     @patch("datadog_agentless_api_call.is_agentless_scanning_enabled")
@@ -128,7 +130,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_response = self.create_mock_response(200)
         mock_urlopen.return_value = mock_response
 
-        result = call_datadog_agentless_api(self.base_event, "POST")
+        result = call_datadog_agentless_api(self.context, self.base_event, "POST")
 
         self.assertEqual(result.status, 200)
 
@@ -142,7 +144,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_response = self.create_mock_response(200)
         mock_urlopen.return_value = mock_response
 
-        result = call_datadog_agentless_api(self.base_event, "DELETE")
+        result = call_datadog_agentless_api(self.context, self.base_event, "DELETE")
 
         self.assertEqual(result.status, 200)
 
@@ -152,7 +154,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_response = self.create_mock_response(204)
         mock_urlopen.return_value = mock_response
 
-        result = call_datadog_agentless_api(self.base_event, "DELETE")
+        result = call_datadog_agentless_api(self.context, self.base_event, "DELETE")
 
         self.assertEqual(result.status, 204)
 
@@ -162,7 +164,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_error = self.create_mock_http_error(404)
         mock_urlopen.side_effect = mock_error
 
-        result = call_datadog_agentless_api(self.base_event, "DELETE")
+        result = call_datadog_agentless_api(self.context, self.base_event, "DELETE")
 
         self.assertEqual(result.status, 404)
 
@@ -173,11 +175,11 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_urlopen.side_effect = mock_error
 
         with self.assertRaises(HTTPError):
-            call_datadog_agentless_api(self.base_event, "DELETE")
+            call_datadog_agentless_api(self.context, self.base_event, "DELETE")
 
     def test_unsupported_method_returns_none(self):
         """Test that unsupported HTTP methods return None"""
-        result = call_datadog_agentless_api(self.base_event, "PUT")
+        result = call_datadog_agentless_api(self.context, self.base_event, "PUT")
         self.assertIsNone(result)
 
     @patch("datadog_agentless_api_call.urllib.request.urlopen")
@@ -188,7 +190,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_response = self.create_mock_response(200)
         mock_urlopen.return_value = mock_response
 
-        call_datadog_agentless_api(self.base_event, "POST")
+        call_datadog_agentless_api(self.context, self.base_event, "POST")
 
         # Get the request that was made
         call_args = mock_urlopen.call_args[0][0]
