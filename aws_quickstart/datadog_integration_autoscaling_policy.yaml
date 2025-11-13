@@ -1,0 +1,54 @@
+# version: v<VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Attach autoscaling SetDesiredCapacity policy to the existing Datadog AWS Integration IAM role
+Parameters:
+  DatadogIntegrationRoleName:
+    Description: Name of the existing IAM role for Datadog AWS integration
+    Type: String
+    MinLength: 1
+    MaxLength: 64
+    Default: DatadogIntegrationRole
+  AccountId:
+    Type: String
+    Description:  The AWS Account ID where this template is being deployed (optional validation)
+    AllowedPattern: "|[0-9]{12}"
+    Default: ""
+
+Rules:
+  MustMatchAccountId:
+    AssertDescription: 'Checking that AccountId matches the current AWS account ID'
+    Assertions:
+      - Assert: !Or [!Equals [!Ref AccountId, !Ref AWS::AccountId], !Equals [!Ref AccountId, ""]]
+        AssertDescription: >-
+          The current AWS account ID does not match the AWS account selected in Datadog.
+          Please log in to the AWS account where you want to update the Datadog AWS Integration role and try again. 
+Resources:
+  DatadogAgentlessScannerAutoscalingPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref DatadogIntegrationRoleName
+      PolicyName: DatadogAgentlessScannerAutoscalingPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'autoscaling:StartInstanceRefresh'
+              - 'autoscaling:SetDesiredCapacity'
+              - 'ec2:GetConsoleOutput'
+            Resource:
+              - 'arn:aws:autoscaling:*:*:autoScalingGroup:*'
+              - 'arn:aws:ec2:*:*:instance/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Effect: Allow
+            Action:
+              - 'autoscaling:DescribeAutoScalingGroups'
+            Resource: '*'
+           
+Outputs:
+  PolicyName:
+    Description: Name of the created inline policy
+    Value: !Ref DatadogAutoscalingPolicy
+
