@@ -53,10 +53,3 @@ Resources:
             Condition:
               StringLike:
                 'kms:ViaService': 's3.*.amazonaws.com'
-
-Outputs:
-  PolicyName:
-    Description: Name of the created inline policy
-    Value: !Ref ScannerDelegateRoleWorkerDSPMPolicy
-
-
