@@ -1,0 +1,62 @@
+# version: v<VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Attach SDS (Sensitive Data Scanner) DSPM policy to the existing Datadog Agentless Scanner Delegate IAM role
+Parameters:
+  ScannerDelegateRoleName:
+    Description: Name of the existing IAM role for Datadog Agentless Scanner Delegate
+    Type: String
+    MinLength: 1
+    MaxLength: 64
+    Default: DatadogAgentlessScannerDelegateRole
+  AccountId:
+    Type: String
+    Description: The AWS Account ID where this template is being deployed (optional validation)
+    AllowedPattern: "|[0-9]{12}"
+    Default: ""
+
+Rules:
+  MustMatchAccountId:
+    AssertDescription: 'Checking that AccountId matches the current AWS account ID'
+    Assertions:
+      - Assert: !Or [!Equals [!Ref AccountId, !Ref AWS::AccountId], !Equals [!Ref AccountId, ""]]
+        AssertDescription: >-
+          The current AWS account ID does not match the AWS account selected in Datadog.
+          Please log in to the AWS account where you want to update the Datadog Agentless Scanner Delegate role and try again.
+Resources:
+  ScannerDelegateRoleWorkerDSPMPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref ScannerDelegateRoleName
+      PolicyName: ScannerDelegateRoleWorkerDSPMPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DatadogAgentlessScannerAccessS3Objects
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+            Resource:
+              - 'arn:aws:s3:::*/*'
+          - Sid: DatadogAgentlessScannerListS3Buckets
+            Effect: Allow
+            Action:
+              - 's3:ListBucket'
+            Resource:
+              - 'arn:aws:s3:::*'
+          - Sid: DatadogAgentlessScannerDecryptS3Objects
+            Effect: Allow
+            Action:
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+            Resource:
+              - 'arn:aws:kms:*:*:key/*'
+            Condition:
+              StringLike:
+                'kms:ViaService': 's3.*.amazonaws.com'
+
+Outputs:
+  PolicyName:
+    Description: Name of the created inline policy
+    Value: !Ref ScannerDelegateRoleWorkerDSPMPolicy
+
+
