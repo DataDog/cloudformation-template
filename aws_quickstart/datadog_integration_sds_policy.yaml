@@ -27,7 +27,6 @@ Resources:
     Type: AWS::IAM::ManagedPolicy
     Properties:
       Description: Policy for the Datadog Agentless Scanner worker allowing the listing and reading of S3 buckets.
-      ManagedPolicyName: ScannerDelegateRoleWorkerDSPMPolicy
       Roles:
         - !Ref ScannerDelegateRoleName
       PolicyDocument:
