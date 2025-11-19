@@ -24,10 +24,12 @@ Rules:
           Please log in to the AWS account where you want to update the Datadog Agentless Scanner Delegate role and try again.
 Resources:
   ScannerDelegateRoleWorkerDSPMPolicy:
-    Type: AWS::IAM::RolePolicy
+    Type: AWS::IAM::ManagedPolicy
     Properties:
-      RoleName: !Ref ScannerDelegateRoleName
-      PolicyName: ScannerDelegateRoleWorkerDSPMPolicy
+      Description: Policy for the Datadog Agentless Scanner worker allowing the listing and reading of S3 buckets.
+      ManagedPolicyName: ScannerDelegateRoleWorkerDSPMPolicy
+      Roles:
+        - !Ref ScannerDelegateRoleName
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
