@@ -46,9 +46,4 @@ Resources:
             Action:
               - 'autoscaling:DescribeAutoScalingGroups'
             Resource: '*'
-           
-Outputs:
-  PolicyName:
-    Description: Name of the created inline policy
-    Value: !Ref DatadogAutoscalingPolicy
 
