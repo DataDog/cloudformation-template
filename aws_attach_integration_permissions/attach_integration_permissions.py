@@ -37,7 +37,6 @@ def fetch_permissions_from_datadog():
 def cleanup_existing_policies(iam_client, role_name, account_id, max_policies=20):
     """Clean up existing managed policies (both new and legacy naming)"""
     # Clean up policies with ManagedPolicy naming (e.g., DatadogIntegrationRole-ManagedPolicy-1)
-    # This covers both quickstart policies and our own policies
     for i in range(1, max_policies + 1):
         policy_name = f"{role_name}-ManagedPolicy-{i}"
         policy_arn = get_policy_arn(account_id, policy_name)
@@ -112,9 +111,8 @@ def handle_create_update(event, context, role_name, account_id):
         iam_client = boto3.client('iam')
         cleanup_existing_policies(iam_client, role_name, account_id)
 
-        # Create and attach new policies using quickstart naming convention
+        # Create and attach new policies
         for i, chunk in enumerate(permission_chunks):
-            # Create policy (start at 1 to match quickstart convention)
             policy_name = f"{role_name}-ManagedPolicy-{i+1}"
             policy_document = {
                 "Version": "2012-10-17",
