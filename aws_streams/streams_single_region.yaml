@@ -46,9 +46,15 @@ Parameters:
     Description: >-
       Define your Datadog Site to send data to. For the Datadog EU site, set to datadoghq.eu
     Type: String
-    AllowedPattern: .+
     Default: "datadoghq.com"
-    ConstraintDescription: DdSite is required
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ap1.datadoghq.com
+      - ap2.datadoghq.com
+      - ddog-gov.com
 Conditions:
   IsInclude: !Equals [!Ref FilterMethod, "Include"]
   IsExclude: !Not [!Equals [!Ref FilterMethod, "Include"]]
@@ -84,8 +90,6 @@ Conditions:
     ]
 Mappings:
     DdSiteToEndpoint:
-        "datad0g.com":
-            Endpoint: "https://awsmetrics-http-intake.datad0g.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "datadoghq.eu":
             Endpoint: "https://awsmetrics-intake.datadoghq.eu/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "us3.datadoghq.com":
@@ -96,6 +100,8 @@ Mappings:
             Endpoint: "https://awsmetrics-intake.ap1.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "ap2.datadoghq.com":
             Endpoint: "https://awsmetrics-intake.ap2.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+        "ddog-gov.com":
+            Endpoint: "https://awsmetrics-intake.ddog-gov.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "datadoghq.com":
             Endpoint: "https://awsmetrics-intake.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
 Resources:
