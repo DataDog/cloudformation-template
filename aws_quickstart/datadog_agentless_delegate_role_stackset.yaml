@@ -1,0 +1,377 @@
+# version: v<VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a Datadog Agentless Scanning delegate role for StackSet deployment
+
+Parameters:
+  ScannerInstanceRoleARN:
+    Type: CommaDelimitedList
+    Description: The ARNs of the roles of the Datadog Agentless Scanner instances that will assume the delegate role.
+
+  ScannerDelegateRoleName:
+    Type: String
+    Description: The name of the role assumed by the Datadog Agentless Scanner
+    Default: DatadogAgentlessScannerDelegateRole
+
+  DatadogAPIKey:
+    Type: String
+    AllowedPattern: "[0-9a-f]{32}"
+    Description: API key for the Datadog account
+    NoEcho: true
+
+  DatadogAPPKey:
+    Type: String
+    AllowedPattern: "[0-9a-f]{40}"
+    Description: Application key for the Datadog account
+    NoEcho: true
+
+  DatadogSite:
+    Type: String
+    Description: The Datadog site to use for the Datadog Agentless Scanner
+    Default: datadoghq.com
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ap1.datadoghq.com
+      - ap2.datadoghq.com
+
+  AgentlessHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of host vulnerabilities.
+    Default: false
+
+  AgentlessContainerScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of container vulnerabilities.
+    Default: false
+
+  AgentlessLambdaScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of Lambda vulnerabilities.
+    Default: false
+
+  AgentlessSensitiveDataScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of datastores (S3 buckets).
+    Default: false
+
+Conditions:
+  DSPMEnabled: !Equals
+    - !Ref 'AgentlessSensitiveDataScanning'
+    - 'true'
+
+Resources:
+  ScannerDelegateRoleOrchestratorPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for the Datadog Agentless Scanner orchestrator allowing the creation and deletion of snapshots.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DatadogAgentlessScannerResourceTagging
+            Action: 'ec2:CreateTags'
+            Effect: Allow
+            Resource:
+              - 'arn:aws:ec2:*:*:volume/*'
+              - 'arn:aws:ec2:*:*:snapshot/*'
+              - 'arn:aws:ec2:*:*:image/*'
+            Condition:
+              StringEquals:
+                'ec2:CreateAction':
+                  - CreateSnapshot
+                  - CreateVolume
+                  - CopySnapshot
+                  - CopyImage
+          - Sid: DatadogAgentlessScannerVolumeSnapshotCreation
+            Action: 'ec2:CreateSnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:volume/*'
+            Condition:
+              StringNotEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+          - Sid: DatadogAgentlessScannerCopySnapshotSource
+            Action: 'ec2:CopySnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/snap-*'
+          - Sid: DatadogAgentlessScannerCopySnapshotDestination
+            Action: 'ec2:CopySnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/${*}'
+            Condition:
+              'ForAllValues:StringLike':
+                'aws:TagKeys': DatadogAgentlessScanner*
+              StringEquals:
+                'aws:RequestTag/DatadogAgentlessScanner': 'true'
+          - Sid: DatadogAgentlessScannerSnapshotCreation
+            Action: 'ec2:CreateSnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/*'
+            Condition:
+              'ForAllValues:StringLike':
+                'aws:TagKeys': DatadogAgentlessScanner*
+              StringEquals:
+                'aws:RequestTag/DatadogAgentlessScanner': 'true'
+          - Sid: DatadogAgentlessScannerSnapshotCleanup
+            Action: 'ec2:DeleteSnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Sid: DatadogAgentlessScannerDescribeSnapshots
+            Action: 'ec2:DescribeSnapshots'
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerEncryptedCopyGrant
+            Action: 'kms:CreateGrant'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+            Condition:
+              'ForAnyValue:StringEquals':
+                'kms:EncryptionContextKeys': 'aws:ebs:id'
+              StringLike:
+                'kms:ViaService': 'ec2.*.amazonaws.com'
+              Bool:
+                'kms:GrantIsForAWSResource': true
+          - Sid: DatadogAgentlessScannerEncryptedCopyDescribe
+            Action: 'kms:DescribeKey'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+          - Sid: DatadogAgentlessScannerImageCleanup
+            Action: 'ec2:DeregisterImage'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:image/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+
+  ScannerDelegateRoleWorkerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for the Datadog Agentless Scanner worker allowing the listing and reading of snapshots.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DatadogAgentlessScannerSnapshotAccess
+            Action:
+              - 'ebs:ListSnapshotBlocks'
+              - 'ebs:ListChangedBlocks'
+              - 'ebs:GetSnapshotBlock'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Sid: DatadogAgentlessScannerDescribeSnapshots
+            Action: 'ec2:DescribeSnapshots'
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerDescribeVolumes
+            Action: 'ec2:DescribeVolumes'
+            Effect: Allow
+            Resource: '*'
+          - Sid: DatadogAgentlessScannerDecryptEncryptedSnapshots
+            Action: 'kms:Decrypt'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+            Condition:
+              'ForAnyValue:StringEquals':
+                'kms:EncryptionContextKeys': 'aws:ebs:id'
+              StringLike:
+                'kms:ViaService': 'ec2.*.amazonaws.com'
+          - Sid: DatadogAgentlessScannerKMSDescribe
+            Action: 'kms:DescribeKey'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+          - Sid: DatadogAgentlessScannerGetLambdaDetails
+            Action: 'lambda:GetFunction'
+            Effect: Allow
+            Resource: 'arn:aws:lambda:*:*:function:*'
+            Condition:
+              StringNotEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+          - Sid: DatadogAgentlessScannerGetLambdaLayerDetails
+            Action: 'lambda:GetLayerVersion'
+            Effect: Allow
+            Resource: 'arn:aws:lambda:*:*:layer:*:*'
+            Condition:
+              StringNotEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+          - Sid: DatadogAgentlessScannerECRAuthorizationToken
+            Action:
+              - "ecr:GetAuthorizationToken"
+            Effect: Allow
+            Resource: "*"
+          - Sid: DatadogAgentlessScannerECRImages
+            Action:
+              - "ecr:GetDownloadUrlForLayer"
+              - "ecr:BatchGetImage"
+            Condition:
+              StringNotEquals:
+                "ecr:ResourceTag/DatadogAgentlessScanner": "false"
+            Effect: Allow
+            Resource: "arn:aws:ecr:*:*:repository/*"
+
+  ScannerDelegateRoleWorkerDSPMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: DSPMEnabled
+    Properties:
+      Description: Policy for the Datadog Agentless Scanner worker allowing the listing and reading of S3 buckets.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DatadogAgentlessScannerAccessS3Objects
+            Action: 's3:GetObject'
+            Effect: Allow
+            Resource: 'arn:aws:s3:::*/*'
+          - Sid: DatadogAgentlessScannerListS3Buckets
+            Action: 's3:ListBucket'
+            Effect: Allow
+            Resource: 'arn:aws:s3:::*'
+          - Sid: DatadogAgentlessScannerDecryptS3Objects
+            Action:
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+            Condition:
+              StringLike:
+                'kms:ViaService': 's3.*.amazonaws.com'
+
+  ScannerDelegateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref 'ScannerDelegateRoleName'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EC2AssumeRole
+            Effect: Allow
+            Principal:
+              AWS: '*'
+            Condition:
+              'ArnLike':
+                'aws:PrincipalArn': !Ref 'ScannerInstanceRoleARN'
+              StringEquals:
+                'aws:PrincipalTag/Datadog': 'true'
+                'aws:PrincipalTag/DatadogAgentlessScanner': 'true'
+            Action: 'sts:AssumeRole'
+      MaxSessionDuration: 3600
+      ManagedPolicyArns:
+        - !Ref 'ScannerDelegateRoleOrchestratorPolicy'
+        - !Ref 'ScannerDelegateRoleWorkerPolicy'
+        - !If [DSPMEnabled, !Ref 'ScannerDelegateRoleWorkerDSPMPolicy', !Ref 'AWS::NoValue']
+      Description: Role assumed by the Datadog Agentless scanner agent to perform scans
+      Tags:
+        - Key: DatadogAgentlessScanner
+          Value: 'true'
+        - Key: Datadog
+          Value: 'true'
+
+  LambdaExecutionRoleDatadogAgentlessAPICall:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+  DatadogAgentlessAPICall:
+    Type: "Custom::DatadogAgentlessAPICall"
+    Properties:
+      ServiceToken: !GetAtt "DatadogAgentlessAPICallFunction.Arn"
+      TemplateVersion: "<VERSION_PLACEHOLDER>"
+      APIKey: !Ref "DatadogAPIKey"
+      APPKey: !Ref "DatadogAPPKey"
+      DatadogSite: !Ref "DatadogSite"
+      AccountId: !Ref "AWS::AccountId"
+      Hosts: !Ref "AgentlessHostScanning"
+      Containers: !Ref "AgentlessContainerScanning"
+      Lambdas: !Ref "AgentlessLambdaScanning"
+      SensitiveData: !Ref "AgentlessSensitiveDataScanning"
+      # Optional parameters
+      DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
+      OrchestratorPolicyArn: !Ref "ScannerDelegateRoleOrchestratorPolicy"
+      WorkerPolicyArn: !Ref "ScannerDelegateRoleWorkerPolicy"
+      WorkerDSPMPolicyArn: !If [DSPMEnabled, !Ref "ScannerDelegateRoleWorkerDSPMPolicy", !Ref "AWS::NoValue"]
+
+  DatadogAgentlessAPICallFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: A function to call the Datadog Agentless API.
+      Role: !GetAtt LambdaExecutionRoleDatadogAgentlessAPICall.Arn
+      Handler: "index.handler"
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
+      Runtime: "python3.13"
+      Timeout: 30
+      Code:
+        ZipFile: |
+          <ZIPFILE_PLACEHOLDER>
+
+Outputs:
+  ScannerDelegateRoleArn:
+    Description: ARN of the Datadog Agentless Scanner Delegate Role
+    Value: !GetAtt 'ScannerDelegateRole.Arn'
+    Export:
+      Name: !Sub '${AWS::StackName}-DelegateRoleArn'
+
+  OrchestratorPolicyArn:
+    Description: ARN of the Orchestrator Policy
+    Value: !Ref 'ScannerDelegateRoleOrchestratorPolicy'
+    Export:
+      Name: !Sub '${AWS::StackName}-OrchestratorPolicyArn'
+
+  WorkerPolicyArn:
+    Description: ARN of the Worker Policy
+    Value: !Ref 'ScannerDelegateRoleWorkerPolicy'
+    Export:
+      Name: !Sub '${AWS::StackName}-WorkerPolicyArn'
+
+  WorkerDSPMPolicyArn:
+    Condition: DSPMEnabled
+    Description: ARN of the Worker DSPM Policy
+    Value: !Ref 'ScannerDelegateRoleWorkerDSPMPolicy'
+    Export:
+      Name: !Sub '${AWS::StackName}-WorkerDSPMPolicyArn'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Required"
+        Parameters:
+          - ScannerInstanceRoleARN
+          - ScannerDelegateRoleName
+          - DatadogAPIKey
+          - DatadogAPPKey
+          - DatadogSite
+      - Label:
+          default: "Scanning Options"
+        Parameters:
+          - AgentlessHostScanning
+          - AgentlessContainerScanning
+          - AgentlessLambdaScanning
+          - AgentlessSensitiveDataScanning
