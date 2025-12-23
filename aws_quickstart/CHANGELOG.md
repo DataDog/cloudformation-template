@@ -1,3 +1,9 @@
+# 4.3.0 (December 26, 2025)
+
+### Features
+
+- Add `main_workflow.yaml` CloudFormation template with workflow status tracking stack progression in Datadog UI launches
+
 # 4.1.6 (October 31, 2025)
 
 [Agentless] Send scanner instance policy ARN to backend to reduce first scan latency
