@@ -46,4 +46,4 @@ Use `--private` to prevent granting public access (useful for testing):
 ./release.sh <bucket_name> --private
 ```
 
-The template will be available at `s3://<bucket_name>/aws_cloud_cost_cur2/<version>/main.yaml`.
+The template will be available at `s3://<bucket_name>/aws_cloud_cost_cur2/v0.0.1/main.yaml`.
