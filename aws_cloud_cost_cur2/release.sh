@@ -60,6 +60,14 @@ cp main.yaml main.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main.yaml
 perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main.yaml
 
+# Replace ZIPFILE_PLACEHOLDER with the contents of the Python file
+perl -i -pe '
+    BEGIN { $p = do { local $/; <STDIN> } }
+    /^(\s+)<ZIPFILE_PLACEHOLDER>/ && (
+        $_ = join("\n", map { $1 . $_ } split(/\n/, $p)) . "\n"
+    )
+' main.yaml < datadog_ccm_api_call.py
+
 trap 'mv main.yaml.bak main.yaml' EXIT
 
 # Upload

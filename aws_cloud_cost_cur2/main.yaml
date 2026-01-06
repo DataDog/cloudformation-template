@@ -2,6 +2,28 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: Datadog Cloud Cost Management Setup
 Parameters:
+  DatadogApiKey:
+    Type: String
+    Description: API key for the Datadog account.
+    NoEcho: true
+    MinLength: 1
+  DatadogAppKey:
+    Type: String
+    Description: APP key for the Datadog account.
+    NoEcho: true
+    MinLength: 1
+  DatadogSite:
+    Type: String
+    Default: datadoghq.com
+    Description: Define your Datadog Site to send data to.
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ap1.datadoghq.com
+      - ap2.datadoghq.com
+      - ddog-gov.com
   CloudCostBucketName:
     Type: String
     Description: The name of the S3 bucket for storing the cost and usage reports.
@@ -146,6 +168,7 @@ Resources:
       Count: 0
 
   DDCURReportDefinition:
+    Condition: ShouldCreateCloudCostReport
     DependsOn: BucketWaitCondition
     Type: AWS::BCMDataExports::Export
     Properties:
@@ -211,14 +234,65 @@ Resources:
               TIME_GRANULARITY: "HOURLY"
         DestinationConfigurations:
           S3Destination:
-            S3Bucket: !Ref DDCloudCostBucketName
-            S3Region: !Ref DDCloudCostBucketRegion
-            S3Prefix: !Ref DDCloudCostBucketPrefix
+            S3Bucket: !Ref CloudCostBucketName
+            S3Region: !Ref CloudCostBucketRegion
+            S3Prefix: !Ref CloudCostReportPrefix
             S3OutputConfigurations:
               Compression: "PARQUET"
               Format: "PARQUET"
               Overwrite: "CREATE_NEW_REPORT"
               OutputType: "CUSTOM"
-        Name: !Ref DDCloudCostReportName
+        Name: !Ref CloudCostReportName
         RefreshCadence:
           Frequency: "SYNCHRONOUS"
+
+  # Lambda function to call Datadog API and configure CCM
+  DatadogCCMAPIHandlerLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+  DatadogCCMAPICallFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: "A function to call the Datadog API to configure CCM data export."
+      Role: !GetAtt DatadogCCMAPIHandlerLambdaExecutionRole.Arn
+      Handler: "index.handler"
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
+      Runtime: "python3.11"
+      Timeout: 30
+      Code:
+        ZipFile: |
+          <ZIPFILE_PLACEHOLDER>
+
+  DatadogCCMConfiguration:
+    Type: Custom::DatadogCCMConfiguration
+    DependsOn: DatadogCCMIAMPolicy
+    Properties:
+      ServiceToken: !GetAtt DatadogCCMAPICallFunction.Arn
+      APIKey: !Ref DatadogApiKey
+      APPKey: !Ref DatadogAppKey
+      ApiURL: !Ref DatadogSite
+      AccountId: !Ref AWS::AccountId
+      BucketName: !Ref CloudCostBucketName
+      BucketRegion: !Ref CloudCostBucketRegion
+      ReportName: !Ref CloudCostReportName
+      ReportPrefix: !Ref CloudCostReportPrefix
+
+Outputs:
+  DatadogAccountUUID:
+    Description: The Datadog AWS Integration Account UUID
+    Value: !GetAtt DatadogCCMConfiguration.AccountUUID
