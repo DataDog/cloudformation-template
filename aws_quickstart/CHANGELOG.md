@@ -1,7 +1,24 @@
-# 4.2.0 (October 24, 2025)
+# 4.4.0 (October 24, 2025)
 
 - Remove enumerated IAM permissions
 - Add Lambda function to attach IAM permissions
+
+# 4.3.0 (December 26, 2025)
+
+### Features
+
+- Add `main_workflow.yaml` CloudFormation template with workflow status tracking stack progression in Datadog UI launches
+
+# 4.1.6 (October 31, 2025)
+
+[Agentless] Send scanner instance policy ARN to backend to reduce first scan latency
+
+# 4.1.5 (October 27, 2025)
+
+Add permissions to support AWS Batch integration:
+
+- `batch:DescribeJobs`
+- `batch:ListJobs`
 
 # 4.1.4 (October 22, 2025)
 

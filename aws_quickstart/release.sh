@@ -46,19 +46,27 @@ if [ "$CONT" != "y" ]; then
   exit 1
 fi
 
-# Update bucket placeholder
-cp main_v2.yaml main_v2.yaml.bak
-perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_v2.yaml
-perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_v2.yaml
+# Create a temporary directory for processed templates
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf ${TEMP_DIR}" EXIT
 
-cp main_extended.yaml main_extended.yaml.bak
-perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_extended.yaml
-perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_extended.yaml
+# Copy all YAML files to temp directory
+cp *.yaml "${TEMP_DIR}/"
+cp datadog_agentless_api_call.py "${TEMP_DIR}/"
+
+# Change to temp directory for processing
+cd "${TEMP_DIR}"
+
+# Update placeholder
+for template in main_workflow.yaml main_v2.yaml main_extended.yaml; do
+    perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" $template
+    perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" $template
+done
 
 # Process Agentless Scanning templates
-for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml; do
+for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml; do
     # Note: unlike above, here we remove the 'v' prefix from the version
-    perl -i.bak -pe "s/<VERSION_PLACEHOLDER>/${VERSION#v}/g" "$template"
+    perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION#v}/g" "$template"
 
     # Replace ZIPFILE_PLACEHOLDER with the contents of the Python file
     perl -i -pe '
@@ -72,14 +80,7 @@ for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.
     ' "$template" < datadog_agentless_api_call.py
 done
 
-trap 'mv main_v2.yaml.bak main_v2.yaml;
-      mv main_extended.yaml.bak main_extended.yaml;
-      mv datadog_agentless_scanning.yaml.bak datadog_agentless_scanning.yaml;
-      mv datadog_agentless_delegate_role.yaml.bak datadog_agentless_delegate_role.yaml;
-      mv datadog_agentless_delegate_role_snapshot.yaml.bak datadog_agentless_delegate_role_snapshot.yaml;
-' EXIT
-
-# Upload
+# Upload from temp directory
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
     aws s3 cp . s3://${BUCKET}/aws/${VERSION} --recursive --exclude "*" --include "*.yaml"
 else
