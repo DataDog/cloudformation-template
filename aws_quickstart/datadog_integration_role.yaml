@@ -115,7 +115,7 @@ Resources:
 
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
-          API_CALL_SOURCE_HEADER_VALUE = "cfn-iam-permissions"
+          API_CALL_SOURCE_HEADER_VALUE = "cfn-quickstart"
           POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
           BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
           STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
@@ -189,7 +189,7 @@ Resources:
               
           def attach_resource_collection_permissions(iam_client, role_name):
               permission_chunks = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
-                         
+
               # Create and attach new policies
               for i, chunk in enumerate(permission_chunks):
                   # Create policy

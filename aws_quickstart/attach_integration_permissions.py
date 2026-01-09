@@ -7,7 +7,7 @@ import boto3
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
-API_CALL_SOURCE_HEADER_VALUE = "cfn-iam-permissions"
+API_CALL_SOURCE_HEADER_VALUE = "cfn-quickstart"
 POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
 BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
 STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"

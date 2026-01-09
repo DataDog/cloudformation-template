@@ -8,7 +8,7 @@ import boto3
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
-API_CALL_SOURCE_HEADER_VALUE = "cfn-quickstart"
+API_CALL_SOURCE_HEADER_VALUE = "cfn-iam-permissions"
 CHUNK_SIZE = 150  # Maximum number of IAM permissions per customer managed policy
 BASE_POLICY_PREFIX = "datadog-aws-integration-iam-permissions"
 
