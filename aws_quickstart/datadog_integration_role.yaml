@@ -116,47 +116,13 @@ Resources:
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
           API_CALL_SOURCE_HEADER_VALUE = "cfn-iam-permissions"
-          MAX_POLICY_SIZE = 6144  # Maximum characters for AWS managed policy document
           POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
           BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
           STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
-          RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection"
+          RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
 
           class DatadogAPIError(Exception):
               pass
-
-          def create_chunks(permissions):
-              """Create chunks of permissions based on character limit"""
-              chunks = []
-              current_chunk = []
-              
-              for permission in permissions:
-                  # Determine policy size if we add this permission
-                  next_chunk = current_chunk + [permission]
-                  policy = {
-                      "Version": "2012-10-17",
-                      "Statement": [
-                          {
-                              "Effect": "Allow",
-                              "Action": next_chunk,
-                              "Resource": "*"
-                          }
-                      ]
-                  }
-                  policy_size = len(json.dumps(policy, separators=(',', ':')))
-                  
-                  # If adding this permission would exceed the limit, start a new chunk
-                  if policy_size > MAX_POLICY_SIZE and current_chunk:
-                      chunks.append(current_chunk)
-                      current_chunk = [permission]
-                  else:
-                      current_chunk.append(permission)
-              
-              # Add the last chunk if it has permissions
-              if current_chunk:
-                  chunks.append(current_chunk)
-              
-              return chunks
 
           def fetch_permissions_from_datadog(api_url):
               """Fetch permissions from Datadog API"""
@@ -222,11 +188,8 @@ Resources:
               )
               
           def attach_resource_collection_permissions(iam_client, role_name):
-              permissions = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
-              permission_chunks = create_chunks(permissions)
-              
-              LOGGER.info(f"Created {len(permission_chunks)} policy chunks from {len(permissions)} permissions")
-              
+              permission_chunks = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
+                         
               # Create and attach new policies
               for i, chunk in enumerate(permission_chunks):
                   # Create policy
