@@ -1,7 +1,7 @@
-# 4.4.0 (October 24, 2025)
+# 4.4.0 (January 9, 2026)
 
-- Remove enumerated IAM permissions
-- Add Lambda function to attach IAM permissions
+- Remove all enumerated IAM permissions from the datadog_integration_role stack
+- Add Lambda function to retrieve and attach the equivalent IAM permissions at stack creation/update time
 
 # 4.3.0 (December 26, 2025)
 
