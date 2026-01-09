@@ -33,7 +33,7 @@ def fetch_permissions_from_datadog(api_url):
     return json_response["data"]["attributes"]["permissions"]
 
 def cleanup_existing_policies(iam_client, role_name, account_id, max_policies=10):
-    """Clean up existing policies"""
+    # Remove resource collection permissions
     for i in range(max_policies):
         policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{i+1}"
         policy_arn = f"arn:aws:iam::{account_id}:policy/{policy_name}"
@@ -51,14 +51,23 @@ def cleanup_existing_policies(iam_client, role_name, account_id, max_policies=10
             iam_client.delete_policy(
                 PolicyArn=policy_arn
             )
-            iam_client.delete_role_policy(
-                RoleName=role_name,
-                PolicyName=POLICY_NAME_STANDARD
-            )
         except iam_client.exceptions.NoSuchEntityException:
             pass
+        except iam_client.exceptions.DeleteConflictException:
+            LOGGER.warning(f"Policy {policy_name} still attached, skipping delete")
         except Exception as e:
-            LOGGER.error(f"Error deleting policy: {str(e)}")
+            LOGGER.error(f"Error deleting policy {policy_name}: {str(e)}")
+    
+    # Remove standard permissions
+    try:
+        iam_client.delete_role_policy(
+            RoleName=role_name,
+            PolicyName=POLICY_NAME_STANDARD
+        )
+    except iam_client.exceptions.NoSuchEntityException:
+        pass
+    except Exception as e:
+        LOGGER.error(f"Error deleting inline policy {POLICY_NAME_STANDARD}: {str(e)}")
     
 def attach_standard_permissions(iam_client, role_name):
     permissions = fetch_permissions_from_datadog(STANDARD_PERMISSIONS_API_URL)
@@ -81,7 +90,7 @@ def attach_standard_permissions(iam_client, role_name):
     
 def attach_resource_collection_permissions(iam_client, role_name):
     permission_chunks = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
-                
+
     # Create and attach new policies
     for i, chunk in enumerate(permission_chunks):
         # Create policy
