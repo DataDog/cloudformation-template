@@ -64,7 +64,7 @@ for template in main_workflow.yaml main_v2.yaml main_extended.yaml; do
 done
 
 # Process Agentless Scanning templates
-for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml; do
+for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml datadog_agentless_delegate_role_stackset.yaml; do
     # Note: unlike above, here we remove the 'v' prefix from the version
     perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION#v}/g" "$template"
 
