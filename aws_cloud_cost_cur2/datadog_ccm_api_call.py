@@ -40,8 +40,8 @@ def get_datadog_account_uuid(event):
         return None, f"Failed to get account: {e.code} - {error_body}"
 
 
-def patch_ccm_config(event, uuid):
-    """PATCH the Datadog account with CCM data export config."""
+def create_ccm_config(event, uuid):
+    """Create CCM config using the dedicated CCM config endpoint."""
     api_key = event["ResourceProperties"]["APIKey"]
     app_key = event["ResourceProperties"]["APPKey"]
     api_url = event["ResourceProperties"]["ApiURL"]
@@ -50,7 +50,7 @@ def patch_ccm_config(event, uuid):
     report_name = event["ResourceProperties"]["ReportName"]
     report_prefix = event["ResourceProperties"]["ReportPrefix"]
 
-    url = f"https://api.{api_url}/api/v2/integration/aws/accounts/{uuid}"
+    url = f"https://api.{api_url}/api/v2/integration/aws/accounts/{uuid}/ccm_config"
     headers = {
         "DD-API-KEY": api_key,
         "DD-APPLICATION-KEY": app_key,
@@ -79,8 +79,7 @@ def patch_ccm_config(event, uuid):
     }
 
     data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(url, data=data, headers=headers)
-    request.get_method = lambda: "PATCH"
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
 
     try:
         response = urllib.request.urlopen(request)
@@ -110,8 +109,8 @@ def handler(event, context):
 
         LOGGER.info(f"Found Datadog account UUID: {uuid}")
 
-        # PATCH the CCM config
-        status_code, response_data = patch_ccm_config(event, uuid)
+        # Create the CCM config using the dedicated endpoint
+        status_code, response_data = create_ccm_config(event, uuid)
 
         if status_code == 200:
             LOGGER.info("Successfully configured CCM data export")
