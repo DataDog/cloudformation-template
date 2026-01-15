@@ -1,0 +1,61 @@
+# version: <VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Integration Storage Management Permissions
+Parameters:
+  DatadogIntegrationRole:
+    Type: String
+    Description: The name of the IAM role used by the Datadog AWS integration.
+  AccountId:
+    Type: String
+    Description: The AWS account ID of the account integrated in Datadog.
+  DestinationBucketResources:
+    Type: CommaDelimitedList
+    Description: |
+      Comma-separated list of S3 bucket ARNs where Storage Management inventory reports will be stored.
+      For each destination bucket, you must include both the bucket ARN and the bucket/* ARN.
+      Example: arn:aws:s3:::my-bucket-1,arn:aws:s3:::my-bucket-1/*,arn:aws:s3:::my-bucket-2,arn:aws:s3:::my-bucket-2/*
+Rules:
+  ValidateAccountId:
+    Assertions:
+      - Assert: !Equals [!Ref AccountId, !Ref "AWS::AccountId"]
+        AssertDescription: "The AWS Account Id of the account integrated in Datadog does not match the AWS Account Id of the account where this stack will be created."
+Resources:
+  DatadogStorageManagementPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "datadog-storage-management-permissions-${AWS::StackName}"
+      Description: "Datadog Storage Management permissions for reading inventory reports"
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DatadogS3BucketInfo
+            Effect: Allow
+            Action:
+              - s3:ListAllMyBuckets
+              - s3:GetAccelerateConfiguration
+              - s3:GetAnalyticsConfiguration
+              - s3:GetBucket*
+              - s3:GetEncryptionConfiguration
+              - s3:GetInventoryConfiguration
+              - s3:GetLifecycleConfiguration
+              - s3:GetMetricsConfiguration
+              - s3:GetReplicationConfiguration
+              - s3:ListBucket
+              - s3:GetBucketLocation
+              - s3:GetBucketLogging
+              - s3:GetBucketTagging
+              - s3:PutInventoryConfiguration
+            Resource: "*"
+          - Sid: DatadogConfigureDestinationBucketPolicy
+            Effect: Allow
+            Action:
+              - s3:PutBucketPolicy
+            Resource: !Ref DestinationBucketResources
+          - Sid: DatadogReadInventoryFromDestinationBucket
+            Effect: Allow
+            Action:
+              - s3:ListBucket
+              - s3:GetObject
+            Resource: !Ref DestinationBucketResources
