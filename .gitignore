@@ -4,3 +4,6 @@
 **/.taskcat/
 **/taskcat_outputs/
 **/tmp/
+
+# Generated datacenter configuration files
+generated/

@@ -1,0 +1,95 @@
+# Centralized Datadog Datacenter Configuration
+# Single source of truth for all Datadog datacenter endpoints and AWS account IDs
+#
+# This file is used by scripts/generate_datacenter_configs.py to generate
+# CloudFormation template snippets for all datacenter-specific configuration.
+#
+# When adding a new datacenter, simply add an entry here and regenerate configs.
+
+version: 1.0
+
+datacenters:
+  - site: datadoghq.com
+    region: US
+    account_id: "464622532012"
+    endpoints:
+      api: https://api.datadoghq.com
+      logs_v1: https://aws-kinesis-http-intake.logs.datadoghq.com/v1/input
+      logs_v2: https://aws-kinesis-http-intake.logs.datadoghq.com/api/v2/logs?dd-protocol=aws-kinesis-firehose
+      metrics: https://awsmetrics-intake.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose
+      cloudplatform: https://cloudplatform-intake.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+
+  - site: datadoghq.eu
+    region: EU
+    account_id: "464622532012"
+    endpoints:
+      api: https://api.datadoghq.eu
+      logs_v1: https://aws-kinesis-http-intake.logs.datadoghq.eu/v1/input
+      logs_v2: https://aws-kinesis-http-intake.logs.datadoghq.eu/api/v2/logs?dd-protocol=aws-kinesis-firehose
+      metrics: https://awsmetrics-intake.datadoghq.eu/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose
+      cloudplatform: https://cloudplatform-intake.datadoghq.eu/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+
+  - site: us3.datadoghq.com
+    region: US3
+    account_id: "464622532012"
+    endpoints:
+      api: https://api.us3.datadoghq.com
+      logs_v2: https://aws-kinesis-http-intake.logs.us3.datadoghq.com/api/v2/logs?dd-protocol=aws-kinesis-firehose
+      metrics: https://awsmetrics-intake.us3.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose
+      cloudplatform: https://cloudplatform-intake.us3.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+
+  - site: us5.datadoghq.com
+    region: US5
+    account_id: "464622532012"
+    endpoints:
+      api: https://api.us5.datadoghq.com
+      logs_v2: https://aws-kinesis-http-intake.logs.us5.datadoghq.com/api/v2/logs?dd-protocol=aws-kinesis-firehose
+      metrics: https://awsmetrics-intake.us5.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose
+      cloudplatform: https://cloudplatform-intake.us5.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+
+  - site: ap1.datadoghq.com
+    region: AP1
+    account_id: "417141415827"
+    endpoints:
+      api: https://api.ap1.datadoghq.com
+      logs_v2: https://aws-kinesis-http-intake.logs.ap1.datadoghq.com/api/v2/logs?dd-protocol=aws-kinesis-firehose
+      metrics: https://awsmetrics-intake.ap1.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose
+      cloudplatform: https://cloudplatform-intake.ap1.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+
+  - site: ap2.datadoghq.com
+    region: AP2
+    account_id: "412381753143"
+    endpoints:
+      api: https://api.ap2.datadoghq.com
+      logs_v2: https://aws-kinesis-http-intake.logs.ap2.datadoghq.com/api/v2/logs?dd-protocol=aws-kinesis-firehose
+      metrics: https://awsmetrics-intake.ap2.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose
+      cloudplatform: https://cloudplatform-intake.ap2.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+
+  - site: prtest07.datadoghq.com
+    region: PRTEST07
+    account_id: "393946873269"
+    endpoints:
+      api: https://api.prtest07.datadoghq.com
+      logs_v2: https://aws-kinesis-http-intake.logs.prtest07.datadoghq.com/api/v2/logs?dd-protocol=aws-kinesis-firehose
+      metrics: https://awsmetrics-intake.prtest07.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose
+      cloudplatform: https://cloudplatform-intake.prtest07.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+
+  - site: ddog-gov.com
+    region: GOVCLOUD
+    account_id: "392588925713"  # Commercial Gov
+    account_id_govcloud: "065115117704"  # AWS GovCloud partition
+    endpoints:
+      api: https://api.ddog-gov.com
+      logs_v1: https://aws-kinesis-http-intake.logs.ddog-gov.com/v1/input
+      metrics: https://awsmetrics-intake.ddog-gov.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose
+      cloudplatform: https://cloudplatform-intake.ddog-gov.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+
+# Test/internal datacenters (for Datadog internal testing only)
+test_datacenters:
+  - site: datad0g.com
+    region: INTERNAL
+    account_id: "464622532012"
+    endpoints:
+      api: https://api.datad0g.com
+      logs_v1: https://aws-kinesis-http-intake.logs.datad0g.com/v1/input
+      metrics: https://awsmetrics-http-intake.datad0g.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose
