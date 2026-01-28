@@ -27,6 +27,7 @@ Parameters:
       - us5.datadoghq.com
       - ap1.datadoghq.com
       - ap2.datadoghq.com
+      - prtest07.datadoghq.com
       - ddog-gov.com
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
@@ -104,6 +105,10 @@ Conditions:
     Fn::Equals:
       - !Ref DatadogSite
       - ap2.datadoghq.com
+  IsPRTEST07:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - prtest07.datadoghq.com
   IsGov:
     Fn::Equals:
       - !Ref DatadogSite
@@ -142,12 +147,15 @@ Resources:
             - IsAP2
             - "412381753143"
             - !If
-              - IsGov
+              - IsPRTEST07
+              - "393946873269"
               - !If
-                - IsAWSGovCloud
-                - "065115117704"
-                - "392588925713"
-              - "464622532012"
+                - IsGov
+                - !If
+                  - IsAWSGovCloud
+                  - "065115117704"
+                  - "392588925713"
+                - "464622532012"
   # The Lambda function to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
   # https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring
   ForwarderStack:

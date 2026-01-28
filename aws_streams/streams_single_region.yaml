@@ -96,6 +96,8 @@ Mappings:
             Endpoint: "https://awsmetrics-intake.ap1.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "ap2.datadoghq.com":
             Endpoint: "https://awsmetrics-intake.ap2.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+        "prtest07.datadoghq.com":
+            Endpoint: "https://awsmetrics-intake.prtest07.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "datadoghq.com":
             Endpoint: "https://awsmetrics-intake.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
 Resources:
