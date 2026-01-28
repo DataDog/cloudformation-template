@@ -165,6 +165,25 @@ Rules:
                         - Ref: AgentlessSensitiveDataScanning
                         - 'true'
         AssertDescription: Agentless Scanning options require ResourceCollection, must enable ResourceCollection
+Mappings:
+  DdAccountIdBySite:
+    "datadoghq.com":
+      AccountId: "464622532012"
+    "datadoghq.eu":
+      AccountId: "464622532012"
+    "us3.datadoghq.com":
+      AccountId: "464622532012"
+    "us5.datadoghq.com":
+      AccountId: "464622532012"
+    "ap1.datadoghq.com":
+      AccountId: "417141415827"
+    "ap2.datadoghq.com":
+      AccountId: "412381753143"
+    "prtest07.datadoghq.com":
+      AccountId: "393946873269"
+    "ddog-gov.com":
+      AccountId: "392588925713"
+      AccountIdGovCloud: "065115117704"
 Conditions:
   InstallForwarder:
     Fn::Equals:
@@ -193,18 +212,6 @@ Conditions:
         - Fn::Equals:
           - !Ref AgentlessSensitiveDataScanning
           - true
-  IsAP1:
-    Fn::Equals:
-      - !Ref DatadogSite
-      - ap1.datadoghq.com
-  IsAP2:
-    Fn::Equals:
-      - !Ref DatadogSite
-      - ap2.datadoghq.com
-  IsPRTEST07:
-    Fn::Equals:
-      - !Ref DatadogSite
-      - prtest07.datadoghq.com
   IsGov:
     Fn::Equals:
       - !Ref DatadogSite
@@ -263,21 +270,12 @@ Resources:
         IAMRoleName: !Ref IAMRoleName
         ResourceCollectionPermissions: !If [ResourceCollectionPermissions, true, false]
         DdAWSAccountId: !If
-          - IsAP1
-          - "417141415827"
+          - IsGov
           - !If
-            - IsAP2
-            - "412381753143"
-            - !If
-              - IsPRTEST07
-              - "393946873269"
-              - !If
-                - IsGov
-                - !If
-                  - IsAWSGovCloud
-                  - "065115117704"
-                  - "392588925713"
-                - "464622532012"
+            - IsAWSGovCloud
+            - !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountIdGovCloud]
+            - !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountId]
+          - !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountId]
   # The Lambda function to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
   # https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring
   ForwarderStack:
