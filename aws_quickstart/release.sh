@@ -4,6 +4,66 @@
 
 set -e
 
+VERSIONS_BUCKET="datadog-opensource-asset-versions"
+VERSIONS_JSON_PATH=".quickstart/versions.json"
+
+log_info() {
+    local BLUE='\033[0;34m'
+    local RESET='\033[0m'
+
+    printf -- "%b%b%b\n" "${BLUE}" "${*}" "${RESET}" 1>&2
+}
+
+log_success() {
+    local GREEN='\033[0;32m'
+    local RESET='\033[0m'
+
+    printf -- "%b%b%b\n" "${GREEN}" "${*}" "${RESET}" 1>&2
+}
+
+log_error() {
+    local RED='\033[0;31m'
+    local RESET='\033[0m'
+
+    printf -- "%b%b%b\n" "${RED}" "${*}" "${RESET}" 1>&2
+    exit 1
+}
+
+generate_versions_json() {
+    log_info "Generating ${VERSIONS_JSON_PATH} for version ${VERSION}..."
+
+    local version_number="${VERSION#v}"
+    local release_date=$(date +%Y-%m-%d)
+
+    # Remove previous versions.json
+    mkdir -p "$(dirname "${VERSIONS_JSON_PATH}")"
+    rm -f "${VERSIONS_JSON_PATH}"
+
+    local versions_json
+    versions_json=$(jq -r -n \
+        --arg ver "${version_number}" \
+        --arg date "${release_date}" \
+        '
+        {
+            latest: {
+                version: $ver,
+                release_date: $date
+            }
+        }
+    ')
+
+    echo "${versions_json}" > "${VERSIONS_JSON_PATH}"
+    log_success "Generated ${VERSIONS_JSON_PATH}"
+}
+
+upload_versions_json() {
+    log_info "Uploading versions.json to s3://${VERSIONS_BUCKET}/quickstart/versions.json..."
+
+    aws s3 cp "${VERSIONS_JSON_PATH}" "s3://${VERSIONS_BUCKET}/quickstart/versions.json"
+
+    log_success "Uploaded versions.json to S3!"
+}
+
 # Read the S3 bucket
 if [ -z "$1" ]; then
     echo "Must specify a S3 bucket to publish the template"
@@ -89,5 +149,15 @@ else
 fi
 echo "Done uploading the template, and here is the CloudFormation quick launch URL"
 echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-integration&templateURL=https://${BUCKET}.s3.amazonaws.com/aws/${VERSION}/main_v2.yaml"
+
+# Generate and upload versions.json
+log_info "Generating and uploading versions.json for the new release..."
+
+generate_versions_json
+upload_versions_json
+
+log_success "Done generating and uploading versions.json!"
+log_info "Please verify the uploaded file:"
+log_info "\thttps://${VERSIONS_BUCKET}.s3.amazonaws.com/quickstart/versions.json"
 
 echo "Done!"
