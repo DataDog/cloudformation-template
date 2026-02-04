@@ -10,7 +10,7 @@ VERSIONS_JSON_PATH=".quickstart/versions.json"
 generate_versions_json() {
     echo "Generating ${VERSIONS_JSON_PATH} for version ${VERSION}..."
 
-    local version_number="${VERSION#v}"
+    local version_number="${VERSION}"
     local release_date=$(date +%Y-%m-%d)
 
     # Remove previous versions.json
