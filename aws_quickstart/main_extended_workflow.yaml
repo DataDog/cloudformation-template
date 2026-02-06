@@ -1,0 +1,766 @@
+# version: <VERSION_PLACEHOLDER>
+#
+# WARNING: This template is designed to be launched exclusively from the Datadog UI.
+#
+# This template requires UI-generated parameters (WorkflowId, ExternalId) and reports
+# workflow status back to Datadog. The AWS account integration is created by the Datadog
+# UI after the CloudFormation stack completes successfully.
+#
+# For manual CloudFormation launches, please use main_extended.yaml instead, which creates
+# the AWS integration directly without requiring UI coordination.
+#
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Integration (Workflow with Agentless Scanning) - Designed for Datadog UI launches only
+Parameters:
+  APIKey:
+    Description: >-
+      API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys).
+      To enable Agentless Scanning (find at https://docs.datadoghq.com/security/cloud_security_management/agentless_scanning),
+      you must use a Remote Configuration-enabled API key (find at https://docs.datadoghq.com/security/cloud_security_management/setup/agentless_scanning/)
+    Type: String
+    AllowedPattern: "([0-9a-f]{32})?"
+    NoEcho: true
+    Default: ""
+  APPKey:
+    Description: >-
+      APP key for the Datadog account (find at https://app.datadoghq.com/organization-settings/application-keys).
+      If this template was launched from the Datadog app, this key is tied to the user that launched the template,
+      and is a key specifically generated for this integration.
+    Type: String
+    AllowedPattern: "([0-9a-f]{40})?"
+    NoEcho: true
+    Default: ""
+  AWSAccountType:
+    Description: >-
+      Select the type of AWS account you are integrating with Datadog.
+      If you are integrating with a GovCloud account, select "GovCloud", otherwise select "Standard".
+    Type: String
+    Default: Standard
+    AllowedValues:
+      - Standard
+      - GovCloud
+  DatadogSite:
+    Type: String
+    Default: datadoghq.com
+    Description: Define your Datadog Site to send data to.
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ap1.datadoghq.com
+      - ap2.datadoghq.com
+      - ddog-gov.com
+  IAMRoleName:
+    Description: Customize the name of IAM role for Datadog AWS integration
+    Type: String
+    Default: DatadogIntegrationRole
+  InstallLambdaLogForwarder:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Determines whether the default configuration for the Datadog Lambda Log Forwarder is installed
+      as part of this stack. This is useful for sending logs to Datadog for use in Log Management or Cloud SIEM.
+      Customers who want to customize this setup to include specific custom tags, data scrubbing or redaction rules,
+      or send logs using AWS PrivateLink should select "no" and install this independently
+      (https://docs.datadoghq.com/serverless/libraries_integrations/forwarder/#installation).
+    Default: true
+  DisableMetricCollection:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Disabling metric collection for this account will lead to a loss in visibility into your AWS services.
+      Disable this if you only want to collect tags or resource configuration information from this AWS account,
+      and do not want to use Datadog Infrastructure Monitoring.
+    Default: false
+  DisableResourceCollection:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Disabling resource collection for this account will lead to a loss in visibility into your AWS services.
+      Disable this if you do not want to collect configuration information for the resources in this AWS account.
+    Default: false
+  CloudSecurityPostureManagement:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Add the AWS Managed SecurityAudit policy to your Datadog AWS Integration role, and enable
+      Datadog Cloud Security Posture Management (CSPM) to start performing configuration checks across your AWS account.
+      Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to
+      industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
+    Default: false
+  AgentlessHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of host vulnerabilities.
+    Default: false
+  AgentlessContainerScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of container vulnerabilities.
+    Default: false
+  AgentlessLambdaScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of Lambda vulnerabilities.
+    Default: false
+  AgentlessSensitiveDataScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Scanning of datastores (S3 buckets).
+    Default: false
+  ScannerDelegateRoleName:
+    Type: String
+    Description: The name of the role assumed by the Datadog Agentless Scanner
+    Default: DatadogAgentlessScannerDelegateRole
+  ScannerInstanceRoleARN:
+    Type: CommaDelimitedList
+    Description: >-
+      For cross-account Agentless Scanning: the ARNs of Agentless Scanner roles authorized to scan this account.
+    AllowedPattern: "|arn:aws:iam::[0-9]{12}:role/.+"
+    Default: ""
+  WorkflowId:
+    Description: >-
+      Unique identifier for this workflow instance. This is generated by the Datadog UI and used to track
+      the progress of the CloudFormation stack deployment.
+    Type: String
+  ExternalId:
+    Description: >-
+      External ID for the IAM role trust policy. This is generated by the Datadog UI and ensures
+      that only your Datadog organization can assume this role.
+    Type: String
+Rules:
+  CSPMResourceCollectionValidState:
+    Assertions:
+      - Assert:
+          Fn::Not:
+            - Fn::And:
+                - Fn::Equals:
+                    - Ref: DisableResourceCollection
+                    - 'true'
+                - Fn::Equals:
+                    - Ref: CloudSecurityPostureManagement
+                    - 'true'
+        AssertDescription: CloudSecurityPostureManagement requires ResourceCollection, must enable ResourceCollection
+  AgentlessResourceCollectionValidState:
+    Assertions:
+      - Assert:
+          Fn::Not:
+            - Fn::And:
+                - Fn::Equals:
+                    - Ref: DisableResourceCollection
+                    - 'true'
+                - Fn::Or:
+                    - Fn::Equals:
+                        - Ref: AgentlessHostScanning
+                        - 'true'
+                    - Fn::Equals:
+                        - Ref: AgentlessContainerScanning
+                        - 'true'
+                    - Fn::Equals:
+                        - Ref: AgentlessLambdaScanning
+                        - 'true'
+                    - Fn::Equals:
+                        - Ref: AgentlessSensitiveDataScanning
+                        - 'true'
+        AssertDescription: Agentless Scanning options require ResourceCollection, must enable ResourceCollection
+Conditions:
+  InstallForwarder:
+    Fn::Equals:
+      - !Ref InstallLambdaLogForwarder
+      - true
+  NoForwarder:
+    Fn::Not:
+      - Condition: InstallForwarder
+  ResourceCollectionPermissions:
+    Fn::Equals:
+      - !Ref DisableResourceCollection
+      - false
+  EnableAgentlessScanning:
+    Fn::And:
+      - Fn::Not:
+        - Fn::Equals:
+          - !Ref DatadogSite
+          - ddog-gov.com
+      - Fn::Or:
+        - Fn::Equals:
+          - !Ref AgentlessHostScanning
+          - true
+        - Fn::Equals:
+          - !Ref AgentlessContainerScanning
+          - true
+        - Fn::Equals:
+          - !Ref AgentlessLambdaScanning
+          - true
+        - Fn::Equals:
+          - !Ref AgentlessSensitiveDataScanning
+          - true
+  NoAgentlessScanning:
+    Fn::Not:
+      - Condition: EnableAgentlessScanning
+  ForwarderAndAgentless:
+    Fn::And:
+      - Condition: InstallForwarder
+      - Condition: EnableAgentlessScanning
+  ForwarderNoAgentless:
+    Fn::And:
+      - Condition: InstallForwarder
+      - Condition: NoAgentlessScanning
+  NoForwarderWithAgentless:
+    Fn::And:
+      - Condition: NoForwarder
+      - Condition: EnableAgentlessScanning
+  NoForwarderNoAgentless:
+    Fn::And:
+      - Condition: NoForwarder
+      - Condition: NoAgentlessScanning
+  IsAP1:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - ap1.datadoghq.com
+  IsAP2:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - ap2.datadoghq.com
+  IsGov:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - ddog-gov.com
+  IsAWSGovCloud:
+    Fn::Equals:
+      - !Ref AWSAccountType
+      - GovCloud
+  IsCrossAccountScanning:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Ref "ScannerInstanceRoleARN"]
+          - ""
+Resources:
+  # Workflow Status Lambda - defined once, used multiple times
+  WorkflowStatusLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+  WorkflowStatusFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "Reports workflow status to Datadog"
+      Role: !GetAtt WorkflowStatusLambdaExecutionRole.Arn
+      Handler: "index.handler"
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
+      Runtime: "python3.11"
+      Timeout: 30
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+          import cfnresponse
+
+          LOGGER = logging.getLogger()
+          LOGGER.setLevel(logging.INFO)
+
+          def send_workflow_status(workflow_id, step, status, message, api_key, app_key, api_url, metadata=None):
+              """Send workflow status to Datadog API"""
+              url = f"https://api.{api_url}/api/unstable/integration/aws/workflow/setup"
+              headers = {
+                  "DD-API-KEY": api_key,
+                  "DD-APPLICATION-KEY": app_key,
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+              }
+
+              # Build attributes - include metadata if present
+              attributes = {
+                  "status": status.lower(),
+                  "step": step,
+                  "message": message
+              }
+              if metadata:
+                  filtered_metadata = {k: v for k, v in metadata.items() if v and v != ""}
+                  if filtered_metadata:
+                      attributes["metadata"] = filtered_metadata
+
+              body = {
+                  "data": {
+                      "id": workflow_id,
+                      "type": "integration_setup_status",
+                      "attributes": attributes
+                  }
+              }
+
+              data = json.dumps(body).encode("utf-8")
+              request = Request(url, data=data, headers=headers, method="POST")
+
+              LOGGER.info(f"Sending workflow status: workflow_id={workflow_id}, step={step}, status={status}")
+
+              try:
+                  response = urlopen(request, timeout=25)
+                  response_data = response.read().decode('utf-8')
+                  LOGGER.info(f"Workflow status reported successfully: {response.getcode()}")
+                  return True
+              except HTTPError as e:
+                  error_body = e.read().decode('utf-8') if e.fp else "No error body"
+                  LOGGER.error(f"HTTP error reporting workflow status: {e.code} - {error_body}")
+                  return False
+              except Exception as e:
+                  LOGGER.error(f"Exception reporting workflow status: {str(e)}")
+                  return False
+
+          def handler(event, context):
+              """Handle Lambda event from CloudFormation"""
+              LOGGER.info(f"Received event: {event['RequestType']}")
+
+              # Handle Delete - stack is being deleted (rollback or manual deletion)
+              if event["RequestType"] == "Delete":
+                  try:
+                      workflow_id = event["ResourceProperties"]["WorkflowId"]
+                      api_key = event["ResourceProperties"]["ApiKey"]
+                      app_key = event["ResourceProperties"]["AppKey"]
+                      api_url = event["ResourceProperties"]["ApiURL"]
+
+                      # Report failed status - integration setup did not complete
+                      send_workflow_status(
+                          workflow_id=workflow_id,
+                          step="stack_deleted",
+                          status="failed",
+                          message="CloudFormation stack was deleted - integration setup did not complete",
+                          api_key=api_key,
+                          app_key=app_key,
+                          api_url=api_url,
+                          metadata={"stack_id": event['StackId']}
+                      )
+                  except Exception as e:
+                      LOGGER.error(f"Error reporting stack deletion: {str(e)}")
+
+                  # Always succeed deletion so CloudFormation can clean up
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+
+              # Ignore Update events
+              if event["RequestType"] != "Create":
+                  LOGGER.info(f"Skipping {event['RequestType']} - only reporting on Create and Delete")
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+
+              # Handle Create - report workflow progress
+              try:
+                  workflow_id = event["ResourceProperties"]["WorkflowId"]
+                  step = event["ResourceProperties"]["StepId"]
+                  status = event["ResourceProperties"]["Status"]
+                  message = event["ResourceProperties"]["Message"]
+                  api_key = event["ResourceProperties"]["ApiKey"]
+                  app_key = event["ResourceProperties"]["AppKey"]
+                  api_url = event["ResourceProperties"]["ApiURL"]
+                  metadata = event["ResourceProperties"].get("Metadata", {})
+
+                  success = send_workflow_status(
+                      workflow_id=workflow_id,
+                      step=step,
+                      status=status,
+                      message=message,
+                      api_key=api_key,
+                      app_key=app_key,
+                      api_url=api_url,
+                      metadata=metadata
+                  )
+
+                  # Always report SUCCESS to CloudFormation (don't block stack for API issues)
+                  cfnresponse.send(
+                      event,
+                      context,
+                      cfnresponse.SUCCESS,
+                      {"Message": "Workflow status reported" if success else "Failed to report status but continuing"}
+                  )
+
+              except Exception as e:
+                  LOGGER.error(f"Exception in Create handler: {str(e)}")
+                  # Don't fail the stack for workflow status issues
+                  cfnresponse.send(
+                      event,
+                      context,
+                      cfnresponse.SUCCESS,
+                      {"Message": f"Exception occurred but continuing: {str(e)}"}
+                  )
+
+  # Step 1: Notify stack started
+  NotifyStackStarted:
+    Type: Custom::WorkflowStatus
+    Properties:
+      ServiceToken: !GetAtt WorkflowStatusFunction.Arn
+      WorkflowId: !Ref WorkflowId
+      StepId: "stack_started"
+      Status: "finished"
+      Message: "CloudFormation stack deployment started"
+      ApiKey: !Ref APIKey
+      AppKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      Metadata:
+        account_id: !Ref AWS::AccountId
+        stack_id: !Ref AWS::StackId
+
+  # Step 2: Notify starting IAM role creation
+  NotifyIAMRoleCreationStarted:
+    Type: Custom::WorkflowStatus
+    DependsOn: NotifyStackStarted
+    Properties:
+      ServiceToken: !GetAtt WorkflowStatusFunction.Arn
+      WorkflowId: !Ref WorkflowId
+      StepId: "iam_role_creation"
+      Status: "in_progress"
+      Message: "Creating IAM role..."
+      ApiKey: !Ref APIKey
+      AppKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      Metadata:
+        account_id: !Ref AWS::AccountId
+        stack_id: !Ref AWS::StackId
+
+  # The IAM role for Datadog integration
+  DatadogIntegrationRoleStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: NotifyIAMRoleCreationStarted
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_role.yaml"
+      Parameters:
+        ExternalId: !Ref ExternalId
+        IAMRoleName: !Ref IAMRoleName
+        ResourceCollectionPermissions: !If [ResourceCollectionPermissions, true, false]
+        DdAWSAccountId: !If
+          - IsAP1
+          - "417141415827"
+          - !If
+            - IsAP2
+            - "412381753143"
+            - !If
+              - IsGov
+              - !If
+                - IsAWSGovCloud
+                - "065115117704"
+                - "392588925713"
+              - "464622532012"
+
+  # Step 3: Notify IAM role creation finished
+  NotifyIAMRoleCreationFinished:
+    Type: Custom::WorkflowStatus
+    DependsOn: DatadogIntegrationRoleStack
+    Properties:
+      ServiceToken: !GetAtt WorkflowStatusFunction.Arn
+      WorkflowId: !Ref WorkflowId
+      StepId: "iam_role_creation"
+      Status: "finished"
+      Message: "IAM role created successfully"
+      ApiKey: !Ref APIKey
+      AppKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      Metadata:
+        account_id: !Ref AWS::AccountId
+        stack_id: !Ref AWS::StackId
+
+  # Step 4: Notify starting log forwarder creation (if installing)
+  NotifyLogForwarderCreationStarted:
+    Type: Custom::WorkflowStatus
+    Condition: InstallForwarder
+    DependsOn: NotifyIAMRoleCreationFinished
+    Properties:
+      ServiceToken: !GetAtt WorkflowStatusFunction.Arn
+      WorkflowId: !Ref WorkflowId
+      StepId: "log_forwarder_creation"
+      Status: "in_progress"
+      Message: "Creating Lambda log forwarder..."
+      ApiKey: !Ref APIKey
+      AppKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      Metadata:
+        account_id: !Ref AWS::AccountId
+        stack_id: !Ref AWS::StackId
+
+  # The Lambda function to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
+  # https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring
+  ForwarderStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: InstallForwarder
+    DependsOn: NotifyLogForwarderCreationStarted
+    Properties:
+      TemplateURL: "https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/latest.yaml"
+      Parameters:
+        DdApiKey: !Ref APIKey
+        DdSite: !Ref DatadogSite
+
+  # Step 5: Notify log forwarder creation finished (if installed)
+  NotifyLogForwarderCreationFinished:
+    Type: Custom::WorkflowStatus
+    Condition: InstallForwarder
+    Properties:
+      ServiceToken: !GetAtt WorkflowStatusFunction.Arn
+      WorkflowId: !Ref WorkflowId
+      StepId: "log_forwarder_creation"
+      Status: "finished"
+      Message: "Lambda log forwarder created successfully"
+      ApiKey: !Ref APIKey
+      AppKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      Metadata:
+        account_id: !Ref AWS::AccountId
+        stack_id: !Ref AWS::StackId
+        forwarder_arn: !GetAtt ForwarderStack.Outputs.DatadogForwarderArn
+
+  # Step 6: Notify starting agentless scanning setup (if enabling)
+  NotifyAgentlessScanningStarted:
+    Type: Custom::WorkflowStatus
+    Condition: EnableAgentlessScanning
+    DependsOn: NotifyIAMRoleCreationFinished
+    Properties:
+      ServiceToken: !GetAtt WorkflowStatusFunction.Arn
+      WorkflowId: !Ref WorkflowId
+      StepId: "agentless_scanning_setup"
+      Status: "in_progress"
+      Message: "Setting up Agentless Scanning..."
+      ApiKey: !Ref APIKey
+      AppKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      Metadata:
+        account_id: !Ref AWS::AccountId
+        stack_id: !Ref AWS::StackId
+
+  # Agentless Scanning setup
+  DatadogAgentlessScanning:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - DatadogIntegrationRoleStack
+      - NotifyAgentlessScanningStarted
+    Condition: EnableAgentlessScanning
+    Properties:
+      TemplateURL: !If
+        - IsCrossAccountScanning
+        - 'https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agentless_delegate_role.yaml'
+        - 'https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agentless_scanning.yaml'
+      Parameters:
+        DatadogAPIKey: !Ref APIKey
+        DatadogAPPKey: !Ref APPKey
+        DatadogSite: !Ref DatadogSite
+        AccountId: !Ref AWS::AccountId
+        AgentlessHostScanning: !Ref AgentlessHostScanning
+        AgentlessContainerScanning: !Ref AgentlessContainerScanning
+        AgentlessLambdaScanning: !Ref AgentlessLambdaScanning
+        AgentlessSensitiveDataScanning: !Ref AgentlessSensitiveDataScanning
+        ScannerDelegateRoleName: !Ref ScannerDelegateRoleName
+        ScannerInstanceRoleARN: !If [IsCrossAccountScanning, !Join [",", !Ref "ScannerInstanceRoleARN"], !Ref "AWS::NoValue"]
+        DatadogIntegrationRoleName: !If [IsCrossAccountScanning, !Ref "AWS::NoValue", !Ref "IAMRoleName"]
+
+  # Step 7: Notify agentless scanning setup finished (if enabled)
+  NotifyAgentlessScanningFinished:
+    Type: Custom::WorkflowStatus
+    Condition: EnableAgentlessScanning
+    DependsOn: DatadogAgentlessScanning
+    Properties:
+      ServiceToken: !GetAtt WorkflowStatusFunction.Arn
+      WorkflowId: !Ref WorkflowId
+      StepId: "agentless_scanning_setup"
+      Status: "finished"
+      Message: "Agentless Scanning setup completed successfully"
+      ApiKey: !Ref APIKey
+      AppKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      Metadata:
+        account_id: !Ref AWS::AccountId
+        stack_id: !Ref AWS::StackId
+
+  # Step 8: Final notification - stack complete (with forwarder and agentless)
+  NotifyStackCompleteForwarderAndAgentless:
+    Type: Custom::WorkflowStatus
+    Condition: ForwarderAndAgentless
+    DependsOn:
+      - DatadogIntegrationRoleStack
+      - NotifyIAMRoleCreationStarted
+      - NotifyIAMRoleCreationFinished
+      - NotifyLogForwarderCreationStarted
+      - ForwarderStack
+      - NotifyLogForwarderCreationFinished
+      - NotifyAgentlessScanningStarted
+      - DatadogAgentlessScanning
+      - NotifyAgentlessScanningFinished
+    Properties:
+      ServiceToken: !GetAtt WorkflowStatusFunction.Arn
+      WorkflowId: !Ref WorkflowId
+      StepId: "stack_complete"
+      Status: "finished"
+      Message: "CloudFormation stack deployment completed successfully"
+      ApiKey: !Ref APIKey
+      AppKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      Metadata:
+        account_id: !Ref AWS::AccountId
+        stack_id: !Ref AWS::StackId
+
+  # Step 8: Final notification - stack complete (with forwarder, no agentless)
+  NotifyStackCompleteForwarderNoAgentless:
+    Type: Custom::WorkflowStatus
+    Condition: ForwarderNoAgentless
+    DependsOn:
+      - DatadogIntegrationRoleStack
+      - NotifyIAMRoleCreationStarted
+      - NotifyIAMRoleCreationFinished
+      - NotifyLogForwarderCreationStarted
+      - ForwarderStack
+      - NotifyLogForwarderCreationFinished
+    Properties:
+      ServiceToken: !GetAtt WorkflowStatusFunction.Arn
+      WorkflowId: !Ref WorkflowId
+      StepId: "stack_complete"
+      Status: "finished"
+      Message: "CloudFormation stack deployment completed successfully"
+      ApiKey: !Ref APIKey
+      AppKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      Metadata:
+        account_id: !Ref AWS::AccountId
+        stack_id: !Ref AWS::StackId
+
+  # Step 8: Final notification - stack complete (no forwarder, with agentless)
+  NotifyStackCompleteNoForwarderWithAgentless:
+    Type: Custom::WorkflowStatus
+    Condition: NoForwarderWithAgentless
+    DependsOn:
+      - DatadogIntegrationRoleStack
+      - NotifyIAMRoleCreationStarted
+      - NotifyIAMRoleCreationFinished
+      - NotifyAgentlessScanningStarted
+      - DatadogAgentlessScanning
+      - NotifyAgentlessScanningFinished
+    Properties:
+      ServiceToken: !GetAtt WorkflowStatusFunction.Arn
+      WorkflowId: !Ref WorkflowId
+      StepId: "stack_complete"
+      Status: "finished"
+      Message: "CloudFormation stack deployment completed successfully"
+      ApiKey: !Ref APIKey
+      AppKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      Metadata:
+        account_id: !Ref AWS::AccountId
+        stack_id: !Ref AWS::StackId
+
+  # Step 8: Final notification - stack complete (no forwarder, no agentless)
+  NotifyStackCompleteNoForwarderNoAgentless:
+    Type: Custom::WorkflowStatus
+    Condition: NoForwarderNoAgentless
+    DependsOn:
+      - DatadogIntegrationRoleStack
+      - NotifyIAMRoleCreationStarted
+      - NotifyIAMRoleCreationFinished
+    Properties:
+      ServiceToken: !GetAtt WorkflowStatusFunction.Arn
+      WorkflowId: !Ref WorkflowId
+      StepId: "stack_complete"
+      Status: "finished"
+      Message: "CloudFormation stack deployment completed successfully"
+      ApiKey: !Ref APIKey
+      AppKey: !Ref APPKey
+      ApiURL: !Ref DatadogSite
+      Metadata:
+        account_id: !Ref AWS::AccountId
+        stack_id: !Ref AWS::StackId
+
+Outputs:
+  IAMRoleName:
+    Description: AWS IAM Role named to be used with the DataDog AWS Integration
+    Value: !Ref IAMRoleName
+  AccountId:
+    Description: AWS Account number
+    Value: !Ref "AWS::AccountId"
+  Region:
+    Description: AWS Region
+    Value: !Ref "AWS::Region"
+  DatadogForwarderArn:
+    Description: Datadog Forwarder Lambda Function ARN
+    Condition: InstallForwarder
+    Value:
+      Fn::GetAtt:
+        - ForwarderStack
+        - Outputs.DatadogForwarderArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-DatadogForwarderArn
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Required
+      Parameters:
+        - APIKey
+        - APPKey
+        - DatadogSite
+        - WorkflowId
+        - ExternalId
+        - InstallLambdaLogForwarder
+        - CloudSecurityPostureManagement
+        - AgentlessHostScanning
+        - AgentlessContainerScanning
+        - AgentlessLambdaScanning
+        - AgentlessSensitiveDataScanning
+    - Label:
+        default: Advanced
+      Parameters:
+        - IAMRoleName
+        - ScannerDelegateRoleName
+        - ScannerInstanceRoleARN
+        - DisableMetricCollection
+    ParameterLabels:
+      APIKey:
+        default: "DatadogApiKey *"
+      APPKey:
+        default: "DatadogAppKey *"
+      DatadogSite:
+        default: "DatadogSite *"
+      WorkflowId:
+        default: "WorkflowId *"
+      ExternalId:
+        default: "ExternalId *"
+      CloudSecurityPostureManagement:
+        default: "CloudSecurityPostureManagement *"
+      AgentlessHostScanning:
+        default: "AgentlessHostScanning *"
+      AgentlessContainerScanning:
+        default: "AgentlessContainerScanning *"
+      AgentlessLambdaScanning:
+        default: "AgentlessLambdaScanning *"
+      AgentlessSensitiveDataScanning:
+        default: "AgentlessSensitiveDataScanning *"
+      InstallLambdaLogForwarder:
+        default: "InstallLambdaLogForwarder *"
