@@ -109,7 +109,8 @@ Resources:
           import json
           import logging
           from urllib.request import Request
-          import urllib
+          import urllib.error
+          import urllib.request
           import cfnresponse
           import boto3
 
@@ -132,12 +133,14 @@ Resources:
               request = Request(api_url, headers=headers)
               request.get_method = lambda: "GET"
               
-              response = urllib.request.urlopen(request)
+              try:
+                  response = urllib.request.urlopen(request)
+              except urllib.error.HTTPError as e:
+                  error_body = json.loads(e.read())
+                  error_message = error_body.get('errors', ['Unknown error'])[0]
+                  raise DatadogAPIError(f"Datadog API error: {error_message}") from e
+
               json_response = json.loads(response.read())
-              if response.getcode() != 200:
-                  error_message = json_response.get('errors', ['Unknown error'])[0]
-                  raise DatadogAPIError(f"Datadog API error: {error_message}")
-              
               return json_response["data"]["attributes"]["permissions"]
 
           def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
