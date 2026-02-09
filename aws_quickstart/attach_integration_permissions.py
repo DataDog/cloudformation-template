@@ -32,11 +32,11 @@ def fetch_permissions_from_datadog(api_url):
     
     return json_response["data"]["attributes"]["permissions"]
 
-def cleanup_existing_policies(iam_client, role_name, account_id, max_policies=10):
+def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
     # Remove resource collection permissions
     for i in range(max_policies):
         policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{i+1}"
-        policy_arn = f"arn:aws:iam::{account_id}:policy/{policy_name}"
+        policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
         try:
             iam_client.detach_role_policy(
                 RoleName=role_name,
@@ -119,21 +119,21 @@ def attach_resource_collection_permissions(iam_client, role_name):
             PolicyArn=policy['Policy']['Arn']
         )
 
-def handle_delete(event, context, role_name, account_id):
+def handle_delete(event, context, role_name, account_id, partition):
     """Handle stack deletion."""
     iam_client = boto3.client('iam')
     try:
-        cleanup_existing_policies(iam_client, role_name, account_id)
+        cleanup_existing_policies(iam_client, role_name, account_id, partition)
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
         LOGGER.error(f"Error deleting policy: {str(e)}")
         cfnresponse.send(event, context, cfnresponse.FAILED, responseData={"Message": str(e)})
 
-def handle_create_update(event, context, role_name, account_id, should_install_security_audit_policy):
+def handle_create_update(event, context, role_name, account_id, partition, should_install_security_audit_policy):
     """Handle stack creation or update."""
     try:
         iam_client = boto3.client('iam')
-        cleanup_existing_policies(iam_client, role_name, account_id)
+        cleanup_existing_policies(iam_client, role_name, account_id, partition)
         attach_standard_permissions(iam_client, role_name)
         if should_install_security_audit_policy:
             attach_resource_collection_permissions(iam_client, role_name)
@@ -147,9 +147,10 @@ def handler(event, context):
     
     role_name = event['ResourceProperties']['DatadogIntegrationRole']
     account_id = event['ResourceProperties']['AccountId']
+    partition = event['ResourceProperties'].get('Partition', 'aws')
     should_install_security_audit_policy = str(event['ResourceProperties']['ResourceCollectionPermissions']).lower() == 'true'
-    
+
     if event['RequestType'] == 'Delete':
-        handle_delete(event, context, role_name, account_id)
+        handle_delete(event, context, role_name, account_id, partition)
     else:
-        handle_create_update(event, context, role_name, account_id, should_install_security_audit_policy)
+        handle_create_update(event, context, role_name, account_id, partition, should_install_security_audit_policy)
