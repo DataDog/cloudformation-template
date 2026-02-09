@@ -90,8 +90,8 @@ Resources:
                   - iam:DetachRolePolicy
                   - iam:PutRolePolicy
                 Resource: 
-                  - !Sub arn:aws:iam::${AWS::AccountId}:role/${IAMRoleName}
-                  - !Sub arn:aws:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${IAMRoleName}
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*
                   - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
   DatadogAttachIntegrationPermissionsFunction:
     Type: AWS::Lambda::Function
@@ -140,11 +140,11 @@ Resources:
               
               return json_response["data"]["attributes"]["permissions"]
 
-          def cleanup_existing_policies(iam_client, role_name, account_id, max_policies=10):
+          def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
               # Remove resource collection permissions
               for i in range(max_policies):
                   policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{i+1}"
-                  policy_arn = f"arn:aws:iam::{account_id}:policy/{policy_name}"
+                  policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
                   try:
                       iam_client.detach_role_policy(
                           RoleName=role_name,
@@ -227,21 +227,21 @@ Resources:
                       PolicyArn=policy['Policy']['Arn']
                   )
 
-          def handle_delete(event, context, role_name, account_id):
+          def handle_delete(event, context, role_name, account_id, partition):
               """Handle stack deletion."""
               iam_client = boto3.client('iam')
               try:
-                  cleanup_existing_policies(iam_client, role_name, account_id)
+                  cleanup_existing_policies(iam_client, role_name, account_id, partition)
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
               except Exception as e:
                   LOGGER.error(f"Error deleting policy: {str(e)}")
                   cfnresponse.send(event, context, cfnresponse.FAILED, responseData={"Message": str(e)})
 
-          def handle_create_update(event, context, role_name, account_id, should_install_security_audit_policy):
+          def handle_create_update(event, context, role_name, account_id, partition, should_install_security_audit_policy):
               """Handle stack creation or update."""
               try:
                   iam_client = boto3.client('iam')
-                  cleanup_existing_policies(iam_client, role_name, account_id)
+                  cleanup_existing_policies(iam_client, role_name, account_id, partition)
                   attach_standard_permissions(iam_client, role_name)
                   if should_install_security_audit_policy:
                       attach_resource_collection_permissions(iam_client, role_name)
@@ -255,18 +255,21 @@ Resources:
               
               role_name = event['ResourceProperties']['DatadogIntegrationRole']
               account_id = event['ResourceProperties']['AccountId']
+              partition = event['ResourceProperties'].get('Partition', 'aws')
               should_install_security_audit_policy = str(event['ResourceProperties']['ResourceCollectionPermissions']).lower() == 'true'
-              
+
               if event['RequestType'] == 'Delete':
-                  handle_delete(event, context, role_name, account_id)
+                  handle_delete(event, context, role_name, account_id, partition)
               else:
-                  handle_create_update(event, context, role_name, account_id, should_install_security_audit_policy)
+                  handle_create_update(event, context, role_name, account_id, partition, should_install_security_audit_policy)
   DatadogAttachIntegrationPermissionsFunctionTrigger:
     Type: Custom::DatadogAttachIntegrationPermissionsFunctionTrigger
+    DependsOn: DatadogIntegrationRole
     Properties:
       ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
       DatadogIntegrationRole: !Ref IAMRoleName
       AccountId: !Ref AWS::AccountId
+      Partition: !Sub "${AWS::Partition}"
       ResourceCollectionPermissions: !Ref ResourceCollectionPermissions
 Metadata:
   AWS::CloudFormation::Interface:
