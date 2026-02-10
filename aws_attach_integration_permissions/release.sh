@@ -4,7 +4,7 @@
 
 set -e
 
-VERSIONS_BUCKET="datadog-opensource-asset-versions-test2"
+VERSIONS_BUCKET="datadog-opensource-asset-versions"
 VERSIONS_JSON_PATH=".attach_integration_permissions/versions.json"
 
 generate_versions_json() {
