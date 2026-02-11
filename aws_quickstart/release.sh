@@ -96,7 +96,7 @@ cp datadog_agentless_api_call.py "${TEMP_DIR}/"
 cd "${TEMP_DIR}"
 
 # Update placeholder
-for template in main_workflow.yaml main_v2.yaml main_extended.yaml; do
+for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main_extended.yaml; do
     perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" $template
     perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" $template
 done
