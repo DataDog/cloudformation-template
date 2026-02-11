@@ -1,3 +1,11 @@
+# 4.5.1 (February 11, 2026)
+
+- Scope IAM policy names to role name to prevent `EntityAlreadyExists` errors on stack re-creation
+
+# 4.5.0 (February 11, 2026)
+
+- Add `main_extended_workflow.yaml` CloudFormation template for CSM onboarding with workflow status reporting
+
 # 4.4.0 (February 9, 2026)
 
 - Remove all enumerated IAM permissions from the datadog_integration_role stack
