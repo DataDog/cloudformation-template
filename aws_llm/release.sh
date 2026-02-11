@@ -4,6 +4,43 @@
 
 set -e
 
+VERSIONS_BUCKET="datadog-opensource-asset-versions"
+VERSIONS_JSON_PATH=".llm_obs/versions.json"
+
+generate_versions_json() {
+    echo "Generating ${VERSIONS_JSON_PATH} for version ${VERSION}..."
+
+    local version_number="${VERSION}"
+    local release_date=$(date +%Y-%m-%d)
+
+    mkdir -p "$(dirname "${VERSIONS_JSON_PATH}")"
+    rm -f "${VERSIONS_JSON_PATH}"
+
+    local versions_json
+    versions_json=$(jq -r -n \
+        --arg ver "${version_number}" \
+        --arg date "${release_date}" \
+        '
+        {
+            latest: {
+                version: $ver,
+                release_date: $date
+            }
+        }
+    ')
+
+    echo "${versions_json}" > "${VERSIONS_JSON_PATH}"
+    echo "Generated ${VERSIONS_JSON_PATH}"
+}
+
+upload_versions_json() {
+    echo "Uploading versions.json to s3://${VERSIONS_BUCKET}/llm_obs/versions.json..."
+
+    aws s3 cp "${VERSIONS_JSON_PATH}" "s3://${VERSIONS_BUCKET}/llm_obs/versions.json"
+
+    echo "Uploaded versions.json to S3!"
+}
+
 # Read the S3 bucket
 if [ -z "$1" ]; then
     echo "Must specify a S3 bucket to publish the template"
@@ -62,5 +99,15 @@ else
 fi
 echo "Done uploading the template, and here is the CloudFormation quick launch URL"
 echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-integration&templateURL=https://${BUCKET}.s3.amazonaws.com/aws_llm/${VERSION}/main.yaml"
+
+# Generate and upload versions.json
+echo "Generating and uploading versions.json for the new release..."
+
+generate_versions_json
+upload_versions_json
+
+echo "Done generating and uploading versions.json!"
+echo "Please verify the uploaded file:"
+echo "\thttps://${VERSIONS_BUCKET}.s3.amazonaws.com/llm_obs/versions.json"
 
 echo "Done!"
