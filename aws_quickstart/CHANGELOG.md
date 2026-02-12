@@ -4,7 +4,7 @@
 
 # 4.5.0 (February 11, 2026)
 
-- Add `main_extended_workflow.yaml` CloudFormation template for CSM onboarding with workflow status reporting
+- Add `main_extended_workflow.yaml` CloudFormation template for full AWS Integration onboarding with workflow status reporting including Cloud Security product configuration.
 
 # 4.4.0 (February 9, 2026)
 
