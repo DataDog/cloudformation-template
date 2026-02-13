@@ -16,7 +16,7 @@ Parameters:
 
   DatadogAPPKey:
     Type: String
-    AllowedPattern: "[0-9a-f]{40}"
+    AllowedPattern: "([0-9a-f]{40})|(ddapp_[a-zA-Z0-9]{34})"
     Description: Application key for the Datadog account
     NoEcho: true
 
