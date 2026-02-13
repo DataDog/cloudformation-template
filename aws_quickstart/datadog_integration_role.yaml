@@ -143,31 +143,30 @@ Resources:
               json_response = json.loads(response.read())
               return json_response["data"]["attributes"]["permissions"]
 
-          def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
-              # Remove resource collection permissions
-              for i in range(max_policies):
-                  policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{i+1}"
-                  policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
-                  try:
-                      iam_client.detach_role_policy(
-                          RoleName=role_name,
-                          PolicyArn=policy_arn
-                      )
-                  except iam_client.exceptions.NoSuchEntityException:
-                      pass
-                  except Exception as e:
-                      LOGGER.error(f"Error detaching policy {policy_name}: {str(e)}")
+          def _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name):
+              """Detach a managed policy from a role and delete it. Ignores missing entities."""
+              try:
+                  iam_client.detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+              except iam_client.exceptions.NoSuchEntityException:
+                  pass
+              except Exception as e:
+                  LOGGER.error(f"Error detaching policy {policy_name}: {str(e)}")
 
-                  try:
-                      iam_client.delete_policy(
-                          PolicyArn=policy_arn
-                      )
-                  except iam_client.exceptions.NoSuchEntityException:
-                      pass
-                  except iam_client.exceptions.DeleteConflictException:
-                      LOGGER.warning(f"Policy {policy_name} still attached, skipping delete")
-                  except Exception as e:
-                      LOGGER.error(f"Error deleting policy {policy_name}: {str(e)}")
+              try:
+                  iam_client.delete_policy(PolicyArn=policy_arn)
+              except iam_client.exceptions.NoSuchEntityException:
+                  pass
+              except iam_client.exceptions.DeleteConflictException:
+                  LOGGER.warning(f"Policy {policy_name} still attached, skipping delete")
+              except Exception as e:
+                  LOGGER.error(f"Error deleting policy {policy_name}: {str(e)}")
+
+          def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
+              # Remove role-scoped resource collection policies
+              for i in range(max_policies):
+                  policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{role_name}-{i+1}"
+                  policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
+                  _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name)
               
               # Remove standard permissions
               try:
@@ -204,8 +203,7 @@ Resources:
 
               # Create and attach new policies
               for i, chunk in enumerate(permission_chunks):
-                  # Create policy
-                  policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{i+1}"
+                  policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{role_name}-{i+1}"
                   policy_document = {
                       "Version": "2012-10-17",
                       "Statement": [
