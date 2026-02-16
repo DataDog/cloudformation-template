@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 from datadog_agentless_api_call import (
     call_datadog_agentless_api,
     is_agentless_scanning_enabled,
+    ensure_security_audit_policy,
 )
 
 
@@ -244,6 +245,94 @@ class TestIsAgentlessScanningEnabled(unittest.TestCase):
 
         with self.assertRaises(HTTPError):
             is_agentless_scanning_enabled(self.url, self.headers)
+
+
+class TestEnsureSecurityAuditPolicy(unittest.TestCase):
+    """Test cases for ensure_security_audit_policy function"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.role_name = "DatadogIntegrationRole"
+        self.partition = "aws"
+        self.policy_arn = "arn:aws:iam::aws:policy/SecurityAudit"
+
+    @patch("datadog_agentless_api_call.boto3.client")
+    def test_policy_already_attached(self, mock_boto3_client):
+        """Test that function skips attachment when SecurityAudit is already attached"""
+        mock_iam = Mock()
+        mock_boto3_client.return_value = mock_iam
+        mock_paginator = Mock()
+        mock_iam.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [
+            {
+                "AttachedPolicies": [
+                    {"PolicyName": "SecurityAudit", "PolicyArn": self.policy_arn},
+                ]
+            }
+        ]
+
+        ensure_security_audit_policy(self.role_name, self.partition)
+
+        mock_iam.attach_role_policy.assert_not_called()
+
+    @patch("datadog_agentless_api_call.boto3.client")
+    def test_policy_not_attached(self, mock_boto3_client):
+        """Test that function attaches SecurityAudit when it is not present"""
+        mock_iam = Mock()
+        mock_boto3_client.return_value = mock_iam
+        mock_paginator = Mock()
+        mock_iam.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [
+            {
+                "AttachedPolicies": [
+                    {"PolicyName": "OtherPolicy", "PolicyArn": "arn:aws:iam::aws:policy/OtherPolicy"},
+                ]
+            }
+        ]
+
+        ensure_security_audit_policy(self.role_name, self.partition)
+
+        mock_iam.attach_role_policy.assert_called_once_with(
+            RoleName=self.role_name,
+            PolicyArn=self.policy_arn,
+        )
+
+    @patch("datadog_agentless_api_call.boto3.client")
+    def test_empty_role_name_skips(self, mock_boto3_client):
+        """Test that function skips when role name is empty"""
+        ensure_security_audit_policy("", self.partition)
+
+        mock_boto3_client.assert_not_called()
+
+    @patch("datadog_agentless_api_call.boto3.client")
+    def test_error_propagates(self, mock_boto3_client):
+        """Test that IAM errors propagate to the caller"""
+        mock_iam = Mock()
+        mock_boto3_client.return_value = mock_iam
+        mock_paginator = Mock()
+        mock_iam.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.side_effect = Exception("IAM error")
+
+        with self.assertRaises(Exception):
+            ensure_security_audit_policy(self.role_name, self.partition)
+
+    @patch("datadog_agentless_api_call.boto3.client")
+    def test_govcloud_partition(self, mock_boto3_client):
+        """Test that function uses the correct partition for GovCloud"""
+        mock_iam = Mock()
+        mock_boto3_client.return_value = mock_iam
+        mock_paginator = Mock()
+        mock_iam.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [
+            {"AttachedPolicies": []}
+        ]
+
+        ensure_security_audit_policy(self.role_name, "aws-us-gov")
+
+        mock_iam.attach_role_policy.assert_called_once_with(
+            RoleName=self.role_name,
+            PolicyArn="arn:aws-us-gov:iam::aws:policy/SecurityAudit",
+        )
 
 
 if __name__ == "__main__":
