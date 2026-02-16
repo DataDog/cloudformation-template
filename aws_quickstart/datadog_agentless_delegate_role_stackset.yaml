@@ -52,10 +52,19 @@ Parameters:
     Description: Enable Agentless Scanning of datastores (S3 buckets).
     Default: false
 
+  DatadogIntegrationRoleName:
+    Type: String
+    Description: The name of IAM role used by the Datadog AWS integration. If provided, the SecurityAudit policy will be attached to this role.
+    Default: ''
+
 Conditions:
   DSPMEnabled: !Equals
     - !Ref 'AgentlessSensitiveDataScanning'
     - 'true'
+  AttachSecurityAuditPolicy: !Not
+    - !Equals
+      - !Ref 'DatadogIntegrationRoleName'
+      - ''
 
 Resources:
   ScannerDelegateRoleOrchestratorPolicy:
@@ -281,6 +290,28 @@ Resources:
       ManagedPolicyArns:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 
+  SecurityAuditPolicyAttachmentPermissions:
+    Type: AWS::IAM::RolePolicy
+    Condition: AttachSecurityAuditPolicy
+    Properties:
+      RoleName: !Ref LambdaExecutionRoleDatadogAgentlessAPICall
+      PolicyName: SecurityAuditPolicyAttachmentPermissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - iam:ListAttachedRolePolicies
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DatadogIntegrationRoleName}"
+          - Effect: Allow
+            Action:
+              - iam:AttachRolePolicy
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DatadogIntegrationRoleName}"
+            Condition:
+              ArnEquals:
+                'iam:PolicyARN':
+                  - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
+
   DatadogAgentlessAPICall:
     Type: "Custom::DatadogAgentlessAPICall"
     Properties:
@@ -294,6 +325,8 @@ Resources:
       Containers: !Ref "AgentlessVulnerabilityScanning"
       Lambdas: !Ref "AgentlessVulnerabilityScanning"
       SensitiveData: !Ref "AgentlessSensitiveDataScanning"
+      IntegrationRoleName: !Ref "DatadogIntegrationRoleName"
+      Partition: !Ref "AWS::Partition"
       # Optional parameters
       DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
       OrchestratorPolicyArn: !Ref "ScannerDelegateRoleOrchestratorPolicy"
@@ -352,6 +385,7 @@ Metadata:
           - DatadogAPIKey
           - DatadogAPPKey
           - DatadogSite
+          - DatadogIntegrationRoleName
       - Label:
           default: "Scanning Options"
         Parameters:

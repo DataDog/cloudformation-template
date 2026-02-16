@@ -6,6 +6,8 @@ import signal
 from urllib.request import build_opener, HTTPHandler, HTTPError, Request
 import urllib.parse
 
+import boto3
+
 LOGGER = logging.getLogger()
 
 
@@ -112,11 +114,34 @@ def is_agentless_scanning_enabled(url_account, headers):
     return True
 
 
+def ensure_security_audit_policy(role_name, partition):
+    """Ensure the SecurityAudit policy is attached to the integration role."""
+    if not role_name:
+        LOGGER.info("No integration role name provided, skipping SecurityAudit policy attachment.")
+        return
+
+    policy_arn = f"arn:{partition}:iam::aws:policy/SecurityAudit"
+    iam = boto3.client("iam")
+
+    paginator = iam.get_paginator("list_attached_role_policies")
+    for page in paginator.paginate(RoleName=role_name):
+        for policy in page["AttachedPolicies"]:
+            if policy["PolicyArn"] == policy_arn:
+                LOGGER.info("SecurityAudit policy is already attached to role %s.", role_name)
+                return
+
+    LOGGER.info("Attaching SecurityAudit policy to role %s.", role_name)
+    iam.attach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+
+
 def handler(event, context):
     """Handle Lambda event from AWS"""
     try:
         if event["RequestType"] == "Create":
             LOGGER.info("Received Create request.")
+            role_name = event["ResourceProperties"].get("IntegrationRoleName", "")
+            partition = event["ResourceProperties"].get("Partition", "aws")
+            ensure_security_audit_policy(role_name, partition)
             response = call_datadog_agentless_api(context, event, "POST")
             send_response(
                 event,
