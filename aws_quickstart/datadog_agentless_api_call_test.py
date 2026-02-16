@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 
 import json
+import sys
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, MagicMock
 from urllib.error import HTTPError
+
+# boto3 is available in Lambda runtime but not necessarily in CI.
+# Insert a mock module so the lazy import inside ensure_security_audit_policy works.
+if "boto3" not in sys.modules:
+    sys.modules["boto3"] = MagicMock()
 
 # Import the functions to test
 from datadog_agentless_api_call import (
@@ -256,7 +262,7 @@ class TestEnsureSecurityAuditPolicy(unittest.TestCase):
         self.partition = "aws"
         self.policy_arn = "arn:aws:iam::aws:policy/SecurityAudit"
 
-    @patch("datadog_agentless_api_call.boto3.client")
+    @patch("boto3.client")
     def test_policy_already_attached(self, mock_boto3_client):
         """Test that function skips attachment when SecurityAudit is already attached"""
         mock_iam = Mock()
@@ -275,7 +281,7 @@ class TestEnsureSecurityAuditPolicy(unittest.TestCase):
 
         mock_iam.attach_role_policy.assert_not_called()
 
-    @patch("datadog_agentless_api_call.boto3.client")
+    @patch("boto3.client")
     def test_policy_not_attached(self, mock_boto3_client):
         """Test that function attaches SecurityAudit when it is not present"""
         mock_iam = Mock()
@@ -297,14 +303,14 @@ class TestEnsureSecurityAuditPolicy(unittest.TestCase):
             PolicyArn=self.policy_arn,
         )
 
-    @patch("datadog_agentless_api_call.boto3.client")
+    @patch("boto3.client")
     def test_empty_role_name_skips(self, mock_boto3_client):
         """Test that function skips when role name is empty"""
         ensure_security_audit_policy("", self.partition)
 
         mock_boto3_client.assert_not_called()
 
-    @patch("datadog_agentless_api_call.boto3.client")
+    @patch("boto3.client")
     def test_error_propagates(self, mock_boto3_client):
         """Test that IAM errors propagate to the caller"""
         mock_iam = Mock()
@@ -316,7 +322,7 @@ class TestEnsureSecurityAuditPolicy(unittest.TestCase):
         with self.assertRaises(Exception):
             ensure_security_audit_policy(self.role_name, self.partition)
 
-    @patch("datadog_agentless_api_call.boto3.client")
+    @patch("boto3.client")
     def test_govcloud_partition(self, mock_boto3_client):
         """Test that function uses the correct partition for GovCloud"""
         mock_iam = Mock()
