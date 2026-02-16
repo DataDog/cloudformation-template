@@ -6,8 +6,6 @@ import signal
 from urllib.request import build_opener, HTTPHandler, HTTPError, Request
 import urllib.parse
 
-import boto3
-
 LOGGER = logging.getLogger()
 
 
@@ -119,6 +117,8 @@ def ensure_security_audit_policy(role_name, partition):
     if not role_name:
         LOGGER.info("No integration role name provided, skipping SecurityAudit policy attachment.")
         return
+
+    import boto3
 
     policy_arn = f"arn:{partition}:iam::aws:policy/SecurityAudit"
     iam = boto3.client("iam")
