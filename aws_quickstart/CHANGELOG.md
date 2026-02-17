@@ -1,3 +1,7 @@
+# 4.5.2 (February 17, 2026)
+
+- Update `AllowedPattern` for `DatadogAPPKey` parameter to support identifiable app keys (`ddapp_` prefix) in addition to the legacy 40-character hex format
+
 # 4.5.1 (February 11, 2026)
 
 - Scope IAM policy names to role name to prevent `EntityAlreadyExists` errors on stack re-creation

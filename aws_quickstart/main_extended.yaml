@@ -17,7 +17,7 @@ Parameters:
       If this template was launched from the Datadog app, this key is tied to the user that launched the template,
       and is a key specifically generated for this integration.
     Type: String
-    AllowedPattern: "([0-9a-f]{40})?"
+    AllowedPattern: "(([0-9a-f]{40})|(ddapp_[a-zA-Z0-9]{34}))?"
     NoEcho: true
     Default: ""
   AWSAccountType:
