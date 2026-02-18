@@ -19,6 +19,6 @@ This CloudFormation template manages IAM permissions for the Datadog AWS integra
 This template creates the following AWS resources:
 
 - Customer managed IAM policies:
-  - Policies are named in the format `datadog-aws-integration-iam-permissions-{hash}-part{n}`.
-  - A unique hash is created based on your role name and account ID to ensure policy names are consistent across updates.
+  - Policies are named in the format `{RoleName}-ManagedPolicy-{n}` (e.g., `DatadogIntegrationRole-ManagedPolicy-1`).
   - Each policy contains up to 150 permissions to stay within IAM policy character limits.
+  - The SecurityAudit AWS managed policy is also attached to your Datadog integration role.
