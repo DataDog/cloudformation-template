@@ -237,7 +237,17 @@ Resources:
               try:
                   # Call Datadog API and report response back to CloudFormation
                   uuid = ""
-                  if event["RequestType"] != "Create":
+                  if event["RequestType"] == "Create":
+                      datadog_account_response = get_datadog_account(event)
+                      code = datadog_account_response.getcode()
+                      data = datadog_account_response.read()
+                      if code == 200 and data:
+                          json_response = json.loads(data)
+                          if len(json_response["data"]) > 0:
+                              LOGGER.info("Account already exists in Datadog. Using PATCH to update instead of POST to avoid conflict.")
+                              uuid = json_response["data"][0]["id"]
+                              method = "PATCH"
+                  else:
                       datadog_account_response = get_datadog_account(event)
                       uuid = extract_uuid_from_account_response(event, context, datadog_account_response)
                       if uuid is None:

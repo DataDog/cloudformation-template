@@ -23,6 +23,10 @@ This template creates the following AWS resources required by the Datadog AWS in
   - The Datadog Forwarder only deploys to the AWS region where the AWS integration CloudFormation stack is launched. If you operate in multiple AWS regions, you can deploy the Forwarder stack (without the rest of the AWS integration stack) directly to other regions as needed.
   - The Datadog Forwarder is installed with default settings as a nested stack, edit the nested stack directly to update the forwarder specific settings.
 
+## Pre-existing Integrations
+
+If you deploy this CloudFormation stack to an AWS account that already has a Datadog integration configured, the stack will detect the existing integration and update it rather than attempting to create a duplicate. This prevents a 409 conflict error that would otherwise trigger a rollback and delete the pre-existing integration.
+
 ## Updating your CloudFormation Stack
 
 As of v2.0.0 of the aws_quickstart template updates to the stack parameters are supported. Updates should generally be made to the root CloudFormation Stack (entitled DatadogIntegration by default). We do not support updating the API Key or APP Key fields to point to a different Datadog Organization - if these are updated they must point to the original Organization. You can also update the version of the template used by selecting "Replace existing template" while updating your CloudFormation Stack. You must select a version number with the same major version as your current template.
