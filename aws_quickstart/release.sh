@@ -91,6 +91,7 @@ trap "rm -rf ${TEMP_DIR}" EXIT
 # Copy all YAML files to temp directory
 cp *.yaml "${TEMP_DIR}/"
 cp datadog_agentless_api_call.py "${TEMP_DIR}/"
+cp datadog_integration_api_call.py "${TEMP_DIR}/"
 
 # Change to temp directory for processing
 cd "${TEMP_DIR}"
@@ -116,6 +117,17 @@ for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.
             $_ = join("\n", map { $1 . $_ } split(/\n/, $p)) . "\n"
         )
     ' "$template" < datadog_agentless_api_call.py
+done
+
+# Process Integration API Call template
+for template in datadog_integration_api_call_v2.yaml; do
+    # Replace ZIPFILE_PLACEHOLDER with the contents of the Python file
+    perl -i -pe '
+        BEGIN { $p = do { local $/; <STDIN> } }
+        /^(\s+)<ZIPFILE_PLACEHOLDER>/ && (
+            $_ = join("\n", map { $1 . $_ } split(/\n/, $p)) . "\n"
+        )
+    ' "$template" < datadog_integration_api_call.py
 done
 
 # Upload from temp directory
