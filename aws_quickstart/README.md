@@ -25,7 +25,7 @@ This template creates the following AWS resources required by the Datadog AWS in
 
 ## Pre-existing Integrations
 
-If you deploy this CloudFormation stack to an AWS account that already has a Datadog integration configured, the stack will detect the existing integration and update it rather than attempting to create a duplicate. This prevents a 409 conflict error that would otherwise trigger a rollback and delete the pre-existing integration.
+If you deploy this CloudFormation stack to an AWS account that already has a Datadog integration configured, the stack will detect the existing integration and update it rather than attempting to create a duplicate. This prevents a 409 conflict error that would otherwise trigger a rollback and delete the pre-existing integration. Additionally, if the stack fails for any other reason (e.g., IAM role name conflict) and rolls back, the rollback will preserve the pre-existing integration rather than deleting it.
 
 ## Updating your CloudFormation Stack
 

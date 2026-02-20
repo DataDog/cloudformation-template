@@ -37,7 +37,7 @@ Before getting started, ensure you have the following prerequisites:
 
 ## Pre-existing Integrations
 
-If you deploy this StackSet to an AWS Organization or OU that includes accounts which already have a Datadog integration configured (e.g., via a standalone stack), the template will detect the existing integration and update it rather than attempting to create a duplicate. This prevents a 409 conflict error that would otherwise trigger a rollback and delete the pre-existing integration.
+If you deploy this StackSet to an AWS Organization or OU that includes accounts which already have a Datadog integration configured (e.g., via a standalone stack), the template will detect the existing integration and update it rather than attempting to create a duplicate. This prevents a 409 conflict error that would otherwise trigger a rollback and delete the pre-existing integration. Additionally, if the stack fails for any other reason (e.g., IAM role name conflict) and rolls back, the rollback will preserve the pre-existing integration rather than deleting it.
 
 ## Datadog::Integrations::AWS
 
