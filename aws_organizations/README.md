@@ -35,6 +35,10 @@ Before getting started, ensure you have the following prerequisites:
 10. Move to the Review page and Click Submit. This launches the creation process for the Datadog StackSet. This could take a while depending on how many accounts need to be integrated. Ensure that the StackSet successfully creates all resources before proceeding.
 11. After the stack is created, go back to the AWS integration tile in Datadog and click Ready!
 
+## Pre-existing Integrations
+
+If you deploy this StackSet to an AWS Organization or OU that includes accounts which already have a Datadog integration configured (e.g., via a standalone stack), the template will detect the existing integration and update it rather than attempting to create a duplicate. This prevents a 409 conflict error that would otherwise trigger a rollback and delete the pre-existing integration. Additionally, if the stack fails for any other reason (e.g., IAM role name conflict) and rolls back, the rollback will preserve the pre-existing integration rather than deleting it.
+
 ## Datadog::Integrations::AWS
 
 This CloudFormation StackSet only manages *AWS* resources required by the Datadog AWS integration. The actual integration configuration within Datadog platform can also be managed in CloudFormation using the custom resource [Datadog::Integrations::AWS](https://github.com/DataDog/datadog-cloudformation-resources/tree/master/datadog-integrations-aws-handler) if you like.

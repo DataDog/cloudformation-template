@@ -272,13 +272,42 @@ Resources:
               try:
                   # Call Datadog API and report response back to CloudFormation
                   uuid = ""
-                  if event["RequestType"] != "Create":
+                  preexisting = False
+                  if event["RequestType"] == "Create":
+                      # Check if account already exists to avoid 409 conflict.
+                      # A failed POST triggers rollback which deletes the pre-existing integration,
+                      # so we use PATCH instead of POST if the account is already registered.
+                      datadog_account_response = get_datadog_account(event)
+                      code = datadog_account_response.getcode()
+                      data = datadog_account_response.read()
+                      if code == 200 and data:
+                          json_response = json.loads(data)
+                          if len(json_response["data"]) > 0:
+                              LOGGER.info("Account already exists in Datadog. Using PATCH to update instead of POST to avoid conflict.")
+                              uuid = json_response["data"][0]["id"]
+                              method = "PATCH"
+                              preexisting = True
+                  elif event["RequestType"] == "Delete":
+                      # If this resource was created by patching a pre-existing integration,
+                      # do not delete it on stack rollback/deletion.
+                      physical_resource_id = event.get("PhysicalResourceId", "")
+                      if physical_resource_id == "PREEXISTING":
+                          LOGGER.info("Integration was pre-existing. Skipping delete to preserve existing integration.")
+                          cfResponse = {"Message": "Skipped delete for pre-existing integration."}
+                          cfnresponse.send(event, context, responseStatus="SUCCESS", responseData=cfResponse, reason=None)
+                          return
+                      datadog_account_response = get_datadog_account(event)
+                      uuid = extract_uuid_from_account_response(event, context, datadog_account_response)
+                      if uuid is None:
+                          return
+                  else:
                       datadog_account_response = get_datadog_account(event)
                       uuid = extract_uuid_from_account_response(event, context, datadog_account_response)
                       if uuid is None:
                           return
                   response = call_datadog_api(uuid, event, method)
-                  cfn_response_send_api_result(event, context, method, response)
+                  physical_id = "PREEXISTING" if preexisting else None
+                  cfn_response_send_api_result(event, context, method, response, physical_id)
 
               except Exception as e:
                   LOGGER.info("Failed - exception thrown during processing.")
@@ -315,7 +344,7 @@ Resources:
               return None
 
 
-          def cfn_response_send_api_result(event, context, method, response):
+          def cfn_response_send_api_result(event, context, method, response, physical_id=None):
               reason = None
               json_response = ""
               code = response.getcode()
@@ -331,13 +360,14 @@ Resources:
                   if method == "POST" or method == "PATCH":
                       external_id = json_response["data"]["attributes"]["auth_config"]["external_id"]
                       cfResponse["ExternalId"] = external_id
-                  cfnresponse.send(
-                      event,
-                      context,
-                      responseStatus=response_status,
-                      responseData=cfResponse,
-                      reason=reason,
-                  )
+                  send_kwargs = {
+                      "responseStatus": response_status,
+                      "responseData": cfResponse,
+                      "reason": reason,
+                  }
+                  if physical_id:
+                      send_kwargs["physicalResourceId"] = physical_id
+                  cfnresponse.send(event, context, **send_kwargs)
                   return
               cfn_response_send_failure(event, context, "Datadog API returned error: {}".format(json_response))
 
