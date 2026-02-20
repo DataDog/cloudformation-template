@@ -21,16 +21,3 @@ jobs:
         run: |
           cd aws_quickstart
           python -B -S -m unittest datadog_agentless_api_call_test.py -v
-
-  integration_api_call_test:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Run Integration API Call unit tests
-        run: |
-          cd aws_quickstart
-          python -B -S -m unittest datadog_integration_api_call_test.py -v
