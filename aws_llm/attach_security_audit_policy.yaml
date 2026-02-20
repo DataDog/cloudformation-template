@@ -44,7 +44,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       Handler: index.handler
-      Runtime: python3.11
+      Runtime: python3.14
       Role: !GetAtt DatadogResourceCollectionPermissionHandlerLambdaExecutionRole.Arn
       LoggingConfig:
         ApplicationLogLevel: "INFO"
