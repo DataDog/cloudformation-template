@@ -333,6 +333,9 @@ Resources:
               # Perform unattended upgrades
               unattended-upgrade -v
 
+              # Remove previously installed kernels after security upgrades
+              apt autoremove -y --purge
+
               # Get IMDS metadata to fetch the API Key from SecretsManager (without having to install awscli)
               IMDS_TOKEN=$(      curl -sSL -XPUT "http://169.254.169.254/latest/api/token"                  -H "X-AWS-EC2-Metadata-Token-TTL-Seconds: 30")
               IMDS_INSTANCE_ID=$(curl -sSL -XGET "http://169.254.169.254/latest/meta-data/instance-id"      -H "X-AWS-EC2-Metadata-Token: $IMDS_TOKEN")
@@ -374,6 +377,8 @@ Resources:
               Unattended-Upgrade::Automatic-Reboot "true";
               Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
               Unattended-Upgrade::Automatic-Reboot-Time "now";
+              Unattended-Upgrade::Remove-Unused-Dependencies "true";
+              Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
               EOF
 
               # Perform unattended upgrades 10 min after boot, then every 3 hours
