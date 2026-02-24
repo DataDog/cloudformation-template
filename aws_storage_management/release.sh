@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Usage: ./release.sh <S3_Bucket>
+# Usage: ./release.sh <S3_Bucket> [--private] [--yes]
 
 set -e
 
@@ -11,6 +11,28 @@ if [ -z "$1" ]; then
 else
     BUCKET=$1
 fi
+
+# Parse optional flags
+PRIVATE_TEMPLATE=false
+AUTO_YES=false
+shift
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --private)
+            PRIVATE_TEMPLATE=true
+            shift
+            ;;
+        --yes)
+            AUTO_YES=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: ./release.sh <S3_Bucket> [--private] [--yes]"
+            exit 1
+            ;;
+    esac
+done
 
 # Read the version
 VERSION=$(head -n 1 version.txt)
@@ -28,22 +50,20 @@ if [[ ${?} -eq 0 ]]; then
 fi
 set -e
 
-# Upload templates to a private bucket -- useful for testing
-if [[ $# -eq 2 ]] && [[ $2 = "--private" ]]; then
-    PRIVATE_TEMPLATE=true
-else
-    PRIVATE_TEMPLATE=false
-fi
-
 # Confirm to proceed
 for i in *.yaml; do
     [ -f "$i" ] || break
     echo "About to upload $i to s3://${BUCKET}/aws_storage_management/${VERSION}/$i"
 done
-read -p "Continue (y/n)?" CONT
-if [ "$CONT" != "y" ]; then
-  echo "Exiting"
-  exit 1
+
+if [ "$AUTO_YES" = false ]; then
+    read -p "Continue (y/n)?" CONT
+    if [ "$CONT" != "y" ]; then
+        echo "Exiting"
+        exit 1
+    fi
+else
+    echo "Proceeding with upload (--yes flag provided)"
 fi
 
 # Update bucket placeholder

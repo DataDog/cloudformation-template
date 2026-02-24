@@ -1,5 +1,8 @@
 # AWS Integrations team owned repository
 
+.github/ @DataDog/aws-ints-core
+.gitlab-ci.yml @DataDog/aws-ints-core
+
 # AWS templates
 
 /aws* @DataDog/aws-ints-core

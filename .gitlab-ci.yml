@@ -1,0 +1,166 @@
+stages:
+  - release
+
+variables:
+  AWS_DEFAULT_REGION: us-east-1
+
+default:
+  tags: [ "arch:amd64" ]
+  interruptible: true
+
+.release_template:
+  stage: release
+  image: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.4.29
+  before_script:
+    - yum install -y perl jq
+
+release_quickstart:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template-quickstart
+  script:
+    - cd aws_quickstart
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_quickstart/*.yaml
+        - aws_quickstart/*.py
+        - aws_quickstart/version.txt
+        - aws_quickstart/release.sh
+      when: manual
+
+release_organizations:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_organizations
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_organizations/*.yaml
+        - aws_organizations/version.txt
+        - aws_organizations/release.sh
+      when: manual
+
+release_aws_main:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws/*.yaml
+        - aws/version.txt
+        - aws/release.sh
+      when: manual
+
+release_account_level_logs:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_account_level_logs
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_account_level_logs/*.yaml
+        - aws_account_level_logs/version.txt
+        - aws_account_level_logs/release.sh
+      when: manual
+
+release_attach_integration_permissions:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_attach_integration_permissions
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_attach_integration_permissions/*.yaml
+        - aws_attach_integration_permissions/version.txt
+        - aws_attach_integration_permissions/release.sh
+      when: manual
+
+release_cloud_cost:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_cloud_cost
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_cloud_cost/*.yaml
+        - aws_cloud_cost/version.txt
+        - aws_cloud_cost/release.sh
+      when: manual
+
+release_config_stream:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_config_stream
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_config_stream/*.yaml
+        - aws_config_stream/version.txt
+        - aws_config_stream/release.sh
+      when: manual
+
+release_llm:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template-quickstart
+  script:
+    - cd aws_llm
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_llm/*.yaml
+        - aws_llm/version.txt
+        - aws_llm/release.sh
+      when: manual
+
+release_storage_management:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_storage_management
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_storage_management/*.yaml
+        - aws_storage_management/version.txt
+        - aws_storage_management/release.sh
+      when: manual
+
+release_streams:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-stream-template
+  script:
+    - cd aws_streams
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_streams/*.yaml
+        - aws_streams/version.txt
+        - aws_streams/release.sh
+      when: manual
