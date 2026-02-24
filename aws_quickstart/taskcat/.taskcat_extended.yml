@@ -19,7 +19,5 @@ tests:
       DisableMetricCollection: "false"
       CloudSecurityPostureManagement: "false"
       DisableResourceCollection: "false"
-      AgentlessHostScanning: "true"
-      AgentlessContainerScanning: "true"
-      AgentlessLambdaScanning: "true"
+      AgentlessVulnerabilityScanning: "true"
       AgentlessSensitiveDataScanning: "true"

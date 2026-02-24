@@ -26,31 +26,13 @@ Parameters:
     Description: Your current AWS account ID for stack deployment
     AllowedPattern: "^[0-9]{12}$"
 
-  AgentlessHostScanning:
+  AgentlessVulnerabilityScanning:
     Type: String
     AllowedValues:
       - true
       - false
     Description: >-
-      Enable Agentless Scanning of host vulnerabilities.
-    Default: false
-
-  AgentlessContainerScanning:
-    Type: String
-    AllowedValues:
-      - true
-      - false
-    Description: >-
-      Enable Agentless Scanning of container vulnerabilities.
-    Default: false
-
-  AgentlessLambdaScanning:
-    Type: String
-    AllowedValues:
-      - true
-      - false
-    Description: >-
-      Enable Agentless Scanning of Lambda vulnerabilities.
+      Enable Agentless Vulnerability Scanning (hosts, containers, and Lambda functions).
     Default: false
 
   AgentlessSensitiveDataScanning:
@@ -1074,9 +1056,7 @@ Resources:
       APPKey: !Ref "DatadogAPPKey"
       DatadogSite: !Ref "DatadogSite"
       AccountId: !Ref "AWS::AccountId"
-      Hosts: !Ref "AgentlessHostScanning"
-      Containers: !Ref "AgentlessContainerScanning"
-      Lambdas: !Ref "AgentlessLambdaScanning"
+      VulnerabilityScanning: !Ref "AgentlessVulnerabilityScanning"
       SensitiveData: !Ref "AgentlessSensitiveDataScanning"
       IntegrationRoleName: !Ref "DatadogIntegrationRoleName"
       Partition: !Ref "AWS::Partition"
@@ -1117,9 +1097,7 @@ Metadata:
           - DatadogIntegrationRoleName
           - AccountId
           - DatadogSite
-          - AgentlessHostScanning
-          - AgentlessContainerScanning
-          - AgentlessLambdaScanning
+          - AgentlessVulnerabilityScanning
           - AgentlessSensitiveDataScanning
       - Label:
           default: Advanced
@@ -1148,11 +1126,7 @@ Metadata:
         default: "AWS Account ID *"
       DatadogSite:
         default: "DatadogSite *"
-      AgentlessHostScanning:
-        default: "AgentlessHostScanning *"
-      AgentlessContainerScanning:
-        default: "AgentlessContainerScanning *"
-      AgentlessLambdaScanning:
-        default: "AgentlessLambdaScanning *"
+      AgentlessVulnerabilityScanning:
+        default: "AgentlessVulnerabilityScanning *"
       AgentlessSensitiveDataScanning:
         default: "AgentlessSensitiveDataScanning *"
