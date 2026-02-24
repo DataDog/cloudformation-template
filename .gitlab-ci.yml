@@ -1,4 +1,5 @@
 stages:
+  - test
   - release
 
 variables:
@@ -7,6 +8,40 @@ variables:
 default:
   tags: [ "arch:amd64" ]
   interruptible: true
+
+# Test job to validate CI configuration on any branch
+validate_ci_config:
+  stage: test
+  image: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.4.29
+  before_script:
+    - echo "Installing dependencies..."
+    - yum install -y perl jq
+  script:
+    - echo "Validating GitLab CI configuration..."
+    - echo "AWS CLI version:"
+    - aws --version
+    - echo "Perl version:"
+    - perl --version | head -2
+    - echo "jq version:"
+    - jq --version
+    - echo "All dependencies are available!"
+    - echo ""
+    - echo "Release scripts found:"
+    - find . -name "release.sh" -type f
+    - echo ""
+    - echo "Testing AWS credentials and S3 access..."
+    - echo "Current AWS identity:"
+    - aws sts get-caller-identity || echo "⚠️  No AWS credentials configured"
+    - echo ""
+    - echo "Attempting to list S3 buckets:"
+    - aws s3 ls datadog-cloudformation-template | head -5 || echo "⚠️  Cannot access datadog-cloudformation-template bucket"
+    - aws s3 ls datadog-cloudformation-template-quickstart | head -5 || echo "⚠️  Cannot access datadog-cloudformation-template-quickstart bucket"
+    - aws s3 ls datadog-cloudformation-stream-template | head -5 || echo "⚠️  Cannot access datadog-cloudformation-stream-template bucket"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: always
+    - if: '$CI_COMMIT_BRANCH != "master"'
+      when: always
 
 .release_template:
   stage: release
