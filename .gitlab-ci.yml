@@ -41,7 +41,9 @@ validate_versions:
         # Check if any objects exist at the version path
         local s3_path="${path_prefix}/${version}/"
 
-        if aws s3 ls "s3://${bucket}/${s3_path}" --max-items 1 >/dev/null 2>&1; then
+        local output=$(aws s3 ls "s3://${bucket}/${s3_path}" 2>/dev/null || true)
+
+        if [[ -n "$output" ]]; then
           echo "  ❌ ERROR: Version ${version} already exists at s3://${bucket}/${s3_path}"
           return 1
         else
