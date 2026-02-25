@@ -296,3 +296,4 @@ Outputs:
   DatadogAccountUUID:
     Description: The Datadog AWS Integration Account UUID
     Value: !GetAtt DatadogCCMConfiguration.AccountUUID
+

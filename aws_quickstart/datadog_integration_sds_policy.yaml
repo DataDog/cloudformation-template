@@ -54,3 +54,4 @@ Resources:
             Condition:
               StringLike:
                 'kms:ViaService': 's3.*.amazonaws.com'
+

@@ -47,3 +47,4 @@ Resources:
               - 'autoscaling:DescribeAutoScalingGroups'
             Resource: '*'
 
+
