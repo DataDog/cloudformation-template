@@ -263,7 +263,7 @@ release_quickstart:
       changes:
         - aws_quickstart/*.yaml
         - aws_quickstart/version.txt
-      when: manual
+      when: on_success
 
 release_organizations:
   extends: .release_template
@@ -277,7 +277,7 @@ release_organizations:
       changes:
         - aws_organizations/*.yaml
         - aws_organizations/version.txt
-      when: manual
+      when: on_success
 
 release_aws_main:
   extends: .release_template
@@ -291,7 +291,7 @@ release_aws_main:
       changes:
         - aws/*.yaml
         - aws/version.txt
-      when: manual
+      when: on_success
 
 release_account_level_logs:
   extends: .release_template
@@ -305,7 +305,7 @@ release_account_level_logs:
       changes:
         - aws_account_level_logs/*.yaml
         - aws_account_level_logs/version.txt
-      when: manual
+      when: on_success
 
 release_attach_integration_permissions:
   extends: .release_template
@@ -319,7 +319,7 @@ release_attach_integration_permissions:
       changes:
         - aws_attach_integration_permissions/*.yaml
         - aws_attach_integration_permissions/version.txt
-      when: manual
+      when: on_success
 
 release_cloud_cost:
   extends: .release_template
@@ -333,7 +333,7 @@ release_cloud_cost:
       changes:
         - aws_cloud_cost/*.yaml
         - aws_cloud_cost/version.txt
-      when: manual
+      when: on_success
 
 release_config_stream:
   extends: .release_template
@@ -347,7 +347,7 @@ release_config_stream:
       changes:
         - aws_config_stream/*.yaml
         - aws_config_stream/version.txt
-      when: manual
+      when: on_success
 
 release_llm:
   extends: .release_template
@@ -361,7 +361,7 @@ release_llm:
       changes:
         - aws_llm/*.yaml
         - aws_llm/version.txt
-      when: manual
+      when: on_success
 
 release_storage_management:
   extends: .release_template
@@ -375,7 +375,7 @@ release_storage_management:
       changes:
         - aws_storage_management/*.yaml
         - aws_storage_management/version.txt
-      when: manual
+      when: on_success
 
 release_streams:
   extends: .release_template
@@ -389,4 +389,4 @@ release_streams:
       changes:
         - aws_streams/*.yaml
         - aws_streams/version.txt
-      when: manual
+      when: on_success
