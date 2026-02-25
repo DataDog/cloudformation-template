@@ -1043,6 +1043,27 @@ Resources:
       ManagedPolicyArns:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 
+  SecurityAuditPolicyAttachmentPermissions:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref LambdaExecutionRoleDatadogAgentlessAPICall
+      PolicyName: SecurityAuditPolicyAttachmentPermissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - iam:ListAttachedRolePolicies
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DatadogIntegrationRoleName}"
+          - Effect: Allow
+            Action:
+              - iam:AttachRolePolicy
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DatadogIntegrationRoleName}"
+            Condition:
+              ArnEquals:
+                'iam:PolicyARN':
+                  - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
+
   # Retrieving secrets passed in via SecretsManager Arn
   DatadogAgentlessAPICall:
     Type: "Custom::DatadogAgentlessAPICall"
@@ -1057,6 +1078,8 @@ Resources:
       Containers: !Ref "AgentlessContainerScanning"
       Lambdas: !Ref "AgentlessLambdaScanning"
       SensitiveData: !Ref "AgentlessSensitiveDataScanning"
+      IntegrationRoleName: !Ref "DatadogIntegrationRoleName"
+      Partition: !Ref "AWS::Partition"
       # Optional parameters
       LaunchTemplateId: !Ref "ScannerLaunchTemplate"
       AutoScalingGroupArn: !GetAtt "ScannerAutoScalingGroup.AutoScalingGroupARN"
