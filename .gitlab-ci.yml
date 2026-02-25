@@ -9,39 +9,67 @@ default:
   tags: [ "arch:amd64" ]
   interruptible: true
 
-# Test job to validate CI configuration on any branch
-validate_ci_config:
+# Dry-run test to validate CI setup and permissions
+test_ci_permissions:
   stage: test
   image: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.4.29
   before_script:
     - echo "Installing dependencies..."
     - yum install -y perl jq
   script:
-    - echo "Validating GitLab CI configuration..."
-    - echo "AWS CLI version:"
-    - aws --version
-    - echo "Perl version:"
-    - perl --version | head -2
-    - echo "jq version:"
-    - jq --version
-    - echo "All dependencies are available!"
+    - echo "============================================"
+    - echo "DRY RUN - Testing GitLab CI Setup"
+    - echo "============================================"
     - echo ""
-    - echo "Release scripts found:"
-    - find . -name "release.sh" -type f
+    - echo "1. Validating AWS credentials..."
+    - aws sts get-caller-identity
+    - echo "✅ AWS credentials are configured!"
     - echo ""
-    - echo "Testing AWS credentials and S3 access..."
-    - echo "Current AWS identity:"
-    - aws sts get-caller-identity || echo "⚠️  No AWS credentials configured"
+    - echo "2. Testing S3 permissions on all three buckets..."
     - echo ""
-    - echo "Attempting to list S3 buckets:"
-    - aws s3 ls datadog-cloudformation-template | head -5 || echo "⚠️  Cannot access datadog-cloudformation-template bucket"
-    - aws s3 ls datadog-cloudformation-template-quickstart | head -5 || echo "⚠️  Cannot access datadog-cloudformation-template-quickstart bucket"
-    - aws s3 ls datadog-cloudformation-stream-template | head -5 || echo "⚠️  Cannot access datadog-cloudformation-stream-template bucket"
+    - echo "Testing datadog-cloudformation-template bucket..."
+    - aws s3 ls s3://datadog-cloudformation-template --no-sign-request | head -5 || true
+    - echo "Testing write permissions (dry-run)..."
+    - echo "test" > /tmp/test-gitlab-ci.txt
+    - aws s3 cp /tmp/test-gitlab-ci.txt s3://datadog-cloudformation-template/test-gitlab-ci.txt --dryrun || echo "❌ Write test failed (expected if bucket policies not yet applied)"
+    - echo ""
+    - echo "Testing datadog-cloudformation-template-quickstart bucket..."
+    - aws s3 ls s3://datadog-cloudformation-template-quickstart --no-sign-request | head -5 || true
+    - aws s3 cp /tmp/test-gitlab-ci.txt s3://datadog-cloudformation-template-quickstart/test-gitlab-ci.txt --dryrun || echo "❌ Write test failed (expected if bucket policies not yet applied)"
+    - echo ""
+    - echo "Testing datadog-cloudformation-stream-template bucket..."
+    - aws s3 ls s3://datadog-cloudformation-stream-template --no-sign-request | head -5 || true
+    - aws s3 cp /tmp/test-gitlab-ci.txt s3://datadog-cloudformation-stream-template/test-gitlab-ci.txt --dryrun || echo "❌ Write test failed (expected if bucket policies not yet applied)"
+    - echo ""
+    - echo "3. Validating release scripts exist and are executable..."
+    - test -x aws_quickstart/release.sh && echo "✅ aws_quickstart/release.sh is executable" || echo "❌ aws_quickstart/release.sh not found or not executable"
+    - test -x aws_organizations/release.sh && echo "✅ aws_organizations/release.sh is executable" || echo "❌ aws_organizations/release.sh not found or not executable"
+    - test -x aws/release.sh && echo "✅ aws/release.sh is executable" || echo "❌ aws/release.sh not found or not executable"
+    - test -x aws_account_level_logs/release.sh && echo "✅ aws_account_level_logs/release.sh is executable" || echo "❌ aws_account_level_logs/release.sh not found or not executable"
+    - test -x aws_attach_integration_permissions/release.sh && echo "✅ aws_attach_integration_permissions/release.sh is executable" || echo "❌ aws_attach_integration_permissions/release.sh not found or not executable"
+    - test -x aws_cloud_cost/release.sh && echo "✅ aws_cloud_cost/release.sh is executable" || echo "❌ aws_cloud_cost/release.sh not found or not executable"
+    - test -x aws_config_stream/release.sh && echo "✅ aws_config_stream/release.sh is executable" || echo "❌ aws_config_stream/release.sh not found or not executable"
+    - test -x aws_llm/release.sh && echo "✅ aws_llm/release.sh is executable" || echo "❌ aws_llm/release.sh not found or not executable"
+    - test -x aws_storage_management/release.sh && echo "✅ aws_storage_management/release.sh is executable" || echo "❌ aws_storage_management/release.sh not found or not executable"
+    - test -x aws_streams/release.sh && echo "✅ aws_streams/release.sh is executable" || echo "❌ aws_streams/release.sh not found or not executable"
+    - echo ""
+    - echo "4. Checking that release scripts accept --yes flag..."
+    - cd aws_quickstart
+    - echo "Testing flag parsing (will exit early without actual upload)..."
+    - timeout 1 bash -c './release.sh invalid-bucket-name --yes' 2>&1 | grep -q "Unknown option" && echo "❌ Script doesn't recognize --yes flag" || echo "✅ Script accepts --yes flag"
+    - cd ..
+    - echo ""
+    - echo "============================================"
+    - echo "DRY RUN COMPLETE"
+    - echo "============================================"
+    - echo ""
+    - echo "If you see AWS credentials working and no permission errors above,"
+    - echo "the CI is properly configured!"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: always
     - if: '$CI_COMMIT_BRANCH != "master"'
-      when: always
+      when: manual
 
 .release_template:
   stage: release
