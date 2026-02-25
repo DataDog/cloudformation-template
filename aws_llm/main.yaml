@@ -1,6 +1,6 @@
 # version: <VERSION_PLACEHOLDER>
 AWSTemplateFormatVersion: 2010-09-09
-Description: Datadog LLM Observability Setup
+Description: Datadog LLM Observability Setup - Test
 Parameters:
   DatadogIntegrationRole:
     Type: String
@@ -39,4 +39,4 @@ Resources:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_llm/<VERSION_PLACEHOLDER>/add_llm_observability_permissions.yaml"
       Parameters:
         DatadogIntegrationRole: !Ref DatadogIntegrationRole
-  
+
