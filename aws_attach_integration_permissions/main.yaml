@@ -200,4 +200,3 @@ Resources:
       DatadogIntegrationRole: !Ref DatadogIntegrationRole
       AccountId: !Ref AccountId
       Partition: !Ref "AWS::Partition"
-
