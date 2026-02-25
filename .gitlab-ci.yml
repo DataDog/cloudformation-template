@@ -9,7 +9,7 @@ default:
   tags: [ "arch:amd64" ]
   interruptible: true
 
-# Version validation job - runs on MR to check version bumps and collisions
+# Version validation job - runs on PR to check version bumps and collisions
 validate_versions:
   stage: validate
   image: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.4.29
@@ -242,7 +242,7 @@ validate_versions:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: always
     - if: '$CI_COMMIT_BRANCH != "master"'
-      when: manual
+      when: always
   allow_failure: false
 
 .release_template:
@@ -262,9 +262,7 @@ release_quickstart:
     - if: '$CI_COMMIT_BRANCH == "master"'
       changes:
         - aws_quickstart/*.yaml
-        - aws_quickstart/*.py
         - aws_quickstart/version.txt
-        - aws_quickstart/release.sh
       when: manual
 
 release_organizations:
@@ -279,7 +277,6 @@ release_organizations:
       changes:
         - aws_organizations/*.yaml
         - aws_organizations/version.txt
-        - aws_organizations/release.sh
       when: manual
 
 release_aws_main:
@@ -294,7 +291,6 @@ release_aws_main:
       changes:
         - aws/*.yaml
         - aws/version.txt
-        - aws/release.sh
       when: manual
 
 release_account_level_logs:
@@ -309,7 +305,6 @@ release_account_level_logs:
       changes:
         - aws_account_level_logs/*.yaml
         - aws_account_level_logs/version.txt
-        - aws_account_level_logs/release.sh
       when: manual
 
 release_attach_integration_permissions:
@@ -324,7 +319,6 @@ release_attach_integration_permissions:
       changes:
         - aws_attach_integration_permissions/*.yaml
         - aws_attach_integration_permissions/version.txt
-        - aws_attach_integration_permissions/release.sh
       when: manual
 
 release_cloud_cost:
@@ -339,7 +333,6 @@ release_cloud_cost:
       changes:
         - aws_cloud_cost/*.yaml
         - aws_cloud_cost/version.txt
-        - aws_cloud_cost/release.sh
       when: manual
 
 release_config_stream:
@@ -354,7 +347,6 @@ release_config_stream:
       changes:
         - aws_config_stream/*.yaml
         - aws_config_stream/version.txt
-        - aws_config_stream/release.sh
       when: manual
 
 release_llm:
@@ -369,7 +361,6 @@ release_llm:
       changes:
         - aws_llm/*.yaml
         - aws_llm/version.txt
-        - aws_llm/release.sh
       when: manual
 
 release_storage_management:
@@ -384,7 +375,6 @@ release_storage_management:
       changes:
         - aws_storage_management/*.yaml
         - aws_storage_management/version.txt
-        - aws_storage_management/release.sh
       when: manual
 
 release_streams:
@@ -399,5 +389,4 @@ release_streams:
       changes:
         - aws_streams/*.yaml
         - aws_streams/version.txt
-        - aws_streams/release.sh
       when: manual
