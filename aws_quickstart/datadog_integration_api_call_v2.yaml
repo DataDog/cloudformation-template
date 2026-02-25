@@ -330,4 +330,3 @@ Outputs:
   ExternalId:
     Description: Datadog AWS Integration ExternalId
     Value: !GetAtt DatadogAWSAccountIntegration.ExternalId
-

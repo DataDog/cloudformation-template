@@ -59,4 +59,3 @@ Resources:
               - s3:ListBucket
               - s3:GetObject
             Resource: !Ref DestinationBucketResources
-

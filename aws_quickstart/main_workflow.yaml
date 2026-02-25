@@ -481,4 +481,3 @@ Metadata:
         default: "ExternalId *"
       InstallLambdaLogForwarder:
         default: "InstallLambdaLogForwarder *"
-

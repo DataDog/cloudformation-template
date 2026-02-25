@@ -9,7 +9,7 @@ default:
   tags: [ "arch:amd64" ]
   interruptible: true
 
-# Version validation job - runs on PR to check version bumps and collisions
+# runs on PR to check version bumps and collisions
 validate_versions:
   stage: validate
   image: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.4.29
@@ -38,9 +38,7 @@ validate_versions:
 
         echo "  Checking S3 for existing version ${version}..."
 
-        # Check if any objects exist at the version path
         local s3_path="${path_prefix}/${version}/"
-
         local output=$(aws s3 ls "s3://${bucket}/${s3_path}" 2>/dev/null || true)
 
         if [[ -n "$output" ]]; then
