@@ -47,169 +47,44 @@ validate_versions:
           echo "  ❌ ERROR: Version ${version} already exists at s3://${bucket}/${s3_path}"
           return 1
         else
-          echo "  ✅ Version ${version} does not exist in S3"
+          echo "  ✅ Version ${version} does not yet exist in S3"
           return 0
         fi
       }
 
-      # Check aws_quickstart
-      if echo "$CHANGED_FILES" | grep -q "^aws_quickstart/.*\.yaml$"; then
-        echo "Checking aws_quickstart..."
-        if ! echo "$CHANGED_FILES" | grep -q "^aws_quickstart/version\.txt$"; then
-          echo "❌ ERROR: YAML files changed but version.txt not updated in aws_quickstart"
-          VALIDATION_FAILED=true
-        else
-          VERSION=$(head -n 1 aws_quickstart/version.txt)
-          echo "  New version: ${VERSION}"
-          if ! check_s3_version "aws_quickstart" "datadog-cloudformation-template-quickstart" "${VERSION}" "aws"; then
+      # Define directory configurations for versioned dirs
+      # Format: "directory:bucket:s3_path_prefix"
+      declare -a DIRS=(
+        "aws_quickstart:datadog-cloudformation-template-quickstart:aws"
+        "aws_organizations:datadog-cloudformation-template:aws"
+        "aws:datadog-cloudformation-template:aws"
+        "aws_attach_integration_permissions:datadog-cloudformation-template:aws_attach_integration_permissions"
+        "aws_cloud_cost:datadog-cloudformation-template:aws_cloud_cost"
+        "aws_llm:datadog-cloudformation-template-quickstart:aws_llm"
+        "aws_storage_management:datadog-cloudformation-template:aws_storage_management"
+        "aws_streams:datadog-cloudformation-stream-template:aws"
+      )
+
+      for config in "${DIRS[@]}"; do
+        IFS=':' read -r dir bucket path_prefix <<< "$config"
+
+        if echo "$CHANGED_FILES" | grep -q "^${dir}/.*\.yaml$"; then
+          echo "Checking ${dir} for changed yaml files..."
+
+          if ! echo "$CHANGED_FILES" | grep -q "^${dir}/version\.txt$"; then
+            echo "❌ ERROR: YAML files changed but version.txt not updated in ${dir}"
             VALIDATION_FAILED=true
+          else
+            VERSION=$(head -n 1 "${dir}/version.txt")
+            echo "  New version: ${VERSION}"
+
+            if ! check_s3_version "${dir}" "${bucket}" "${VERSION}" "${path_prefix}"; then
+              VALIDATION_FAILED=true
+            fi
           fi
+          echo ""
         fi
-        echo ""
-      fi
-
-      # Check aws_organizations
-      if echo "$CHANGED_FILES" | grep -q "^aws_organizations/.*\.yaml$"; then
-        echo "Checking aws_organizations..."
-        if ! echo "$CHANGED_FILES" | grep -q "^aws_organizations/version\.txt$"; then
-          echo "❌ ERROR: YAML files changed but version.txt not updated in aws_organizations"
-          VALIDATION_FAILED=true
-        else
-          VERSION=$(head -n 1 aws_organizations/version.txt)
-          echo "  New version: ${VERSION}"
-          if ! check_s3_version "aws_organizations" "datadog-cloudformation-template" "${VERSION}" "aws"; then
-            VALIDATION_FAILED=true
-          fi
-        fi
-        echo ""
-      fi
-
-      # Check aws
-      if echo "$CHANGED_FILES" | grep -q "^aws/.*\.yaml$"; then
-        echo "Checking aws..."
-        if ! echo "$CHANGED_FILES" | grep -q "^aws/version\.txt$"; then
-          echo "❌ ERROR: YAML files changed but version.txt not updated in aws"
-          VALIDATION_FAILED=true
-        else
-          VERSION=$(head -n 1 aws/version.txt)
-          echo "  New version: ${VERSION}"
-          if ! check_s3_version "aws" "datadog-cloudformation-template" "${VERSION}" "aws"; then
-            VALIDATION_FAILED=true
-          fi
-        fi
-        echo ""
-      fi
-
-      # Check aws_account_level_logs
-      if echo "$CHANGED_FILES" | grep -q "^aws_account_level_logs/.*\.yaml$"; then
-        echo "Checking aws_account_level_logs..."
-        if ! echo "$CHANGED_FILES" | grep -q "^aws_account_level_logs/version\.txt$"; then
-          echo "❌ ERROR: YAML files changed but version.txt not updated in aws_account_level_logs"
-          VALIDATION_FAILED=true
-        else
-          VERSION=$(head -n 1 aws_account_level_logs/version.txt)
-          echo "  New version: ${VERSION}"
-          # This one uploads to root path, not versioned
-          echo "  ⚠️  Note: aws_account_level_logs uploads to root path (non-versioned), version check skipped"
-        fi
-        echo ""
-      fi
-
-      # Check aws_attach_integration_permissions
-      if echo "$CHANGED_FILES" | grep -q "^aws_attach_integration_permissions/.*\.yaml$"; then
-        echo "Checking aws_attach_integration_permissions..."
-        if ! echo "$CHANGED_FILES" | grep -q "^aws_attach_integration_permissions/version\.txt$"; then
-          echo "❌ ERROR: YAML files changed but version.txt not updated in aws_attach_integration_permissions"
-          VALIDATION_FAILED=true
-        else
-          VERSION=$(head -n 1 aws_attach_integration_permissions/version.txt)
-          echo "  New version: ${VERSION}"
-          if ! check_s3_version "aws_attach_integration_permissions" "datadog-cloudformation-template" "${VERSION}" "aws_attach_integration_permissions"; then
-            VALIDATION_FAILED=true
-          fi
-        fi
-        echo ""
-      fi
-
-      # Check aws_cloud_cost
-      if echo "$CHANGED_FILES" | grep -q "^aws_cloud_cost/.*\.yaml$"; then
-        echo "Checking aws_cloud_cost..."
-        if ! echo "$CHANGED_FILES" | grep -q "^aws_cloud_cost/version\.txt$"; then
-          echo "❌ ERROR: YAML files changed but version.txt not updated in aws_cloud_cost"
-          VALIDATION_FAILED=true
-        else
-          VERSION=$(head -n 1 aws_cloud_cost/version.txt)
-          echo "  New version: ${VERSION}"
-          if ! check_s3_version "aws_cloud_cost" "datadog-cloudformation-template" "${VERSION}" "aws_cloud_cost"; then
-            VALIDATION_FAILED=true
-          fi
-        fi
-        echo ""
-      fi
-
-      # Check aws_config_stream
-      if echo "$CHANGED_FILES" | grep -q "^aws_config_stream/.*\.yaml$"; then
-        echo "Checking aws_config_stream..."
-        if ! echo "$CHANGED_FILES" | grep -q "^aws_config_stream/version\.txt$"; then
-          echo "❌ ERROR: YAML files changed but version.txt not updated in aws_config_stream"
-          VALIDATION_FAILED=true
-        else
-          VERSION=$(head -n 1 aws_config_stream/version.txt)
-          echo "  New version: ${VERSION}"
-          # This one uploads to root path, not versioned
-          echo "  ⚠️  Note: aws_config_stream uploads to root path (non-versioned), version check skipped"
-        fi
-        echo ""
-      fi
-
-      # Check aws_llm
-      if echo "$CHANGED_FILES" | grep -q "^aws_llm/.*\.yaml$"; then
-        echo "Checking aws_llm..."
-        if ! echo "$CHANGED_FILES" | grep -q "^aws_llm/version\.txt$"; then
-          echo "❌ ERROR: YAML files changed but version.txt not updated in aws_llm"
-          VALIDATION_FAILED=true
-        else
-          VERSION=$(head -n 1 aws_llm/version.txt)
-          echo "  New version: ${VERSION}"
-          if ! check_s3_version "aws_llm" "datadog-cloudformation-template-quickstart" "${VERSION}" "aws_llm"; then
-            VALIDATION_FAILED=true
-          fi
-        fi
-        echo ""
-      fi
-
-      # Check aws_storage_management
-      if echo "$CHANGED_FILES" | grep -q "^aws_storage_management/.*\.yaml$"; then
-        echo "Checking aws_storage_management..."
-        if ! echo "$CHANGED_FILES" | grep -q "^aws_storage_management/version\.txt$"; then
-          echo "❌ ERROR: YAML files changed but version.txt not updated in aws_storage_management"
-          VALIDATION_FAILED=true
-        else
-          VERSION=$(head -n 1 aws_storage_management/version.txt)
-          echo "  New version: ${VERSION}"
-          if ! check_s3_version "aws_storage_management" "datadog-cloudformation-template" "${VERSION}" "aws_storage_management"; then
-            VALIDATION_FAILED=true
-          fi
-        fi
-        echo ""
-      fi
-
-      # Check aws_streams
-      if echo "$CHANGED_FILES" | grep -q "^aws_streams/.*\.yaml$"; then
-        echo "Checking aws_streams..."
-        if ! echo "$CHANGED_FILES" | grep -q "^aws_streams/version\.txt$"; then
-          echo "❌ ERROR: YAML files changed but version.txt not updated in aws_streams"
-          VALIDATION_FAILED=true
-        else
-          VERSION=$(head -n 1 aws_streams/version.txt)
-          echo "  New version: ${VERSION}"
-          # aws_streams uses different bucket and path structure
-          if ! check_s3_version "aws_streams" "datadog-cloudformation-stream-template" "${VERSION}" "aws"; then
-            VALIDATION_FAILED=true
-          fi
-        fi
-        echo ""
-      fi
+      done
 
       echo "============================================"
       if [ "$VALIDATION_FAILED" = true ]; then
