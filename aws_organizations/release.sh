@@ -119,14 +119,18 @@ fi
 echo "Done uploading the template. Navigate to https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacksets/create and use the template URL below."
 echo "https://${BUCKET}.s3.amazonaws.com/aws/${VERSION}/main_organizations.yaml"
 
-# Generate and upload versions.json
-echo "Generating and uploading versions.json for the new release..."
+# Generate and upload versions.json (only for public releases)
+if [ "$PRIVATE_TEMPLATE" = false ] ; then
+    echo "Generating and uploading versions.json for the new release..."
 
-generate_versions_json
-upload_versions_json
+    generate_versions_json
+    upload_versions_json
 
-echo "Done generating and uploading versions.json!"
-echo "Please verify the uploaded file:"
-echo "\thttps://${VERSIONS_BUCKET}.s3.amazonaws.com/organizations/versions.json"
+    echo "Done generating and uploading versions.json!"
+    echo "Please verify the uploaded file:"
+    echo "\thttps://${VERSIONS_BUCKET}.s3.amazonaws.com/organizations/versions.json"
+else
+    echo "Skipping versions.json upload for private release"
+fi
 
 echo "Done!"

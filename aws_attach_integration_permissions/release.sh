@@ -121,14 +121,18 @@ fi
 echo "Done uploading the template, and here is the CloudFormation quick launch URL"
 echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-integration&templateURL=https://${BUCKET}.s3.amazonaws.com/aws_attach_integration_permissions/${VERSION}/main.yaml"
 
-# Generate and upload versions.json
-echo "Generating and uploading versions.json for the new release..."
+# Generate and upload versions.json (only for public releases)
+if [ "$PRIVATE_TEMPLATE" = false ] ; then
+    echo "Generating and uploading versions.json for the new release..."
 
-generate_versions_json
-upload_versions_json
+    generate_versions_json
+    upload_versions_json
 
-echo "Done generating and uploading versions.json!"
-echo "Please verify the uploaded file:"
-echo "\thttps://${VERSIONS_BUCKET}.s3.amazonaws.com/attach_integration_permissions/versions.json"
+    echo "Done generating and uploading versions.json!"
+    echo "Please verify the uploaded file:"
+    echo "\thttps://${VERSIONS_BUCKET}.s3.amazonaws.com/attach_integration_permissions/versions.json"
+else
+    echo "Skipping versions.json upload for private release"
+fi
 
 echo "Done!"
