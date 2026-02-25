@@ -22,17 +22,14 @@ validate_versions:
       echo "============================================"
       echo ""
 
-      # Get list of changed files compared to master
       git fetch origin master:master
       CHANGED_FILES=$(git diff --name-only master...HEAD)
       echo "Changed files:"
       echo "$CHANGED_FILES"
       echo ""
 
-      # Track validation failures
       VALIDATION_FAILED=false
 
-      # Function to check version in S3
       check_s3_version() {
         local dir=$1
         local bucket=$2
@@ -41,17 +38,11 @@ validate_versions:
 
         echo "  Checking S3 for existing version ${version}..."
 
-        # Different directories use different S3 paths
-        if [[ "$path_prefix" == "aws" ]]; then
-          s3_key="${path_prefix}/${version}/main.yaml"
-        elif [[ "$path_prefix" == "aws_llm" ]]; then
-          s3_key="${path_prefix}/${version}/main.yaml"
-        else
-          s3_key="${path_prefix}/${version}/main_${path_prefix}.yaml"
-        fi
+        # Check if any objects exist at the version path
+        local s3_path="${path_prefix}/${version}/"
 
-        if aws s3api head-object --bucket "${bucket}" --key "${s3_key}" >/dev/null 2>&1; then
-          echo "  ❌ ERROR: Version ${version} already exists in s3://${bucket}/${s3_key}"
+        if aws s3 ls "s3://${bucket}/${s3_path}" --max-items 1 >/dev/null 2>&1; then
+          echo "  ❌ ERROR: Version ${version} already exists at s3://${bucket}/${s3_path}"
           return 1
         else
           echo "  ✅ Version ${version} does not exist in S3"
@@ -116,10 +107,8 @@ validate_versions:
         else
           VERSION=$(head -n 1 aws_account_level_logs/version.txt)
           echo "  New version: ${VERSION}"
-          # This one doesn't have version in path
-          if aws s3api head-object --bucket "datadog-cloudformation-template" --key "aws/main_account_level_logs.yaml" >/dev/null 2>&1; then
-            echo "  ⚠️  Note: aws_account_level_logs uploads to root, version check skipped"
-          fi
+          # This one uploads to root path, not versioned
+          echo "  ⚠️  Note: aws_account_level_logs uploads to root path (non-versioned), version check skipped"
         fi
         echo ""
       fi
@@ -133,7 +122,7 @@ validate_versions:
         else
           VERSION=$(head -n 1 aws_attach_integration_permissions/version.txt)
           echo "  New version: ${VERSION}"
-          if ! check_s3_version "aws_attach_integration_permissions" "datadog-cloudformation-template" "${VERSION}" "aws"; then
+          if ! check_s3_version "aws_attach_integration_permissions" "datadog-cloudformation-template" "${VERSION}" "aws_attach_integration_permissions"; then
             VALIDATION_FAILED=true
           fi
         fi
@@ -149,7 +138,7 @@ validate_versions:
         else
           VERSION=$(head -n 1 aws_cloud_cost/version.txt)
           echo "  New version: ${VERSION}"
-          if ! check_s3_version "aws_cloud_cost" "datadog-cloudformation-template" "${VERSION}" "aws"; then
+          if ! check_s3_version "aws_cloud_cost" "datadog-cloudformation-template" "${VERSION}" "aws_cloud_cost"; then
             VALIDATION_FAILED=true
           fi
         fi
@@ -165,10 +154,8 @@ validate_versions:
         else
           VERSION=$(head -n 1 aws_config_stream/version.txt)
           echo "  New version: ${VERSION}"
-          # This one doesn't have version in path
-          if aws s3api head-object --bucket "datadog-cloudformation-template" --key "aws/main_config_stream.yaml" >/dev/null 2>&1; then
-            echo "  ⚠️  Note: aws_config_stream uploads to root, version check skipped"
-          fi
+          # This one uploads to root path, not versioned
+          echo "  ⚠️  Note: aws_config_stream uploads to root path (non-versioned), version check skipped"
         fi
         echo ""
       fi
@@ -198,7 +185,7 @@ validate_versions:
         else
           VERSION=$(head -n 1 aws_storage_management/version.txt)
           echo "  New version: ${VERSION}"
-          if ! check_s3_version "aws_storage_management" "datadog-cloudformation-template" "${VERSION}" "aws"; then
+          if ! check_s3_version "aws_storage_management" "datadog-cloudformation-template" "${VERSION}" "aws_storage_management"; then
             VALIDATION_FAILED=true
           fi
         fi
@@ -214,12 +201,9 @@ validate_versions:
         else
           VERSION=$(head -n 1 aws_streams/version.txt)
           echo "  New version: ${VERSION}"
-          # Check for the main_streams.yaml file in S3
-          if aws s3api head-object --bucket "datadog-cloudformation-stream-template" --key "aws/${VERSION}/main_streams.yaml" >/dev/null 2>&1; then
-            echo "  ❌ ERROR: Version ${VERSION} already exists in datadog-cloudformation-stream-template"
+          # aws_streams uses different bucket and path structure
+          if ! check_s3_version "aws_streams" "datadog-cloudformation-stream-template" "${VERSION}" "aws"; then
             VALIDATION_FAILED=true
-          else
-            echo "  ✅ Version ${VERSION} does not exist in S3"
           fi
         fi
         echo ""
