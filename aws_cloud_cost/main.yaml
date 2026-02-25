@@ -162,3 +162,4 @@ Resources:
       S3Prefix: !Ref CloudCostReportPrefix
       S3Region: !Ref CloudCostBucketRegion
       TimeUnit: HOURLY
+

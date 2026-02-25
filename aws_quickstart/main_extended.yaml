@@ -341,3 +341,4 @@ Metadata:
         default: "AgentlessSensitiveDataScanning *"
       InstallLambdaLogForwarder:
         default: "InstallLambdaLogForwarder *"
+

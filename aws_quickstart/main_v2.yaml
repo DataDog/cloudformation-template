@@ -206,3 +206,4 @@ Metadata:
         default: "CloudSecurityPostureManagement *"
       InstallLambdaLogForwarder:
         default: "InstallLambdaLogForwarder *"
+
