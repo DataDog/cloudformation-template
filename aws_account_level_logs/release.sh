@@ -59,7 +59,7 @@ trap 'mv main.yaml.bak main.yaml' EXIT
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
     aws s3 cp . s3://${BUCKET}/aws_account_level_logs --recursive --exclude "*" --include "*.yaml"
 else
-    aws s3 cp . s3://${BUCKET}/aws_account_level_logs --recursive --exclude "*" --include "*.yaml" --acl bucket-owner-full-control
+    aws s3 cp . s3://${BUCKET}/aws_account_level_logs --recursive --exclude "*" --include "*.yaml"
 fi
 echo "Done uploading the template. Navigate to https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacksets/create and use the template URL below."
 echo "https://${BUCKET}.s3.amazonaws.com/aws_account_level_logs/main.yaml"
