@@ -30,23 +30,61 @@ validate_versions:
 
       VALIDATION_FAILED=false
 
+      version_gt() {
+        local version1=$1
+        local version2=$2
+
+        version1=${version1#v}
+        version2=${version2#v}
+
+        if [[ "$version1" == "$version2" ]]; then
+          return 1
+        fi
+
+        local highest=$(echo -e "$version1\n$version2" | sort -V | tail -n1)
+        [[ "$highest" == "$version1" ]]
+      }
+
       check_s3_version() {
         local dir=$1
         local bucket=$2
         local version=$3
         local path_prefix=$4
 
-        echo "  Checking S3 for existing version ${version}..."
+        echo "  Checking version ${version} against S3..."
 
-        local s3_path="${path_prefix}/${version}/"
-        local output=$(aws s3 ls "s3://${bucket}/${s3_path}" 2>/dev/null || true)
+        # List all versions in S3, filtering for valid semver format (vMAJOR.MINOR.PATCH)
+        local s3_versions=$(aws s3 ls "s3://${bucket}/${path_prefix}/" 2>/dev/null | \
+          grep PRE | \
+          awk '{print $2}' | \
+          sed 's/\///' | \
+          grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
 
-        if [[ -n "$output" ]]; then
-          echo "  ❌ ERROR: Version ${version} already exists at s3://${bucket}/${s3_path}"
-          return 1
-        else
-          echo "  ✅ Version ${version} does not yet exist in S3"
+        if [[ -z "$s3_versions" ]]; then
+          echo "  ✅ No existing versions found in S3 - ${version} will be the first"
           return 0
+        fi
+
+        local latest_s3_version=""
+        for s3_ver in $s3_versions; do
+          if [[ -z "$latest_s3_version" ]] || version_gt "$s3_ver" "$latest_s3_version"; then
+            latest_s3_version="$s3_ver"
+          fi
+        done
+
+        echo "  Latest S3 version: ${latest_s3_version}"
+
+        if version_gt "$version" "$latest_s3_version"; then
+          echo "  ✅ Version ${version} is newer than ${latest_s3_version}"
+          return 0
+        else
+          if [[ "$version" == "$latest_s3_version" ]]; then
+            echo "  ❌ ERROR: Version ${version} already exists in S3"
+          else
+            echo "  ❌ ERROR: Version ${version} is not newer than latest S3 version ${latest_s3_version}"
+          fi
+          echo "     Please use a version higher than ${latest_s3_version}"
+          return 1
         fi
       }
 
@@ -89,7 +127,7 @@ validate_versions:
         echo ""
         echo "Please ensure:"
         echo "1. version.txt is updated when YAML files change"
-        echo "2. The new version doesn't already exist in S3"
+        echo "2. The new version is higher than the latest version in S3"
         echo "============================================"
         exit 1
       else
