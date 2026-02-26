@@ -59,8 +59,7 @@ trap 'mv main_config_stream.yaml.bak main_config_stream.yaml' EXIT
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
     aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml"
 else
-    aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml" \
-        --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+    aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml"
 fi
 echo "Done uploading the template, and here is the CloudFormation quick launch URL"
 echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-config-stream&templateURL=https://${BUCKET}.s3.amazonaws.com/aws/main_config_stream.yaml"
