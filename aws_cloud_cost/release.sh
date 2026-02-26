@@ -86,7 +86,7 @@ trap 'mv main.yaml.bak main.yaml' EXIT
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
     aws s3 cp . s3://${BUCKET}/aws_cloud_cost/${VERSION} --recursive --exclude "*" --include "*.yaml"
 else
-    aws s3 cp . s3://${BUCKET}/aws_cloud_cost/${VERSION} --recursive --exclude "*" --include "*.yaml"
+    aws s3 cp . s3://${BUCKET}/aws_cloud_cost/${VERSION} --recursive --exclude "*" --include "*.yaml" --acl bucket-owner-full-control
 fi
 echo "Done uploading the template, and here is the CloudFormation quick launch URL"
 echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-cloud-cost&templateURL=https://${BUCKET}.s3.amazonaws.com/aws_cloud_cost/${VERSION}/main.yaml"
