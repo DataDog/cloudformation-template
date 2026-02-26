@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Usage: ./release.sh <S3_Bucket>
+# Usage: ./release.sh <S3_Bucket> [--private] [--yes]
 
 set -e
 
@@ -50,6 +50,28 @@ else
     BUCKET=$1
 fi
 
+# Parse optional flags
+PRIVATE_TEMPLATE=false
+AUTO_YES=false
+shift
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --private)
+            PRIVATE_TEMPLATE=true
+            shift
+            ;;
+        --yes)
+            AUTO_YES=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: ./release.sh <S3_Bucket> [--private] [--yes]"
+            exit 1
+            ;;
+    esac
+done
+
 # Read the version
 VERSION=$(head -n 1 version.txt)
 
@@ -66,22 +88,20 @@ if [[ ${?} -eq 0 ]]; then
 fi
 set -e
 
-# Upload templates to a private bucket -- useful for testing
-if [[ $# -eq 2 ]] && [[ $2 = "--private" ]]; then
-    PRIVATE_TEMPLATE=true
-else
-    PRIVATE_TEMPLATE=false
-fi
-
 # Confirm to proceed
 for i in *.yaml; do
     [ -f "$i" ] || break
     echo "About to upload $i to s3://${BUCKET}/aws_attach_integration_permissions/${VERSION}/$i"
 done
-read -p "Continue (y/n)?" CONT
-if [ "$CONT" != "y" ]; then
-  echo "Exiting"
-  exit 1
+
+if [ "$AUTO_YES" = false ]; then
+    read -p "Continue (y/n)?" CONT
+    if [ "$CONT" != "y" ]; then
+        echo "Exiting"
+        exit 1
+    fi
+else
+    echo "Proceeding with upload (--yes flag provided)"
 fi
 
 # Update bucket placeholder
@@ -101,14 +121,18 @@ fi
 echo "Done uploading the template, and here is the CloudFormation quick launch URL"
 echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-integration&templateURL=https://${BUCKET}.s3.amazonaws.com/aws_attach_integration_permissions/${VERSION}/main.yaml"
 
-# Generate and upload versions.json
-echo "Generating and uploading versions.json for the new release..."
+# Generate and upload versions.json (only for public releases)
+if [ "$PRIVATE_TEMPLATE" = false ] ; then
+    echo "Generating and uploading versions.json for the new release..."
 
-generate_versions_json
-upload_versions_json
+    generate_versions_json
+    upload_versions_json
 
-echo "Done generating and uploading versions.json!"
-echo "Please verify the uploaded file:"
-echo "\thttps://${VERSIONS_BUCKET}.s3.amazonaws.com/attach_integration_permissions/versions.json"
+    echo "Done generating and uploading versions.json!"
+    echo "Please verify the uploaded file:"
+    echo "\thttps://${VERSIONS_BUCKET}.s3.amazonaws.com/attach_integration_permissions/versions.json"
+else
+    echo "Skipping versions.json upload for private release"
+fi
 
 echo "Done!"

@@ -1,0 +1,278 @@
+stages:
+  - validate
+  - release
+
+variables:
+  AWS_DEFAULT_REGION: us-east-1
+
+default:
+  tags: [ "arch:amd64" ]
+  interruptible: true
+
+# runs on PR to check version bumps and collisions
+validate_versions:
+  stage: validate
+  image: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.4.29
+  before_script:
+    - yum install -y git jq
+  script:
+    - |
+      echo "============================================"
+      echo "Validating Version Changes"
+      echo "============================================"
+      echo ""
+
+      git fetch origin master:master
+      CHANGED_FILES=$(git diff --name-only master...HEAD)
+      echo "Changed files:"
+      echo "$CHANGED_FILES"
+      echo ""
+
+      VALIDATION_FAILED=false
+
+      version_gt() {
+        local version1=$1
+        local version2=$2
+
+        version1=${version1#v}
+        version2=${version2#v}
+
+        if [[ "$version1" == "$version2" ]]; then
+          return 1
+        fi
+
+        local highest=$(echo -e "$version1\n$version2" | sort -V | tail -n1)
+        [[ "$highest" == "$version1" ]]
+      }
+
+      check_s3_version() {
+        local dir=$1
+        local bucket=$2
+        local version=$3
+        local path_prefix=$4
+
+        echo "  Checking version ${version} against S3..."
+
+        # List all versions in S3, filtering for valid semver format (vMAJOR.MINOR.PATCH)
+        local s3_versions=$(aws s3 ls "s3://${bucket}/${path_prefix}/" 2>/dev/null | \
+          grep PRE | \
+          awk '{print $2}' | \
+          sed 's/\///' | \
+          grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+
+        if [[ -z "$s3_versions" ]]; then
+          echo "  ✅ No existing versions found in S3 - ${version} will be the first"
+          return 0
+        fi
+
+        local latest_s3_version=""
+        for s3_ver in $s3_versions; do
+          if [[ -z "$latest_s3_version" ]] || version_gt "$s3_ver" "$latest_s3_version"; then
+            latest_s3_version="$s3_ver"
+          fi
+        done
+
+        echo "  Latest S3 version: ${latest_s3_version}"
+
+        if version_gt "$version" "$latest_s3_version"; then
+          echo "  ✅ Version ${version} is newer than ${latest_s3_version}"
+          return 0
+        else
+          if [[ "$version" == "$latest_s3_version" ]]; then
+            echo "  ❌ ERROR: Version ${version} already exists in S3"
+          else
+            echo "  ❌ ERROR: Version ${version} is not newer than latest S3 version ${latest_s3_version}"
+          fi
+          echo "     Please use a version higher than ${latest_s3_version}"
+          return 1
+        fi
+      }
+
+      # Define directory configurations for versioned dirs
+      # Format: "directory:bucket:s3_path_prefix"
+      declare -a DIRS=(
+        "aws_quickstart:datadog-cloudformation-template-quickstart:aws"
+        "aws_organizations:datadog-cloudformation-template:aws"
+        "aws_attach_integration_permissions:datadog-cloudformation-template:aws_attach_integration_permissions"
+        "aws_cloud_cost:datadog-cloudformation-template:aws_cloud_cost"
+        "aws_llm:datadog-cloudformation-template-quickstart:aws_llm"
+        "aws_storage_management:datadog-cloudformation-template:aws_storage_management"
+        "aws_streams:datadog-cloudformation-stream-template:aws"
+      )
+
+      for config in "${DIRS[@]}"; do
+        IFS=':' read -r dir bucket path_prefix <<< "$config"
+
+        if echo "$CHANGED_FILES" | grep -q "^${dir}/.*\.yaml$"; then
+          echo "Checking ${dir} for changed yaml files..."
+
+          if ! echo "$CHANGED_FILES" | grep -q "^${dir}/version\.txt$"; then
+            echo "❌ ERROR: YAML files changed but version.txt not updated in ${dir}"
+            VALIDATION_FAILED=true
+          else
+            VERSION=$(head -n 1 "${dir}/version.txt")
+            echo "  New version: ${VERSION}"
+
+            if ! check_s3_version "${dir}" "${bucket}" "${VERSION}" "${path_prefix}"; then
+              VALIDATION_FAILED=true
+            fi
+          fi
+          echo ""
+        fi
+      done
+
+      echo "============================================"
+      if [ "$VALIDATION_FAILED" = true ]; then
+        echo "❌ VALIDATION FAILED"
+        echo ""
+        echo "Please ensure:"
+        echo "1. version.txt is updated when YAML files change"
+        echo "2. The new version is higher than the latest version in S3"
+        echo "============================================"
+        exit 1
+      else
+        echo "✅ VALIDATION PASSED"
+        echo "============================================"
+      fi
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: always
+    - if: '$CI_COMMIT_BRANCH != "master"'
+      when: always
+  allow_failure: false
+
+.release_template:
+  stage: release
+  image: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.4.29
+  before_script:
+    - yum install -y perl jq
+
+release_quickstart:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template-quickstart
+  script:
+    - cd aws_quickstart
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_quickstart/version.txt
+      when: on_success
+
+release_organizations:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_organizations
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_organizations/version.txt
+      when: on_success
+
+release_aws_main:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws/*.yaml
+      when: on_success
+
+release_account_level_logs:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_account_level_logs
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_account_level_logs/*.yaml
+      when: on_success
+
+release_attach_integration_permissions:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_attach_integration_permissions
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_attach_integration_permissions/version.txt
+      when: on_success
+
+release_cloud_cost:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_cloud_cost
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_cloud_cost/version.txt
+      when: on_success
+
+release_config_stream:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_config_stream
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_config_stream/*.yaml
+      when: on_success
+
+release_llm:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template-quickstart
+  script:
+    - cd aws_llm
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_llm/version.txt
+      when: on_success
+
+release_storage_management:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_storage_management
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_storage_management/version.txt
+      when: on_success
+
+release_streams:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-stream-template
+  script:
+    - cd aws_streams
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_streams/version.txt
+      when: on_success
