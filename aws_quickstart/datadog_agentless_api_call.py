@@ -15,9 +15,7 @@ def call_datadog_agentless_api(context, event, method):
     app_key = event["ResourceProperties"]["APPKey"]
     dd_site = event["ResourceProperties"]["DatadogSite"]
     account_id = event["ResourceProperties"]["AccountId"]
-    hosts = event["ResourceProperties"]["Hosts"]
-    containers = event["ResourceProperties"]["Containers"]
-    lambdas = event["ResourceProperties"]["Lambdas"]
+    vulnerability_scanning = event["ResourceProperties"]["VulnerabilityScanning"]
     sensitive_data = event["ResourceProperties"]["SensitiveData"]
     # Optional parameters
     launch_template_id = event["ResourceProperties"].get("LaunchTemplateId")
@@ -76,9 +74,9 @@ def call_datadog_agentless_api(context, event, method):
                 "id": account_id,
                 "type": "aws_scan_options",
                 "attributes": {
-                    "vuln_containers_os": containers == "true",
-                    "vuln_host_os": hosts == "true",
-                    "lambda": lambdas == "true",
+                    "vuln_containers_os": vulnerability_scanning == "true",
+                    "vuln_host_os": vulnerability_scanning == "true",
+                    "lambda": vulnerability_scanning == "true",
                     "sensitive_data": sensitive_data == "true",
                 },
             },

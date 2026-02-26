@@ -87,29 +87,13 @@ Parameters:
       Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
-  AgentlessHostScanning:
+  AgentlessVulnerabilityScanning:
     Type: String
     AllowedValues:
       - true
       - false
     Description: >-
-      Enable Agentless Scanning of host vulnerabilities.
-    Default: false
-  AgentlessContainerScanning:
-    Type: String
-    AllowedValues:
-      - true
-      - false
-    Description: >-
-      Enable Agentless Scanning of container vulnerabilities.
-    Default: false
-  AgentlessLambdaScanning:
-    Type: String
-    AllowedValues:
-      - true
-      - false
-    Description: >-
-      Enable Agentless Scanning of Lambda vulnerabilities.
+      Enable Agentless Vulnerability Scanning (hosts, containers, and Lambda functions).
     Default: false
   AgentlessSensitiveDataScanning:
     Type: String
@@ -152,13 +136,7 @@ Rules:
                     - 'true'
                 - Fn::Or:
                     - Fn::Equals:
-                        - Ref: AgentlessHostScanning
-                        - 'true'
-                    - Fn::Equals:
-                        - Ref: AgentlessContainerScanning
-                        - 'true'
-                    - Fn::Equals:
-                        - Ref: AgentlessLambdaScanning
+                        - Ref: AgentlessVulnerabilityScanning
                         - 'true'
                     - Fn::Equals:
                         - Ref: AgentlessSensitiveDataScanning
@@ -181,13 +159,7 @@ Conditions:
           - ddog-gov.com
       - Fn::Or:
         - Fn::Equals:
-          - !Ref AgentlessHostScanning
-          - true
-        - Fn::Equals:
-          - !Ref AgentlessContainerScanning
-          - true
-        - Fn::Equals:
-          - !Ref AgentlessLambdaScanning
+          - !Ref AgentlessVulnerabilityScanning
           - true
         - Fn::Equals:
           - !Ref AgentlessSensitiveDataScanning
@@ -229,9 +201,7 @@ Resources:
         DatadogAPPKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
         AccountId: !Ref AWS::AccountId
-        AgentlessHostScanning: !Ref AgentlessHostScanning
-        AgentlessContainerScanning: !Ref AgentlessContainerScanning
-        AgentlessLambdaScanning: !Ref AgentlessLambdaScanning
+        AgentlessVulnerabilityScanning: !Ref AgentlessVulnerabilityScanning
         AgentlessSensitiveDataScanning: !Ref AgentlessSensitiveDataScanning
         ScannerDelegateRoleName: !Ref ScannerDelegateRoleName
         ScannerInstanceRoleARN: !If [IsCrossAccountScanning, !Join [",", !Ref "ScannerInstanceRoleARN"], !Ref "AWS::NoValue"]
@@ -311,9 +281,7 @@ Metadata:
         - DatadogSite
         - InstallLambdaLogForwarder
         - CloudSecurityPostureManagement
-        - AgentlessHostScanning
-        - AgentlessContainerScanning
-        - AgentlessLambdaScanning
+        - AgentlessVulnerabilityScanning
         - AgentlessSensitiveDataScanning
     - Label:
         default: Advanced
@@ -331,12 +299,8 @@ Metadata:
         default: "DatadogSite *"
       CloudSecurityPostureManagement:
         default: "CloudSecurityPostureManagement *"
-      AgentlessHostScanning:
-        default: "AgentlessHostScanning *"
-      AgentlessContainerScanning:
-        default: "AgentlessContainerScanning *"
-      AgentlessLambdaScanning:
-        default: "AgentlessLambdaScanning *"
+      AgentlessVulnerabilityScanning:
+        default: "AgentlessVulnerabilityScanning *"
       AgentlessSensitiveDataScanning:
         default: "AgentlessSensitiveDataScanning *"
       InstallLambdaLogForwarder:
