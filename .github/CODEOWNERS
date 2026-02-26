@@ -1,11 +1,11 @@
 # AWS Integrations team owned repository
 
-.github/ @DataDog/aws-ints-core
-.gitlab-ci.yml @DataDog/aws-ints-core
+.github/ @DataDog/aws-integrations
+.gitlab-ci.yml @DataDog/aws-integrations
 
 # AWS templates
 
-/aws* @DataDog/aws-ints-core
+/aws* @DataDog/aws-integrations
 
 # Agentless Scanning templates
-/aws_quickstart/datadog_agentless_* @DataDog/k9-agentless @DataDog/aws-ints-core
+/aws_quickstart/datadog_agentless_* @DataDog/k9-agentless @DataDog/aws-integrations
