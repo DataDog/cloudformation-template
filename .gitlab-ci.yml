@@ -103,13 +103,24 @@ validate_versions:
       for config in "${DIRS[@]}"; do
         IFS=':' read -r dir bucket path_prefix <<< "$config"
 
-        if echo "$CHANGED_FILES" | grep -q "^${dir}/.*\.yaml$"; then
-          echo "Checking ${dir} for changed yaml files..."
+        yaml_changed=false
+        version_changed=false
 
-          if ! echo "$CHANGED_FILES" | grep -q "^${dir}/version\.txt$"; then
-            echo "❌ ERROR: YAML files changed but version.txt not updated in ${dir}"
+        if echo "$CHANGED_FILES" | grep -q "^${dir}/.*\.yaml$"; then
+          yaml_changed=true
+        fi
+
+        if echo "$CHANGED_FILES" | grep -q "^${dir}/version\.txt$"; then
+          version_changed=true
+        fi
+
+        if [[ "$yaml_changed" == "true" ]] || [[ "$version_changed" == "true" ]]; then
+          echo "Checking ${dir}..."
+
+          if [[ "$yaml_changed" == "true" ]] && [[ "$version_changed" == "false" ]]; then
+            echo "  ❌ ERROR: YAML files changed but version.txt not updated in ${dir}"
             VALIDATION_FAILED=true
-          else
+          elif [[ "$version_changed" == "true" ]]; then
             VERSION=$(head -n 1 "${dir}/version.txt")
             echo "  New version: ${VERSION}"
 
