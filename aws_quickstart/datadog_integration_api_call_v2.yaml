@@ -99,7 +99,7 @@ Resources:
       LoggingConfig:
         ApplicationLogLevel: "INFO"
         LogFormat: "JSON"
-      Runtime: "python3.11"
+      Runtime: "python3.14"
       Timeout: 5
       Code:
         ZipFile: |

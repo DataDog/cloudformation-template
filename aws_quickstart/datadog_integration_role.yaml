@@ -102,7 +102,7 @@ Resources:
       LoggingConfig:
         ApplicationLogLevel: "INFO"
         LogFormat: "JSON"
-      Runtime: "python3.13"
+      Runtime: "python3.14"
       Timeout: 300
       Code:
         ZipFile: |
