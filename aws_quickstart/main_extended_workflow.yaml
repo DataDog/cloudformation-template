@@ -113,6 +113,14 @@ Parameters:
     Description: >-
       Enable Agentless Scanning of datastores (S3 buckets).
     Default: false
+  AgentlessComplianceHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Compliance Scanning for hosts.
+    Default: false
   ScannerDelegateRoleName:
     Type: String
     Description: The name of the role assumed by the Datadog Agentless Scanner
@@ -161,6 +169,9 @@ Rules:
                     - Fn::Equals:
                         - Ref: AgentlessSensitiveDataScanning
                         - 'true'
+                    - Fn::Equals:
+                        - Ref: AgentlessComplianceHostScanning
+                        - 'true'
         AssertDescription: Agentless Scanning options require ResourceCollection, must enable ResourceCollection
 Conditions:
   InstallForwarder:
@@ -186,6 +197,9 @@ Conditions:
           - true
         - Fn::Equals:
           - !Ref AgentlessSensitiveDataScanning
+          - true
+        - Fn::Equals:
+          - !Ref AgentlessComplianceHostScanning
           - true
   NoAgentlessScanning:
     Fn::Not:
@@ -549,6 +563,7 @@ Resources:
         AccountId: !Ref AWS::AccountId
         AgentlessVulnerabilityScanning: !Ref AgentlessVulnerabilityScanning
         AgentlessSensitiveDataScanning: !Ref AgentlessSensitiveDataScanning
+        AgentlessComplianceHostScanning: !Ref AgentlessComplianceHostScanning
         ScannerDelegateRoleName: !Ref ScannerDelegateRoleName
         ScannerInstanceRoleARN: !If [IsCrossAccountScanning, !Join [",", !Ref "ScannerInstanceRoleARN"], !Ref "AWS::NoValue"]
         DatadogIntegrationRoleName: !If [IsCrossAccountScanning, !Ref "AWS::NoValue", !Ref "IAMRoleName"]
@@ -702,6 +717,7 @@ Metadata:
         - CloudSecurityPostureManagement
         - AgentlessVulnerabilityScanning
         - AgentlessSensitiveDataScanning
+        - AgentlessComplianceHostScanning
     - Label:
         default: Advanced
       Parameters:
@@ -726,5 +742,7 @@ Metadata:
         default: "AgentlessVulnerabilityScanning *"
       AgentlessSensitiveDataScanning:
         default: "AgentlessSensitiveDataScanning *"
+      AgentlessComplianceHostScanning:
+        default: "AgentlessComplianceHostScanning *"
       InstallLambdaLogForwarder:
         default: "InstallLambdaLogForwarder *"

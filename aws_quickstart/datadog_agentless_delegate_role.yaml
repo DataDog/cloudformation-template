@@ -48,6 +48,14 @@ Parameters:
     Description: Enable Agentless Scanning of datastores (S3 buckets).
     Default: false
 
+  AgentlessComplianceHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Compliance Scanning for hosts.
+    Default: false
+
   ScannerInstanceRoleARN:
     Type: CommaDelimitedList
     Description: The ARNs of the roles of the Datadog Agentless Scanner instances that will assume the delegate role.
@@ -339,6 +347,7 @@ Resources:
       AccountId: !Ref "AWS::AccountId"
       VulnerabilityScanning: !Ref "AgentlessVulnerabilityScanning"
       SensitiveData: !Ref "AgentlessSensitiveDataScanning"
+      ComplianceHost: !Ref "AgentlessComplianceHostScanning"
       IntegrationRoleName: !Ref "DatadogIntegrationRoleName"
       Partition: !Ref "AWS::Partition"
       # Optional parameters
@@ -375,4 +384,5 @@ Metadata:
           default: "Advanced"
         Parameters:
           - AgentlessSensitiveDataScanning
+          - AgentlessComplianceHostScanning
           - AccountId

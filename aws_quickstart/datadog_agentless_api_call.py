@@ -17,6 +17,7 @@ def call_datadog_agentless_api(context, event, method):
     account_id = event["ResourceProperties"]["AccountId"]
     vulnerability_scanning = event["ResourceProperties"]["VulnerabilityScanning"]
     sensitive_data = event["ResourceProperties"]["SensitiveData"]
+    compliance_host = event["ResourceProperties"]["ComplianceHost"]
     # Optional parameters
     launch_template_id = event["ResourceProperties"].get("LaunchTemplateId")
     asg_arn = event["ResourceProperties"].get("AutoScalingGroupArn")
@@ -78,6 +79,7 @@ def call_datadog_agentless_api(context, event, method):
                     "vuln_host_os": vulnerability_scanning == "true",
                     "lambda": vulnerability_scanning == "true",
                     "sensitive_data": sensitive_data == "true",
+                    "compliance_host": compliance_host == "true",
                 },
             },
         }

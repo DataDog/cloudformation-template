@@ -44,6 +44,15 @@ Parameters:
       Enable Agentless Scanning of datastores (S3 buckets).
     Default: false
 
+  AgentlessComplianceHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable Agentless Compliance Scanning for hosts.
+    Default: false
+
   DatadogAPIKeySecretArn:
     Type: String
     Description: The ARN of the secret storing the Datadog API key, if you already have it stored in Secrets Manager. You must store the secret as a plaintext, rather than a key-value pair.
@@ -1058,6 +1067,7 @@ Resources:
       AccountId: !Ref "AWS::AccountId"
       VulnerabilityScanning: !Ref "AgentlessVulnerabilityScanning"
       SensitiveData: !Ref "AgentlessSensitiveDataScanning"
+      ComplianceHost: !Ref "AgentlessComplianceHostScanning"
       IntegrationRoleName: !Ref "DatadogIntegrationRoleName"
       Partition: !Ref "AWS::Partition"
       # Optional parameters
@@ -1099,6 +1109,7 @@ Metadata:
           - DatadogSite
           - AgentlessVulnerabilityScanning
           - AgentlessSensitiveDataScanning
+          - AgentlessComplianceHostScanning
       - Label:
           default: Advanced
         Parameters:
@@ -1130,3 +1141,5 @@ Metadata:
         default: "AgentlessVulnerabilityScanning *"
       AgentlessSensitiveDataScanning:
         default: "AgentlessSensitiveDataScanning *"
+      AgentlessComplianceHostScanning:
+        default: "AgentlessComplianceHostScanning *"

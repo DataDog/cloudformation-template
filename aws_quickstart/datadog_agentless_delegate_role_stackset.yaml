@@ -52,6 +52,14 @@ Parameters:
     Description: Enable Agentless Scanning of datastores (S3 buckets).
     Default: false
 
+  AgentlessComplianceHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Compliance Scanning for hosts.
+    Default: false
+
   DatadogIntegrationRoleName:
     Type: String
     Description: The name of IAM role used by the Datadog AWS integration. If provided, the SecurityAudit policy will be attached to this role.
@@ -323,6 +331,7 @@ Resources:
       AccountId: !Ref "AWS::AccountId"
       VulnerabilityScanning: !Ref "AgentlessVulnerabilityScanning"
       SensitiveData: !Ref "AgentlessSensitiveDataScanning"
+      ComplianceHost: !Ref "AgentlessComplianceHostScanning"
       IntegrationRoleName: !Ref "DatadogIntegrationRoleName"
       Partition: !Ref "AWS::Partition"
       # Optional parameters
@@ -389,3 +398,4 @@ Metadata:
         Parameters:
           - AgentlessVulnerabilityScanning
           - AgentlessSensitiveDataScanning
+          - AgentlessComplianceHostScanning
