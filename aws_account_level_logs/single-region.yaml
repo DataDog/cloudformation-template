@@ -32,6 +32,11 @@ Parameters:
     Type: String
     AllowedPattern: .+
     ConstraintDescription: DatadogHttpEndpointUrl is required
+  SelectionCriteria:
+    Description: >-
+      Optional subscription selection criteria.
+    Type: String
+    Default: "LogGroupName NOT IN [\"MyLogGroup\", \"MyAnotherLogGroup\"]"
 
 Resources:
 
@@ -93,6 +98,6 @@ Resources:
           - "\", \"DestinationArn\":\""
           - Fn::GetAtt: "DatadogDeliveryStream.Arn"
           - "\", \"FilterPattern\": \"\", \"Distribution\": \"Random\"}"
-      SelectionCriteria: "LogGroupName NOT IN [\"MyLogGroup\", \"MyAnotherLogGroup\"]"
+      SelectionCriteria: !Ref SelectionCriteria
       PolicyType: "SUBSCRIPTION_FILTER_POLICY"
       Scope: "ALL"

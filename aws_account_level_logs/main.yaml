@@ -27,6 +27,11 @@ Parameters:
     Type: CommaDelimitedList
     ConstraintDescription: Regions is required
     Default: ''
+  SelectionCriteria:
+    Description: >-
+      Optional subscription selection criteria.
+    Type: String
+    Default: "LogGroupName NOT IN [\"MyLogGroup\", \"MyAnotherLogGroup\"]"
 Resources:
   DatadogAccountLevelLogsStackSetAdministrationRole:
     Type: AWS::IAM::Role
@@ -285,6 +290,8 @@ Resources:
           ParameterValue: !GetAtt CloudWatchLogsRole.Arn
         - ParameterKey: FirehoseLogsRoleArn
           ParameterValue: !GetAtt FirehoseLogsRole.Arn
+        - ParameterKey: SelectionCriteria
+          ParameterValue: !Ref SelectionCriteria
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
