@@ -612,6 +612,7 @@ Resources:
       Metadata:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
+        role_name: !Ref IAMRoleName
 
   # Step 8: Final notification - stack complete (with forwarder, no agentless)
   NotifyStackCompleteForwarderNoAgentless:
@@ -636,6 +637,7 @@ Resources:
       Metadata:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
+        role_name: !Ref IAMRoleName
 
   # Step 8: Final notification - stack complete (no forwarder, with agentless)
   NotifyStackCompleteNoForwarderWithAgentless:
@@ -660,6 +662,7 @@ Resources:
       Metadata:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
+        role_name: !Ref IAMRoleName
 
   # Step 8: Final notification - stack complete (no forwarder, no agentless)
   NotifyStackCompleteNoForwarderNoAgentless:
@@ -681,6 +684,7 @@ Resources:
       Metadata:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
+        role_name: !Ref IAMRoleName
 
 Outputs:
   IAMRoleName:
