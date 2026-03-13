@@ -1,3 +1,7 @@
+# 4.7.0 (March 13, 2026)
+
+- Send final IAM role name back in the `stack_complete` workflow status payload so Datadog can use the user-configured role name when creating the AWS integration
+
 # 4.5.2 (February 17, 2026)
 
 - Update `AllowedPattern` for `DatadogAPPKey` parameter to support identifiable app keys (`ddapp_` prefix) in addition to the legacy 40-character hex format
