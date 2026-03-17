@@ -1,3 +1,23 @@
+# 4.7.1 (March 13, 2026)
+
+- Send final IAM role name back in the `stack_complete` workflow status payload so Datadog can use the user-configured role name when creating the AWS integration
+
+# 4.7.0 (March 9, 2026)
+
+- Add `AgentlessComplianceHostScanning` parameter to enable Agentless Compliance Scanning for hosts across all agentless templates
+
+# 4.6.5 (March 2, 2026)
+
+- Upgrade Lambda runtime from Python 3.12 to Python 3.14 across all templates
+
+# 4.6.4 (February 26, 2026)
+
+- Consolidate `AgentlessHostScanning`, `AgentlessContainerScanning`, and `AgentlessLambdaScanning` into a single `AgentlessVulnerabilityScanning` parameter
+
+# 4.6.0 (February 25, 2026)
+
+- Automatically attach the `SecurityAudit` AWS managed policy to the Datadog integration role when Agentless Scanning is enabled
+
 # 4.5.2 (February 17, 2026)
 
 - Update `AllowedPattern` for `DatadogAPPKey` parameter to support identifiable app keys (`ddapp_` prefix) in addition to the legacy 40-character hex format

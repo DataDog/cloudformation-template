@@ -409,6 +409,7 @@ Resources:
       Metadata:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
+        role_name: !Ref IAMRoleName
 
   # Step 6: Final notification - stack complete (without forwarder)
   NotifyStackCompleteWithoutForwarder:
@@ -430,6 +431,7 @@ Resources:
       Metadata:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
+        role_name: !Ref IAMRoleName
 
 Outputs:
   IAMRoleName:
