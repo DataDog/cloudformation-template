@@ -26,15 +26,11 @@ Parameters:
 
   DatadogSite:
     Type: String
-    Description: The Datadog site to use for the Datadog Agentless Scanner
+    Description: >-
+      The Datadog site to use for the Datadog Agentless Scanner.
+      Allowed values: datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com,
+      ap1.datadoghq.com, ap2.datadoghq.com.
     Default: datadoghq.com
-    AllowedValues:
-      - datadoghq.com
-      - datadoghq.eu
-      - us3.datadoghq.com
-      - us5.datadoghq.com
-      - ap1.datadoghq.com
-      - ap2.datadoghq.com
 
   AgentlessVulnerabilityScanning:
     Type: String
