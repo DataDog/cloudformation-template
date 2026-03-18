@@ -35,6 +35,7 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
                 "AccountId": "123456789012",
                 "VulnerabilityScanning": "true",
                 "SensitiveData": "false",
+                "ComplianceHost": "false",
             },
             "StackId": "arn:aws:cloudformation:us-east-1:358251252154:stack/DatadogAgentlessIntegration/22b23bca-de8b-451c-99e4-c69b9ad20ec7",
         }
