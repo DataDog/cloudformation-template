@@ -1302,6 +1302,48 @@ Resources:
               - "workspaces-web:ListTrustStores"
               - "workspaces-web:ListUserAccessLoggingSettings"
               - "workspaces-web:ListUserSettings"
+  DatadogIntegrationRoleManagedPolicy5:
+    Type: "AWS::IAM::ManagedPolicy"
+    Condition: ResourceCollectionPermissions
+    Properties:
+      ManagedPolicyName: !Sub
+        - "${IAMRoleName}-ManagedPolicy-5"
+        - { IAMRoleName: !Ref IAMRoleName }
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Resource: "*"
+            Action:
+              - "account:GetAlternateContact"
+              - "account:GetPrimaryEmail"
+              - "appconfig:ListApplications"
+              - "appconfig:ListDeploymentStrategies"
+              - "appconfig:ListExtensionAssociations"
+              - "appconfig:ListExtensions"
+              - "bedrock:ListEvaluationJobs"
+              - "bedrock:ListMarketplaceModelEndpoints"
+              - "cost-optimization-hub:ListRecommendations"
+              - "dms:ListDataProviders"
+              - "dms:ListInstanceProfiles"
+              - "dms:ListMigrationProjects"
+              - "greengrass:ListBulkDeployments"
+              - "greengrass:ListConnectorDefinitions"
+              - "greengrass:ListCoreDefinitions"
+              - "greengrass:ListDeviceDefinitions"
+              - "greengrass:ListFunctionDefinitions"
+              - "greengrass:ListGroups"
+              - "greengrass:ListLoggerDefinitions"
+              - "greengrass:ListResourceDefinitions"
+              - "greengrass:ListSubscriptionDefinitions"
+              - "iotfleetwise:ListModelManifests"
+              - "rekognition:DescribeProjects"
+              - "rekognition:ListStreamProcessors"
+              - "route53-recovery-control-config:ListClusters"
+              - "route53-recovery-control-config:ListControlPanels"
+              - "s3:GetIntelligentTieringConfiguration"
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
