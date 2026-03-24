@@ -42,15 +42,10 @@ Parameters:
   DatadogSite:
     Type: String
     Default: datadoghq.com
-    Description: Define your Datadog Site to send data to.
-    AllowedValues:
-      - datadoghq.com
-      - datadoghq.eu
-      - us3.datadoghq.com
-      - us5.datadoghq.com
-      - ap1.datadoghq.com
-      - ap2.datadoghq.com
-      - ddog-gov.com
+    Description: >-
+      Define your Datadog Site to send data to.
+      Allowed values: datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com,
+      ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com (GovCloud).
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
@@ -220,6 +215,10 @@ Conditions:
     Fn::And:
       - Condition: NoForwarder
       - Condition: NoAgentlessScanning
+  IsStaging:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - datad0g.com
   IsAP1:
     Fn::Equals:
       - !Ref DatadogSite
@@ -448,18 +447,21 @@ Resources:
         IAMRoleName: !Ref IAMRoleName
         ResourceCollectionPermissions: !If [ResourceCollectionPermissions, true, false]
         DdAWSAccountId: !If
-          - IsAP1
-          - "417141415827"
+          - IsStaging
+          - "727006795293"
           - !If
-            - IsAP2
-            - "412381753143"
+            - IsAP1
+            - "417141415827"
             - !If
-              - IsGov
+              - IsAP2
+              - "412381753143"
               - !If
-                - IsAWSGovCloud
-                - "065115117704"
-                - "392588925713"
-              - "464622532012"
+                - IsGov
+                - !If
+                  - IsAWSGovCloud
+                  - "065115117704"
+                  - "392588925713"
+                - "464622532012"
 
   # Step 3: Notify IAM role creation finished
   NotifyIAMRoleCreationFinished:
