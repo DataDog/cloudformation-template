@@ -1,3 +1,7 @@
+# 4.7.2 (March 23, 2026)
+
+- Send Lambda log forwarder ARN back in the `stack_complete` workflow status payload so Datadog can register the deployed forwarder with the AWS integration automatically
+
 # 4.7.1 (March 13, 2026)
 
 - Send final IAM role name back in the `stack_complete` workflow status payload so Datadog can use the user-configured role name when creating the AWS integration
