@@ -1,4 +1,4 @@
-# 4.7.2 (March 23, 2026)
+# 4.7.3 (March 23, 2026)
 
 - Send Lambda log forwarder ARN back in the `stack_complete` workflow status payload so Datadog can register the deployed forwarder with the AWS integration automatically
 
