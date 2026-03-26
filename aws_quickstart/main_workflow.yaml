@@ -412,6 +412,8 @@ Resources:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
         role_name: !Ref IAMRoleName
+        region: !Ref AWS::Region
+        forwarder_arn: !GetAtt ForwarderStack.Outputs.DatadogForwarderArn
 
   # Step 6: Final notification - stack complete (without forwarder)
   NotifyStackCompleteWithoutForwarder:
@@ -434,6 +436,7 @@ Resources:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
         role_name: !Ref IAMRoleName
+        region: !Ref AWS::Region
 
 Outputs:
   IAMRoleName:

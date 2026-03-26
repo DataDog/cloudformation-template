@@ -615,6 +615,8 @@ Resources:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
         role_name: !Ref IAMRoleName
+        region: !Ref AWS::Region
+        forwarder_arn: !GetAtt ForwarderStack.Outputs.DatadogForwarderArn
 
   # Step 8: Final notification - stack complete (with forwarder, no agentless)
   NotifyStackCompleteForwarderNoAgentless:
@@ -640,6 +642,8 @@ Resources:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
         role_name: !Ref IAMRoleName
+        region: !Ref AWS::Region
+        forwarder_arn: !GetAtt ForwarderStack.Outputs.DatadogForwarderArn
 
   # Step 8: Final notification - stack complete (no forwarder, with agentless)
   NotifyStackCompleteNoForwarderWithAgentless:
@@ -665,6 +669,7 @@ Resources:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
         role_name: !Ref IAMRoleName
+        region: !Ref AWS::Region
 
   # Step 8: Final notification - stack complete (no forwarder, no agentless)
   NotifyStackCompleteNoForwarderNoAgentless:
@@ -687,6 +692,7 @@ Resources:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
         role_name: !Ref IAMRoleName
+        region: !Ref AWS::Region
 
 Outputs:
   IAMRoleName:
