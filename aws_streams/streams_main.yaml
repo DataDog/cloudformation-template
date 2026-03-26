@@ -35,6 +35,14 @@ Parameters:
     Type: CommaDelimitedList
     ConstraintDescription: Regions is required
     Default: ''
+  IncludeLinkedAccounts:
+      Description: >-
+        Set to "true" to include metrics from linked accounts in the metric stream. By default, only metrics from the current account are included.
+      Type: String
+      Default: "false"
+      AllowedValues:
+        - "true"
+        - "false"
   DdSite:
     Type: String
     Default: datadoghq.com
@@ -229,6 +237,8 @@ Resources:
           ParameterValue: !GetAtt ServiceRole.Arn
         - ParameterKey: StreamRoleArn
           ParameterValue: !GetAtt DatadogMetricStreamRole.Arn
+        - ParameterKey: IncludeLinkedAccounts
+          ParameterValue: !Ref IncludeLinkedAccounts
         - ParameterKey: DdSite
           ParameterValue: !Ref DdSite
         - ParameterKey: FilterMethod

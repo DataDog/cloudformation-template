@@ -20,6 +20,11 @@ Parameters:
     Type: String
     AllowedPattern: .+
     ConstraintDescription: StreamRoleArn is required
+  IncludeLinkedAccounts:
+      Description: >-
+        Set to "true" to include metrics from linked accounts in the metric stream. By default, only metrics from the current account are included.
+      Type: String
+      Default: "false"
   FilterMethod:
     Description: >-
       "Include" for an inclusion filter or "Exclude" for an exclusion filter for the following namespaces.
@@ -175,6 +180,7 @@ Resources:
       FirehoseArn: !GetAtt DatadogMetricKinesisFirehose.Arn
       RoleArn: !Ref StreamRoleArn
       OutputFormat: "opentelemetry0.7"
+      IncludeLinkedAccountsMetrics: !Ref IncludeLinkedAccounts
       IncludeFilters: !If
         - IsInclude
         - - !If
