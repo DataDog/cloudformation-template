@@ -23,11 +23,21 @@ Parameters:
       Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
     Type: String
     Default: "464622532012"
+  InstallAgentOnCloudResources:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
 Conditions:
   ShouldInstallSecurityAuditPolicy:
     Fn::Equals:
       - Ref: ResourceCollectionPermissions
       - true
+  AgentOnCloudResources:
+    Fn::Equals:
+      - !Ref InstallAgentOnCloudResources
+      - "true"
 Resources:
   DatadogIntegrationRole:
     Type: "AWS::IAM::Role"
@@ -61,6 +71,67 @@ Resources:
           [!Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"],
           !Ref AWS::NoValue,
         ]
+  DatadogEventBridgeInvocationRole:
+    Type: AWS::IAM::Role
+    Condition: AgentOnCloudResources
+    Properties:
+      RoleName: datadog-eventbridge-invocation-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeDatadogApiDestination
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: events:InvokeApiDestination
+                Resource: !Sub "arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/datadog-*"
+
+  DatadogAgentInstallEventBridgePolicy:
+    Type: AWS::IAM::Policy
+    Condition: AgentOnCloudResources
+    DependsOn: DatadogEventBridgeInvocationRole
+    Properties:
+      PolicyName: DatadogAgentInstallEventBridgePolicy
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - events:PutRule
+              - events:PutTargets
+              - events:DeleteRule
+              - events:RemoveTargets
+              - events:DescribeRule
+              - events:ListTargetsByRule
+              - events:CreateConnection
+              - events:UpdateConnection
+              - events:DeleteConnection
+              - events:DescribeConnection
+              - events:CreateApiDestination
+              - events:UpdateApiDestination
+              - events:DeleteApiDestination
+              - events:DescribeApiDestination
+            Resource:
+              - !Sub "arn:${AWS::Partition}:events:*:${AWS::AccountId}:rule/datadog-*"
+              - !Sub "arn:${AWS::Partition}:events:*:${AWS::AccountId}:connection/datadog-*"
+              - !Sub "arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/datadog-*"
+          - Effect: Allow
+            Action:
+              - iam:PassRole
+            Resource:
+              - !GetAtt DatadogEventBridgeInvocationRole.Arn
+            Condition:
+              StringEquals:
+                iam:PassedToService: events.amazonaws.com
+
   DatadogAttachIntegrationPermissionsLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:

@@ -62,6 +62,16 @@ Parameters:
       or send logs using AWS PrivateLink should select "no" and install this independently
       (https://docs.datadoghq.com/serverless/libraries_integrations/forwarder/#installation).
     Default: true
+  InstallAgentOnCloudResources:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Automatically install and manage the Datadog Agent on EKS clusters,
+      EC2 instances, and ECS clusters. Datadog will monitor CloudTrail events
+      and install the Agent on resources matching rules configured in Datadog.
+    Default: false
   DisableMetricCollection:
     Type: String
     AllowedValues:
@@ -460,6 +470,7 @@ Resources:
             - !FindInMap [DdAccountIdBySite, "ddog-gov.com", AccountIdGovCloud]
             - !FindInMap [DdAccountIdBySite, "ddog-gov.com", AccountId]
           - !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountId]
+        InstallAgentOnCloudResources: !Ref InstallAgentOnCloudResources
 
   # Step 3: Notify IAM role creation finished
   NotifyIAMRoleCreationFinished:
