@@ -1,3 +1,7 @@
+# 4.8.0 (April 7, 2026)
+
+- Add `InstallAgentOnCloudResources` parameter to enable automated Datadog Agent installation on EKS clusters, EC2 instances, and ECS clusters via EventBridge. When enabled, grants Datadog's backend IAM permissions to create and manage EventBridge rules in each active AWS region using the existing cross-account integration role.
+
 # 4.7.3 (March 23, 2026)
 
 - Send Lambda log forwarder ARN back in the `stack_complete` workflow status payload so Datadog can register the deployed forwarder with the AWS integration automatically
