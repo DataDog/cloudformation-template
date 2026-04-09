@@ -1,3 +1,7 @@
+# 4.8.0 (April 9, 2026)
+
+- Always attach S3 bucket scanning (DSPM) IAM permissions to the agentless delegate role, so customers who enable sensitive data scanning later don't need to redeploy the CloudFormation stack
+
 # 4.7.3 (March 23, 2026)
 
 - Send Lambda log forwarder ARN back in the `stack_complete` workflow status payload so Datadog can register the deployed forwarder with the AWS integration automatically
