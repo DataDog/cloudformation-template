@@ -68,9 +68,6 @@ Parameters:
     Default: ''
 
 Conditions:
-  DSPMEnabled: !Equals
-    - !Ref 'AgentlessSensitiveDataScanning'
-    - 'true'
   AttachSecurityAuditPolicy: !Not
     - !Equals
       - !Ref 'DatadogIntegrationRoleName'
@@ -349,7 +346,7 @@ Resources:
       DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
       OrchestratorPolicyArn: !Ref "ScannerDelegateRoleOrchestratorPolicy"
       WorkerPolicyArn: !Ref "ScannerDelegateRoleWorkerPolicy"
-      WorkerDSPMPolicyArn: !If [DSPMEnabled, !Ref "ScannerDelegateRoleWorkerDSPMPolicy", !Ref "AWS::NoValue"]
+      WorkerDSPMPolicyArn: !Ref "ScannerDelegateRoleWorkerDSPMPolicy"
 
   DatadogAgentlessAPICallFunction:
     Type: "AWS::Lambda::Function"

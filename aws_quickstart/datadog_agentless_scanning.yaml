@@ -167,10 +167,6 @@ Conditions:
   OfflineModeEnabled: !Equals
     - !Ref 'ScannerOfflineModeEnabled'
     - 'true'
-  DSPMEnabled: !Equals
-    - !Ref 'AgentlessSensitiveDataScanning'
-    - 'true'
-
 Rules:
   MustSetScannerVPCIdAndSubnetId:
     AssertDescription: 'Checking arguments ScannerVPCId and ScannerSubnetId'
@@ -1074,7 +1070,7 @@ Resources:
       ScannerPolicyArn: !Ref "ScannerAgentPolicy"
       OrchestratorPolicyArn: !Ref "ScannerDelegateRoleOrchestratorPolicy"
       WorkerPolicyArn: !Ref "ScannerDelegateRoleWorkerPolicy"
-      WorkerDSPMPolicyArn: !If [DSPMEnabled, !Ref "ScannerDelegateRoleWorkerDSPMPolicy", !Ref "AWS::NoValue"]
+      WorkerDSPMPolicyArn: !Ref "ScannerDelegateRoleWorkerDSPMPolicy"
 
   DatadogAgentlessAPICallFunction:
     Type: "AWS::Lambda::Function"
