@@ -62,9 +62,6 @@ Parameters:
     Default: ''
 
 Conditions:
-  DSPMEnabled: !Equals
-    - !Ref 'AgentlessSensitiveDataScanning'
-    - 'true'
   AttachSecurityAuditPolicy: !Not
     - !Equals
       - !Ref 'DatadogIntegrationRoleName'
@@ -224,7 +221,6 @@ Resources:
 
   ScannerDelegateRoleWorkerDSPMPolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: DSPMEnabled
     Properties:
       Description: Policy for the Datadog Agentless Scanner worker allowing the listing and reading of S3 buckets.
       PolicyDocument:
@@ -270,7 +266,7 @@ Resources:
       ManagedPolicyArns:
         - !Ref 'ScannerDelegateRoleOrchestratorPolicy'
         - !Ref 'ScannerDelegateRoleWorkerPolicy'
-        - !If [DSPMEnabled, !Ref 'ScannerDelegateRoleWorkerDSPMPolicy', !Ref 'AWS::NoValue']
+        - !Ref 'ScannerDelegateRoleWorkerDSPMPolicy'
       Description: Role assumed by the Datadog Agentless scanner agent to perform scans
       Tags:
         - Key: DatadogAgentlessScanner
@@ -334,7 +330,7 @@ Resources:
       DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
       OrchestratorPolicyArn: !Ref "ScannerDelegateRoleOrchestratorPolicy"
       WorkerPolicyArn: !Ref "ScannerDelegateRoleWorkerPolicy"
-      WorkerDSPMPolicyArn: !If [DSPMEnabled, !Ref "ScannerDelegateRoleWorkerDSPMPolicy", !Ref "AWS::NoValue"]
+      WorkerDSPMPolicyArn: !Ref "ScannerDelegateRoleWorkerDSPMPolicy"
 
   DatadogAgentlessAPICallFunction:
     Type: "AWS::Lambda::Function"
@@ -371,7 +367,6 @@ Outputs:
       Name: !Sub '${AWS::StackName}-WorkerPolicyArn'
 
   WorkerDSPMPolicyArn:
-    Condition: DSPMEnabled
     Description: ARN of the Worker DSPM Policy
     Value: !Ref 'ScannerDelegateRoleWorkerDSPMPolicy'
     Export:
