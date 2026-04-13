@@ -1,3 +1,7 @@
+# 4.8.1 (April 13, 2026)
+
+- Add EC2 agent install IAM permissions (`DatadogAgentInstallEC2Policy`) gated on `InstallAgentOnCloudResources`. Grants the integration role permissions to manage SSM documents, send SSM commands, create Secrets Manager secrets scoped to `/datadog/ec2-instrumenter/*`, create and manage `datadog-ssm-*` IAM roles and instance profiles, and associate instance profiles with EC2 instances.
+
 # 4.8.0 (April 7, 2026)
 
 - Add `InstallAgentOnCloudResources` parameter to enable automated Datadog Agent installation on EKS clusters, EC2 instances, and ECS clusters via EventBridge. When enabled, grants Datadog's backend IAM permissions to create and manage EventBridge rules in each active AWS region using the existing cross-account integration role.

@@ -132,6 +132,57 @@ Resources:
               StringEquals:
                 iam:PassedToService: events.amazonaws.com
 
+  DatadogAgentInstallEC2Policy:
+    Type: AWS::IAM::Policy
+    Condition: AgentOnCloudResources
+    Properties:
+      PolicyName: DatadogAgentInstallEC2Policy
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - ssm:DescribeInstanceInformation
+              - ssm:SendCommand
+              - ssm:GetDocument
+              - ssm:CreateDocument
+              - ssm:UpdateDocument
+              - ssm:UpdateDocumentDefaultVersion
+              - ec2:AssociateIamInstanceProfile
+              - resource-groups:ListGroupResources
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - secretsmanager:DescribeSecret
+              - secretsmanager:CreateSecret
+            Resource:
+              - !Sub "arn:${AWS::Partition}:secretsmanager:*:${AWS::AccountId}:secret:/datadog/ec2-instrumenter/*"
+          - Effect: Allow
+            Action:
+              - iam:CreateRole
+              - iam:CreateInstanceProfile
+              - iam:AddRoleToInstanceProfile
+            Resource:
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/datadog-ssm-*"
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/datadog-ssm-profile-*"
+          - Effect: Allow
+            Action:
+              - iam:GetInstanceProfile
+              - iam:ListAttachedRolePolicies
+              - iam:AttachRolePolicy
+              - iam:PutRolePolicy
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - iam:PassRole
+            Resource:
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/datadog-ssm-*"
+            Condition:
+              StringEquals:
+                iam:PassedToService: ec2.amazonaws.com
+
   DatadogAttachIntegrationPermissionsLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
