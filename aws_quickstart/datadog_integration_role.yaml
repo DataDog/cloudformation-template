@@ -183,6 +183,35 @@ Resources:
               StringEquals:
                 iam:PassedToService: ec2.amazonaws.com
 
+  DatadogAgentInstallEKSPolicy:
+    Type: AWS::IAM::Policy
+    Condition: AgentOnCloudResources
+    Properties:
+      PolicyName: DatadogAgentInstallEKSPolicy
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - eks:DeleteAccessEntry
+            Resource:
+              - !Sub "arn:${AWS::Partition}:eks:*:${AWS::AccountId}:cluster/*"
+          - Effect: Allow
+            Action:
+              - lambda:DeleteFunction
+              - iam:DeleteRolePolicy
+              - iam:DeleteRole
+            Resource:
+              - !Sub "arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:dd-eks-instrumenter-*"
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/dd-eks-instrumenter-*"
+          - Effect: Allow
+            Action:
+              - secretsmanager:DeleteSecret
+            Resource:
+              - !Sub "arn:${AWS::Partition}:secretsmanager:*:${AWS::AccountId}:secret:/datadog/eks-instrumenter/*"
+
   DatadogAttachIntegrationPermissionsLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
