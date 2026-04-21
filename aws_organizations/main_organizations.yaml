@@ -92,15 +92,22 @@ Mappings:
     ddog-gov.com:
       AccountId: "392588925713"
       AccountIdGovCloud: "065115117704"
+    us2.ddog-gov.com:
+      AccountId: "382742775718"
+      AccountIdGovCloud: "486737091498"
 Conditions:
   ResourceCollectionPermissions:
     Fn::Equals:
       - !Ref DisableResourceCollection
       - false
   IsGov:
-    Fn::Equals:
-      - !Ref DatadogSite
-      - ddog-gov.com
+    Fn::Or:
+      - Fn::Equals:
+          - !Ref DatadogSite
+          - ddog-gov.com
+      - Fn::Equals:
+          - !Ref DatadogSite
+          - us2.ddog-gov.com
   IsAWSGovCloud:
     Fn::Equals:
       - !Ref AWS::Partition
@@ -394,10 +401,10 @@ Resources:
                     - IsAWSGovCloud
                     - AWS: !Sub
                         - "arn:${AWS::Partition}:iam::${AccountId}:root"
-                        - AccountId: !FindInMap [DdAccountIdBySite, "ddog-gov.com", AccountIdGovCloud]
+                        - AccountId: !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountIdGovCloud]
                     - AWS: !Sub
                         - "arn:${AWS::Partition}:iam::${AccountId}:root"
-                        - AccountId: !FindInMap [DdAccountIdBySite, "ddog-gov.com", AccountId]
+                        - AccountId: !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountId]
                 - AWS: !Sub
                     - "arn:${AWS::Partition}:iam::${AccountId}:root"
                     - AccountId: !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountId]
