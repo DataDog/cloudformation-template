@@ -32,7 +32,7 @@ Parameters:
     Description: >-
       Define your Datadog Site to send data to.
       Allowed values: datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com,
-      ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com (GovCloud).
+      ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com (GovCloud), us2.ddog-gov.com (GovCloud).
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
@@ -85,6 +85,9 @@ Mappings:
     ddog-gov.com:
       AccountId: "392588925713"
       AccountIdGovCloud: "065115117704"
+    us2.ddog-gov.com:
+      AccountId: "382742775718"
+      AccountIdGovCloud: "486737091498"
     datad0g.com:
       AccountId: "727006795293"
 Conditions:
@@ -100,9 +103,13 @@ Conditions:
       - !Ref DisableResourceCollection
       - false
   IsGov:
-    Fn::Equals:
-      - !Ref DatadogSite
-      - ddog-gov.com
+    Fn::Or:
+      - Fn::Equals:
+          - !Ref DatadogSite
+          - ddog-gov.com
+      - Fn::Equals:
+          - !Ref DatadogSite
+          - us2.ddog-gov.com
   IsAWSGovCloud:
     Fn::Equals:
       - !Ref AWS::Partition
@@ -317,8 +324,8 @@ Resources:
           - IsGov
           - !If
             - IsAWSGovCloud
-            - !FindInMap [DdAccountIdBySite, "ddog-gov.com", AccountIdGovCloud]
-            - !FindInMap [DdAccountIdBySite, "ddog-gov.com", AccountId]
+            - !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountIdGovCloud]
+            - !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountId]
           - !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountId]
 
   # Step 3: Notify IAM role creation finished

@@ -24,6 +24,7 @@ Parameters:
       - ap1.datadoghq.com
       - ap2.datadoghq.com
       - ddog-gov.com
+      - us2.ddog-gov.com
   CloudCostBucketName:
     Type: String
     Description: The name of the S3 bucket for storing the cost and usage reports.

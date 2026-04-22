@@ -1,3 +1,7 @@
+# 4.9.0 (April 21, 2026)
+
+- Add support for the `us2.ddog-gov.com` Datadog site (us2.fed GovCloud). The site is mapped to the new Datadog account IDs, included in the `IsGov` condition, and excluded from Agentless Scanning (which is not supported on GovCloud)
+
 # 4.8.0 (April 9, 2026)
 
 - Always attach S3 bucket scanning (DSPM) IAM permissions to the agentless delegate role, so customers who enable sensitive data scanning later don't need to redeploy the CloudFormation stack
