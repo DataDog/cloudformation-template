@@ -1,3 +1,7 @@
+# 4.9.1 (April 22, 2026)
+
+- Fix `Template error: Unable to get mapping for DdAccountIdBySite::<site>::AccountIdGovCloud` on commercial-site deploys. CloudFormation's `Fn::FindInMap` is resolved at template-parse time regardless of the surrounding `Fn::If`, so every site row now carries an `AccountIdGovCloud` key (commercial sites use `"NOT_APPLICABLE"`, which is discarded by the `IsGov` guard). Affects `main_v2.yaml`, `main_workflow.yaml`, `main_extended.yaml`, and `main_extended_workflow.yaml`
+
 # 4.9.0 (April 21, 2026)
 
 - Add support for the `us2.ddog-gov.com` Datadog site (us2.fed GovCloud). The site is mapped to the new Datadog account IDs, included in the `IsGov` condition, and excluded from Agentless Scanning (which is not supported on GovCloud)
