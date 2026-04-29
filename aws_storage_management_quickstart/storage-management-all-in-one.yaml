@@ -52,7 +52,8 @@ Parameters:
     Description: >-
       Set to "true" to enable S3 server access logging on every source bucket in
       BucketMapping. Source buckets that already have a logging configuration
-      (to any target) will be skipped. Requires LogDestinationBucket.
+      (to any target) will be skipped. Requires LogDestinationBucket. Your 
+      Lambda Forwarder will be set up to send these logs to Datadog.
   LogDestinationBucket:
     Type: String
     Default: ""
