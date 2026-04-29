@@ -73,12 +73,11 @@ perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main.yaml
 
 trap 'mv main.yaml.bak main.yaml' EXIT
 
-# Upload (only top-level yaml files; subdirectories like
-# storage_management_quickstart/ have their own release.sh).
+# Upload
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
-    aws s3 cp . s3://${BUCKET}/aws_storage_management/${VERSION} --recursive --exclude "*" --include "*.yaml" --exclude "*/*"
+    aws s3 cp . s3://${BUCKET}/aws_storage_management/${VERSION} --recursive --exclude "*" --include "*.yaml"
 else
-    aws s3 cp . s3://${BUCKET}/aws_storage_management/${VERSION} --recursive --exclude "*" --include "*.yaml" --exclude "*/*"
+    aws s3 cp . s3://${BUCKET}/aws_storage_management/${VERSION} --recursive --exclude "*" --include "*.yaml"
 fi
 echo "Done uploading the template, and here is the CloudFormation quick launch URL"
 echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-storage-management-permissions&templateURL=https://${BUCKET}.s3.amazonaws.com/aws_storage_management/${VERSION}/main.yaml"
