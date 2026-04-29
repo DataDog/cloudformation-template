@@ -9,3 +9,6 @@
 
 # Agentless Scanning templates
 /aws_quickstart/datadog_agentless_* @DataDog/k9-agentless @DataDog/aws-integrations
+
+# Storage Management templatess
+/aws_storage_management* @DataDog/storage-management
