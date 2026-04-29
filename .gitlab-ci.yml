@@ -97,6 +97,7 @@ validate_versions:
         "aws_cloud_cost:datadog-cloudformation-template:aws_cloud_cost"
         "aws_llm:datadog-cloudformation-template-quickstart:aws_llm"
         "aws_storage_management:datadog-cloudformation-template:aws_storage_management"
+        "aws_storage_management/storage_management_quickstart:datadog-cloudformation-template:aws_storage_management_quickstart"
         "aws_streams:datadog-cloudformation-stream-template:aws"
       )
 
@@ -273,6 +274,19 @@ release_storage_management:
     - if: '$CI_COMMIT_BRANCH == "master"'
       changes:
         - aws_storage_management/version.txt
+      when: on_success
+
+release_storage_management_quickstart:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_storage_management/storage_management_quickstart
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_storage_management/storage_management_quickstart/version.txt
       when: on_success
 
 release_streams:
