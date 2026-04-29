@@ -35,7 +35,7 @@ Parameters:
     Description: >-
       Define your Datadog Site to send data to.
       Allowed values: datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com,
-      ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com (GovCloud).
+      ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com (GovCloud), us2.ddog-gov.com (GovCloud).
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
@@ -149,24 +149,37 @@ Rules:
                         - 'true'
         AssertDescription: Agentless Scanning options require ResourceCollection, must enable ResourceCollection
 Mappings:
+  # AccountIdGovCloud is only read on GovCloud sites (ddog-gov.com, us2.ddog-gov.com).
+  # Commercial sites carry "NOT_APPLICABLE" so Fn::FindInMap can resolve the key at
+  # template-parse time; the value is discarded by the surrounding Fn::If.
   DdAccountIdBySite:
     datadoghq.com:
       AccountId: "464622532012"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     datadoghq.eu:
       AccountId: "464622532012"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     us3.datadoghq.com:
       AccountId: "464622532012"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     us5.datadoghq.com:
       AccountId: "464622532012"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     ap1.datadoghq.com:
       AccountId: "417141415827"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     ap2.datadoghq.com:
       AccountId: "412381753143"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     ddog-gov.com:
       AccountId: "392588925713"
       AccountIdGovCloud: "065115117704"
+    us2.ddog-gov.com:
+      AccountId: "382742775718"
+      AccountIdGovCloud: "486737091498"
     datad0g.com:
       AccountId: "727006795293"
+      AccountIdGovCloud: "NOT_APPLICABLE"
 Conditions:
   InstallForwarder:
     Fn::Equals:
@@ -182,6 +195,10 @@ Conditions:
         - Fn::Equals:
           - !Ref DatadogSite
           - ddog-gov.com
+      - Fn::Not:
+        - Fn::Equals:
+          - !Ref DatadogSite
+          - us2.ddog-gov.com
       - Fn::Or:
         - Fn::Equals:
           - !Ref AgentlessVulnerabilityScanning
@@ -193,9 +210,13 @@ Conditions:
           - !Ref AgentlessComplianceHostScanning
           - true
   IsGov:
-    Fn::Equals:
-      - !Ref DatadogSite
-      - ddog-gov.com
+    Fn::Or:
+      - Fn::Equals:
+          - !Ref DatadogSite
+          - ddog-gov.com
+      - Fn::Equals:
+          - !Ref DatadogSite
+          - us2.ddog-gov.com
   IsAWSGovCloud:
     Fn::Equals:
       - !Ref AWSAccountType
@@ -252,8 +273,8 @@ Resources:
           - IsGov
           - !If
             - IsAWSGovCloud
-            - !FindInMap [DdAccountIdBySite, "ddog-gov.com", AccountIdGovCloud]
-            - !FindInMap [DdAccountIdBySite, "ddog-gov.com", AccountId]
+            - !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountIdGovCloud]
+            - !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountId]
           - !FindInMap [DdAccountIdBySite, !Ref DatadogSite, AccountId]
   # The Lambda function to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
   # https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring
