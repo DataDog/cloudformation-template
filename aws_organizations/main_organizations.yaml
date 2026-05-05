@@ -77,19 +77,28 @@ Rules:
                     - "true"
         AssertDescription: CloudSecurityPostureManagement requires ResourceCollection, must enable ResourceCollection
 Mappings:
+  # AccountIdGovCloud is only read on GovCloud sites (ddog-gov.com, us2.ddog-gov.com).
+  # Commercial sites carry "NOT_APPLICABLE" so Fn::FindInMap can resolve the key at
+  # template-parse time; the value is discarded by the surrounding Fn::If.
   DdAccountIdBySite:
     datadoghq.com:
       AccountId: "464622532012"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     datadoghq.eu:
       AccountId: "464622532012"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     us3.datadoghq.com:
       AccountId: "464622532012"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     us5.datadoghq.com:
       AccountId: "464622532012"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     ap1.datadoghq.com:
       AccountId: "417141415827"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     ap2.datadoghq.com:
       AccountId: "412381753143"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     ddog-gov.com:
       AccountId: "392588925713"
       AccountIdGovCloud: "065115117704"
