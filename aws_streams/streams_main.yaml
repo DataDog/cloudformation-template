@@ -37,10 +37,16 @@ Parameters:
     Default: ''
   DdSite:
     Type: String
-    Default: datadoghq.com
     Description: Define your Datadog Site to send data to. For example, datadoghq.eu, us5.datadoghq.com, or ap1.datadoghq.com
-    AllowedPattern: .+
-    ConstraintDescription: DdSite is required
+    Default: "datadoghq.com"
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ap1.datadoghq.com
+      - ap2.datadoghq.com
+      - ddog-gov.com
 Resources:
   DatadogStreamStackSetAdministrationRole:
     Type: AWS::IAM::Role
