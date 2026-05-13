@@ -61,10 +61,6 @@ class TestBuildInstrumentationURL(unittest.TestCase):
         self.assertEqual(parsed.netloc, "api.datadoghq.eu")
         self.assertEqual(parsed.path, "/api/unstable/instrumenter/aws/iam_permissions")
 
-    def test_default_site(self):
-        url = build_instrumentation_permissions_url("", ["aws:ec2:instance"])
-        self.assertIn("api.datadoghq.com", url)
-
     def test_repeated_resource_type_and_chunked(self):
         url = build_instrumentation_permissions_url(
             "datadoghq.com",
@@ -107,7 +103,6 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
             self.iam, self.role_name, self.site, ["aws:ec2:instance", "aws:eks:cluster"]
         )
 
-        # Two chunks → two create_policy + two attach_role_policy
         self.assertEqual(self.iam.create_policy.call_count, 2)
         self.assertEqual(self.iam.attach_role_policy.call_count, 2)
 
@@ -120,7 +115,6 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
             ],
         )
 
-        # Sanity: Dd-Aws-Api-Call-Source header is sent
         sent_request = mock_urlopen.call_args[0][0]
         self.assertEqual(sent_request.headers.get("Dd-aws-api-call-source"), "cfn-quickstart")
 
@@ -130,7 +124,7 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
             "u", 500, "boom", {}, BytesIO(b'{"errors":["upstream down"]}')
         )
 
-        # Must not raise
+        # Contract: attach_instrumentation_permissions must never raise.
         attach_instrumentation_permissions(
             self.iam, self.role_name, self.site, ["aws:ec2:instance"]
         )
@@ -142,7 +136,6 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         mock_urlopen.return_value = self._mock_chunks_response(
             [["chunk1:Action"], ["chunk2:Action"], ["chunk3:Action"]]
         )
-        # Fail the second create_policy call; the others succeed.
         self.iam.create_policy.side_effect = [
             {"Policy": {"Arn": "arn:aws:iam::123:policy/A"}},
             Exception("EntityAlreadyExists"),
@@ -153,7 +146,6 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
             self.iam, self.role_name, self.site, ["aws:ec2:instance"]
         )
 
-        # All 3 chunks attempted, but only 2 attaches succeeded.
         self.assertEqual(self.iam.create_policy.call_count, 3)
         self.assertEqual(self.iam.attach_role_policy.call_count, 2)
 
@@ -169,8 +161,7 @@ class TestCleanupAlsoRemovesInstrumentationPolicies(unittest.TestCase):
         cleanup_existing_policies(iam, "MyRole", "123456789012", "aws", max_policies=2)
 
         detached = [c.kwargs["PolicyArn"] for c in iam.detach_role_policy.call_args_list]
-        # Should have iterated 2 times over each of the 2 prefixes.
-        self.assertEqual(len(detached), 4)
+        self.assertEqual(len(detached), 4)  # 2 prefixes × max_policies=2
         self.assertIn(
             f"arn:aws:iam::123456789012:policy/{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-MyRole-1",
             detached,

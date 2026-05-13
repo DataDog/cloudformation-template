@@ -17,11 +17,12 @@ STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws
 RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
 INSTRUMENTATION_PERMISSIONS_API_PATH = "/api/unstable/instrumenter/aws/iam_permissions"
 
+
 class DatadogAPIError(Exception):
     pass
 
+
 def fetch_permissions_from_datadog(api_url):
-    """Fetch permissions from Datadog API"""
     headers = {
         "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
     }
@@ -35,27 +36,28 @@ def fetch_permissions_from_datadog(api_url):
         error_message = error_body.get('errors', ['Unknown error'])[0]
         raise DatadogAPIError(f"Datadog API error: {error_message}") from e
 
-    json_response = json.loads(response.read())
-    return json_response["data"]["attributes"]["permissions"]
+    return json.loads(response.read())["data"]["attributes"]["permissions"]
+
 
 def parse_resource_types(raw):
-    """Parse the InstrumentationResourceTypes ResourceProperty into a clean list of UDM strings.
-    Accepts a CFN comma-delimited string or an already-split list (CFN serializes
-    CommaDelimitedList parameters as JSON arrays when forwarded to a custom resource)."""
+    # CFN forwards CommaDelimitedList parameters as JSON arrays to custom resources,
+    # while String parameters arrive as comma-delimited strings; accept both.
     if raw is None:
         return []
     items = raw.split(",") if isinstance(raw, str) else list(raw)
     return [t.strip() for t in items if t and t.strip()]
 
+
 def build_instrumentation_permissions_url(datadog_site, resource_types):
-    site = datadog_site or "datadoghq.com"
     query = urllib.parse.urlencode(
         [("resource_type", t) for t in resource_types] + [("chunked", "true")]
     )
-    return f"https://api.{site}{INSTRUMENTATION_PERMISSIONS_API_PATH}?{query}"
+    return f"https://api.{datadog_site}{INSTRUMENTATION_PERMISSIONS_API_PATH}?{query}"
+
 
 def _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name):
-    """Detach a managed policy from a role and delete it. Ignores missing entities."""
+    # Detach + delete are both no-ops if the entity is already gone, so callers can blindly
+    # iterate the policy-name space without first checking what actually exists.
     try:
         iam_client.detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
     except iam_client.exceptions.NoSuchEntityException:
@@ -72,80 +74,62 @@ def _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name):
     except Exception as e:
         LOGGER.error(f"Error deleting policy {policy_name}: {str(e)}")
 
+
 def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
-    # Remove role-scoped chunked policies for both prefixes
     for prefix in (BASE_POLICY_PREFIX_RESOURCE_COLLECTION, BASE_POLICY_PREFIX_INSTRUMENTATION):
         for i in range(max_policies):
             policy_name = f"{prefix}-{role_name}-{i+1}"
             policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
             _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name)
 
-    # Remove standard permissions
     try:
-        iam_client.delete_role_policy(
-            RoleName=role_name,
-            PolicyName=POLICY_NAME_STANDARD
-        )
+        iam_client.delete_role_policy(RoleName=role_name, PolicyName=POLICY_NAME_STANDARD)
     except iam_client.exceptions.NoSuchEntityException:
         pass
     except Exception as e:
         LOGGER.error(f"Error deleting inline policy {POLICY_NAME_STANDARD}: {str(e)}")
 
+
 def attach_standard_permissions(iam_client, role_name):
     permissions = fetch_permissions_from_datadog(STANDARD_PERMISSIONS_API_URL)
     policy_document = {
         "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": permissions,
-                "Resource": "*"
-            }
-        ]
+        "Statement": [{"Effect": "Allow", "Action": permissions, "Resource": "*"}],
     }
-
     iam_client.put_role_policy(
         RoleName=role_name,
         PolicyName=POLICY_NAME_STANDARD,
-        PolicyDocument=json.dumps(policy_document, separators=(',', ':'))
+        PolicyDocument=json.dumps(policy_document, separators=(',', ':')),
     )
+
+
+def _create_and_attach_policy(iam_client, role_name, policy_name, actions):
+    policy_json = json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [{"Effect": "Allow", "Action": actions, "Resource": "*"}],
+        },
+        separators=(',', ':'),
+    )
+    LOGGER.info(f"Creating policy {policy_name} with {len(actions)} permissions ({len(policy_json)} characters)")
+    policy = iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
+    iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy['Policy']['Arn'])
+
 
 def attach_resource_collection_permissions(iam_client, role_name):
     permission_chunks = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
-
-    # Create and attach new policies
     for i, chunk in enumerate(permission_chunks):
-        policy_name = f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{role_name}-{i+1}"
-        policy_document = {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Action": chunk,
-                    "Resource": "*"
-                }
-            ]
-        }
-        policy_json = json.dumps(policy_document, separators=(',', ':'))
-        policy_size = len(policy_json)
-        LOGGER.info(f"Creating policy {policy_name} with {len(chunk)} permissions ({policy_size} characters)")
-        policy = iam_client.create_policy(
-            PolicyName=policy_name,
-            PolicyDocument=policy_json
+        _create_and_attach_policy(
+            iam_client,
+            role_name,
+            f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{role_name}-{i+1}",
+            chunk,
         )
 
-        # Attach policy to role
-        iam_client.attach_role_policy(
-            RoleName=role_name,
-            PolicyArn=policy['Policy']['Arn']
-        )
 
 def attach_instrumentation_permissions(iam_client, role_name, datadog_site, resource_types):
-    """Best-effort attach IAM permissions required to instrument the given UDM resource types.
-
-    Never raises: instrumentation permissions are additive convenience on top of the integration,
-    so any failure here surfaces a warning but does not block the install.
-    """
+    # Best-effort: instrumentation permissions are additive convenience on top of the
+    # integration, so any failure here is logged and swallowed rather than blocking install.
     if not resource_types:
         return
 
@@ -160,39 +144,19 @@ def attach_instrumentation_permissions(iam_client, role_name, datadog_site, reso
         )
         return
 
-    attached, failed = 0, 0
     for i, chunk in enumerate(permission_chunks):
         policy_name = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{i+1}"
-        policy_document = {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Action": chunk,
-                    "Resource": "*"
-                }
-            ]
-        }
-        policy_json = json.dumps(policy_document, separators=(',', ':'))
-        LOGGER.info(f"Creating policy {policy_name} with {len(chunk)} permissions ({len(policy_json)} characters)")
         try:
-            policy = iam_client.create_policy(
-                PolicyName=policy_name,
-                PolicyDocument=policy_json
-            )
-            iam_client.attach_role_policy(
-                RoleName=role_name,
-                PolicyArn=policy['Policy']['Arn']
-            )
-            attached += 1
+            _create_and_attach_policy(iam_client, role_name, policy_name, chunk)
         except Exception as e:
-            failed += 1
             LOGGER.warning(f"Failed to create/attach instrumentation policy {policy_name}: {e}. Continuing.")
 
-    LOGGER.info(f"Instrumentation permissions: {attached} attached, {failed} failed out of {len(permission_chunks)} chunks")
 
-def handle_delete(event, context, role_name, account_id, partition):
-    """Handle stack deletion."""
+def handle_delete(event, context):
+    props = event['ResourceProperties']
+    role_name = props['DatadogIntegrationRole']
+    account_id = props['AccountId']
+    partition = props.get('Partition', 'aws')
     iam_client = boto3.client('iam')
     try:
         cleanup_existing_policies(iam_client, role_name, account_id, partition)
@@ -201,8 +165,16 @@ def handle_delete(event, context, role_name, account_id, partition):
         LOGGER.error(f"Error deleting policy: {str(e)}")
         cfnresponse.send(event, context, cfnresponse.FAILED, responseData={"Message": str(e)})
 
-def handle_create_update(event, context, role_name, account_id, partition, should_install_security_audit_policy, datadog_site, instrumentation_resource_types):
-    """Handle stack creation or update."""
+
+def handle_create_update(event, context):
+    props = event['ResourceProperties']
+    role_name = props['DatadogIntegrationRole']
+    account_id = props['AccountId']
+    partition = props.get('Partition', 'aws')
+    should_install_security_audit_policy = str(props['ResourceCollectionPermissions']).lower() == 'true'
+    datadog_site = props.get('DatadogSite') or 'datadoghq.com'
+    instrumentation_resource_types = parse_resource_types(props.get('InstrumentationResourceTypes'))
+
     try:
         iam_client = boto3.client('iam')
         cleanup_existing_policies(iam_client, role_name, account_id, partition)
@@ -215,17 +187,10 @@ def handle_create_update(event, context, role_name, account_id, partition, shoul
         LOGGER.error(f"Error creating/attaching policy: {str(e)}")
         cfnresponse.send(event, context, cfnresponse.FAILED, responseData={"Message": str(e)})
 
+
 def handler(event, context):
     LOGGER.info("Event received: %s", json.dumps(event))
-
-    role_name = event['ResourceProperties']['DatadogIntegrationRole']
-    account_id = event['ResourceProperties']['AccountId']
-    partition = event['ResourceProperties'].get('Partition', 'aws')
-    should_install_security_audit_policy = str(event['ResourceProperties']['ResourceCollectionPermissions']).lower() == 'true'
-    datadog_site = event['ResourceProperties'].get('DatadogSite', 'datadoghq.com')
-    instrumentation_resource_types = parse_resource_types(event['ResourceProperties'].get('InstrumentationResourceTypes'))
-
     if event['RequestType'] == 'Delete':
-        handle_delete(event, context, role_name, account_id, partition)
+        handle_delete(event, context)
     else:
-        handle_create_update(event, context, role_name, account_id, partition, should_install_security_audit_policy, datadog_site, instrumentation_resource_types)
+        handle_create_update(event, context)
