@@ -75,12 +75,15 @@ def _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name):
         LOGGER.error(f"Error deleting policy {policy_name}: {str(e)}")
 
 
+def _cleanup_chunked_policies(iam_client, role_name, account_id, partition, prefix, max_policies=10):
+    for i in range(max_policies):
+        policy_name = f"{prefix}-{role_name}-{i+1}"
+        policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
+        _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name)
+
+
 def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
-    for prefix in (BASE_POLICY_PREFIX_RESOURCE_COLLECTION, BASE_POLICY_PREFIX_INSTRUMENTATION):
-        for i in range(max_policies):
-            policy_name = f"{prefix}-{role_name}-{i+1}"
-            policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
-            _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name)
+    _cleanup_chunked_policies(iam_client, role_name, account_id, partition, BASE_POLICY_PREFIX_RESOURCE_COLLECTION, max_policies)
 
     try:
         iam_client.delete_role_policy(RoleName=role_name, PolicyName=POLICY_NAME_STANDARD)
@@ -88,6 +91,10 @@ def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_
         pass
     except Exception as e:
         LOGGER.error(f"Error deleting inline policy {POLICY_NAME_STANDARD}: {str(e)}")
+
+
+def cleanup_instrumentation_policies(iam_client, role_name, account_id, partition, max_policies=10):
+    _cleanup_chunked_policies(iam_client, role_name, account_id, partition, BASE_POLICY_PREFIX_INSTRUMENTATION, max_policies)
 
 
 def attach_standard_permissions(iam_client, role_name):
@@ -127,10 +134,13 @@ def attach_resource_collection_permissions(iam_client, role_name):
         )
 
 
-def attach_instrumentation_permissions(iam_client, role_name, datadog_site, resource_types):
+def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types):
     # Best-effort: instrumentation permissions are additive convenience on top of the
     # integration, so any failure here is logged and swallowed rather than blocking install.
+    # Fetch before cleanup so that a transient API failure on an Update leaves the
+    # previously-attached policies in place instead of silently revoking them.
     if not resource_types:
+        cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
         return
 
     try:
@@ -140,10 +150,11 @@ def attach_instrumentation_permissions(iam_client, role_name, datadog_site, reso
     except Exception as e:
         LOGGER.warning(
             f"Failed to fetch instrumentation permissions for {resource_types}: {e}. "
-            "Integration install will continue without these permissions."
+            "Leaving any previously-attached instrumentation policies in place."
         )
         return
 
+    cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
     for i, chunk in enumerate(permission_chunks):
         policy_name = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{i+1}"
         try:
@@ -160,6 +171,7 @@ def handle_delete(event, context):
     iam_client = boto3.client('iam')
     try:
         cleanup_existing_policies(iam_client, role_name, account_id, partition)
+        cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
         LOGGER.error(f"Error deleting policy: {str(e)}")
@@ -181,7 +193,7 @@ def handle_create_update(event, context):
         attach_standard_permissions(iam_client, role_name)
         if should_install_security_audit_policy:
             attach_resource_collection_permissions(iam_client, role_name)
-        attach_instrumentation_permissions(iam_client, role_name, datadog_site, instrumentation_resource_types)
+        attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, instrumentation_resource_types)
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
         LOGGER.error(f"Error creating/attaching policy: {str(e)}")
