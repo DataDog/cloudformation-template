@@ -28,6 +28,13 @@ Parameters:
     Type: CommaDelimitedList
     ConstraintDescription: Regions is required
     Default: ''
+  SelectionCriteria:
+    Description: >-
+      Optional. A CloudWatch Logs selection criteria expression to filter which
+      log groups are subscribed to the account policy. If left empty, all log
+      groups are forwarded. Example: LogGroupName NOT IN ["/ecs/my-service", "VPC-Prod"]
+    Type: String
+    Default: ''
 Resources:
   DatadogAccountLevelLogsStackSetAdministrationRole:
     Type: AWS::IAM::Role
@@ -286,6 +293,8 @@ Resources:
           ParameterValue: !GetAtt CloudWatchLogsRole.Arn
         - ParameterKey: FirehoseLogsRoleArn
           ParameterValue: !GetAtt FirehoseLogsRole.Arn
+        - ParameterKey: SelectionCriteria
+          ParameterValue: !Ref SelectionCriteria
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -294,3 +303,7 @@ Metadata:
       Parameters:
         - ApiKey
         - Regions
+    - Label:
+        default: Optional
+      Parameters:
+        - SelectionCriteria
