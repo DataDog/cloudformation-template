@@ -134,13 +134,16 @@ def attach_resource_collection_permissions(iam_client, role_name):
         )
 
 
-def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types):
+def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types, previous_resource_types):
     # Best-effort: instrumentation permissions are additive convenience on top of the
     # integration, so any failure here is logged and swallowed rather than blocking install.
     # Fetch before cleanup so that a transient API failure on an Update leaves the
     # previously-attached policies in place instead of silently revoking them.
     if not resource_types:
-        cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
+        # Only clean up if the previous Update had instrumentation enabled — avoids running
+        # delete calls on stacks that never opted in to instrumentation in the first place.
+        if previous_resource_types:
+            cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
         return
 
     try:
@@ -186,6 +189,9 @@ def handle_create_update(event, context):
     should_install_security_audit_policy = str(props['ResourceCollectionPermissions']).lower() == 'true'
     datadog_site = props.get('DatadogSite') or 'datadoghq.com'
     instrumentation_resource_types = parse_resource_types(props.get('InstrumentationResourceTypes'))
+    previous_instrumentation_resource_types = parse_resource_types(
+        event.get('OldResourceProperties', {}).get('InstrumentationResourceTypes')
+    )
 
     try:
         iam_client = boto3.client('iam')
@@ -193,7 +199,10 @@ def handle_create_update(event, context):
         attach_standard_permissions(iam_client, role_name)
         if should_install_security_audit_policy:
             attach_resource_collection_permissions(iam_client, role_name)
-        attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, instrumentation_resource_types)
+        attach_instrumentation_permissions(
+            iam_client, role_name, account_id, partition,
+            datadog_site, instrumentation_resource_types, previous_instrumentation_resource_types,
+        )
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
         LOGGER.error(f"Error creating/attaching policy: {str(e)}")

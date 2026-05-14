@@ -89,9 +89,10 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.partition = "aws"
         self.site = "datadoghq.com"
 
-    def _attach(self, resource_types):
+    def _attach(self, resource_types, previous_resource_types=()):
         attach_instrumentation_permissions(
-            self.iam, self.role_name, self.account_id, self.partition, self.site, resource_types,
+            self.iam, self.role_name, self.account_id, self.partition, self.site,
+            resource_types, previous_resource_types,
         )
 
     def _mock_chunks_response(self, chunks):
@@ -100,9 +101,18 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         resp.read.return_value = body
         return resp
 
-    def test_empty_resource_types_cleans_up_previously_attached_policies(self):
-        # Toggling off instrumentation should remove the previously-attached policies.
-        self._attach([])
+    def test_empty_resource_types_no_op_when_previously_empty(self):
+        # Stack Create (or Update with no change) and no instrumentation requested:
+        # don't touch IAM at all — there's nothing to clean up.
+        self._attach([], previous_resource_types=[])
+        self.iam.create_policy.assert_not_called()
+        self.iam.attach_role_policy.assert_not_called()
+        self.iam.detach_role_policy.assert_not_called()
+        self.iam.delete_policy.assert_not_called()
+
+    def test_empty_resource_types_cleans_up_when_previously_set(self):
+        # Toggling instrumentation off on an Update should remove the previously-attached policies.
+        self._attach([], previous_resource_types=["aws:ec2:instance"])
         self.iam.create_policy.assert_not_called()
         self.iam.attach_role_policy.assert_not_called()
         self.assertGreater(self.iam.detach_role_policy.call_count, 0)
