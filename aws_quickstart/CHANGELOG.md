@@ -1,3 +1,7 @@
+# 4.10.0 (May 13, 2026)
+
+- Add `InstrumentationResourceTypes` parameter to `main_v2.yaml`. When set to a comma-separated list of UDM resource types (e.g. `aws:ec2:instance,aws:ecs:cluster,aws:eks:cluster`), the integration role's permission-attach Lambda calls `GET /api/unstable/instrumenter/aws/iam_permissions?resource_type=...&chunked=true` and attaches the returned IAM permissions as additional managed policies on the integration role, so customers can install the Datadog Agent on those resources without extra IAM setup. Failure to fetch or attach these extra permissions is non-blocking — the integration install proceeds with a warning. Affects `main_v2.yaml`, `datadog_integration_role.yaml`, `attach_integration_permissions.py`
+
 # 4.9.1 (April 22, 2026)
 
 - Fix `Template error: Unable to get mapping for DdAccountIdBySite::<site>::AccountIdGovCloud` on commercial-site deploys. CloudFormation's `Fn::FindInMap` is resolved at template-parse time regardless of the surrounding `Fn::If`, so every site row now carries an `AccountIdGovCloud` key (commercial sites use `"NOT_APPLICABLE"`, which is discarded by the `IsGov` guard). Affects `main_v2.yaml`, `main_workflow.yaml`, `main_extended.yaml`, and `main_extended_workflow.yaml`
