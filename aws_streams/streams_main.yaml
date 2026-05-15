@@ -35,6 +35,16 @@ Parameters:
     Type: CommaDelimitedList
     ConstraintDescription: Regions is required
     Default: ''
+  IncludeLinkedAccounts:
+    Description: >-
+      Set to "true" to include metrics from source accounts linked to this monitoring account
+      via CloudWatch cross-account observability. Only relevant if this account is configured
+      as a monitoring account. Defaults to "false".
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
   DdSite:
     Type: String
     Default: datadoghq.com
@@ -239,6 +249,8 @@ Resources:
           ParameterValue: !Ref SecondNamespace
         - ParameterKey: ThirdNamespace
           ParameterValue: !Ref ThirdNamespace
+        - ParameterKey: IncludeLinkedAccounts
+          ParameterValue: !Ref IncludeLinkedAccounts
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -255,3 +267,4 @@ Metadata:
         - FirstNamespace
         - SecondNamespace
         - ThirdNamespace
+        - IncludeLinkedAccounts
