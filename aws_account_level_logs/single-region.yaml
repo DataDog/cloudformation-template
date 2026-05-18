@@ -32,6 +32,16 @@ Parameters:
     Type: String
     AllowedPattern: .+
     ConstraintDescription: DatadogHttpEndpointUrl is required
+  SelectionCriteria:
+    Description: >-
+      Optional. A CloudWatch Logs selection criteria expression to filter which
+      log groups are subscribed to the account policy. If left empty, all log
+      groups are forwarded. Example: LogGroupName NOT IN ["/ecs/my-service", "VPC-Prod"]
+    Type: String
+    Default: ''
+
+Conditions:
+  HasSelectionCriteria: !Not [!Equals [!Ref SelectionCriteria, '']]
 
 Resources:
 
@@ -93,6 +103,6 @@ Resources:
           - "\", \"DestinationArn\":\""
           - Fn::GetAtt: "DatadogDeliveryStream.Arn"
           - "\", \"FilterPattern\": \"\", \"Distribution\": \"Random\"}"
-      SelectionCriteria: "LogGroupName NOT IN [\"MyLogGroup\", \"MyAnotherLogGroup\"]"
+      SelectionCriteria: !If [HasSelectionCriteria, !Ref SelectionCriteria, !Ref AWS::NoValue]
       PolicyType: "SUBSCRIPTION_FILTER_POLICY"
       Scope: "ALL"
