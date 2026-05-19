@@ -116,6 +116,13 @@ Parameters:
       For cross-account Agentless Scanning: the ARNs of Agentless Scanner roles authorized to scan this account.
     AllowedPattern: "|arn:aws:iam::[0-9]{12}:role/.+"
     Default: ""
+  InstrumentationResourceTypes:
+    Type: CommaDelimitedList
+    Description: >-
+      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster, aws:eks:cluster)
+      that the Datadog integration role should be granted the IAM permissions required to instrument with the Datadog
+      Agent. Leave blank to skip granting any extra instrumentation permissions.
+    Default: ""
 Rules:
   CSPMResourceCollectionValidState:
     Assertions:
@@ -189,6 +196,11 @@ Conditions:
     Fn::Equals:
       - !Ref DisableResourceCollection
       - false
+  ShouldForwardEvents:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Ref InstrumentationResourceTypes]
+          - ""
   EnableAgentlessScanning:
     Fn::And:
       - Fn::Not:
@@ -269,6 +281,8 @@ Resources:
         ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
         ResourceCollectionPermissions: !If [ResourceCollectionPermissions, true, false]
+        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+        DatadogSite: !Ref DatadogSite
         DdAWSAccountId: !If
           - IsGov
           - !If
@@ -286,6 +300,19 @@ Resources:
       Parameters:
         DdApiKey: !Ref APIKey
         DdSite: !Ref DatadogSite
+  # EventBridge pipeline forwarding CloudTrail events to the Datadog resource update
+  # intake. Deployed only when at least one InstrumentationResourceTypes value is set;
+  # single-region (covers the region this stack is deployed in).
+  DatadogAgentResourceUpdateForwardingStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldForwardEvents
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agent_resource_update_forwarding.yaml"
+      Parameters:
+        APIKey: !Ref APIKey
+        APPKey: !Ref APPKey
+        DatadogSite: !Ref DatadogSite
+        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
 Outputs:
   IAMRoleName:
     Description: AWS IAM Role named to be used with the DataDog AWS Integration
@@ -327,6 +354,7 @@ Metadata:
         - ScannerDelegateRoleName
         - ScannerInstanceRoleARN
         - DisableMetricCollection
+        - InstrumentationResourceTypes
     ParameterLabels:
       APIKey:
         default: "DatadogApiKey *"
