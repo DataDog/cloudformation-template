@@ -201,6 +201,7 @@ Resources:
         APIKey: !Ref APIKey
         APPKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
+        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
 Outputs:
   IAMRoleName:
     Description: AWS IAM Role named to be used with the DataDog AWS Integration
