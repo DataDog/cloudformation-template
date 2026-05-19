@@ -22,6 +22,9 @@ This template creates the following AWS resources required by the Datadog AWS in
 - The [Datadog Forwarder Lambda function](https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring) to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
   - The Datadog Forwarder only deploys to the AWS region where the AWS integration CloudFormation stack is launched. If you operate in multiple AWS regions, you can deploy the Forwarder stack (without the rest of the AWS integration stack) directly to other regions as needed.
   - The Datadog Forwarder is installed with default settings as a nested stack, edit the nested stack directly to update the forwarder specific settings.
+- An EventBridge pipeline (connection, API destination, invocation role, and a CloudTrail rule) that forwards resource lifecycle events to Datadog so the Agent install feature can react in real time.
+  - Deployed only when `InstrumentationResourceTypes` is set. Leaving it blank skips this pipeline entirely.
+  - Single-region by design: the pipeline covers the AWS region the stack is deployed in. Deploy the stack in each region you want covered.
 
 ## Updating your CloudFormation Stack
 
