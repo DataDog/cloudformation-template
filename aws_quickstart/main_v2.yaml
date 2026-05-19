@@ -189,7 +189,7 @@ Resources:
       Parameters:
         DdApiKey: !Ref APIKey
         DdSite: !Ref DatadogSite
-  # EventBridge pipeline forwarding CloudTrail events to Datadog's instrumenter-events
+  # EventBridge pipeline forwarding CloudTrail events to the Datadog resource update
   # intake. Deployed only when at least one InstrumentationResourceTypes value is set;
   # single-region (covers the region this stack is deployed in).
   DatadogAgentResourceUpdateForwardingStack:
