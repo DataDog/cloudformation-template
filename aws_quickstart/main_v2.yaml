@@ -130,6 +130,11 @@ Conditions:
     Fn::Equals:
       - !Ref DisableResourceCollection
       - false
+  ShouldForwardEvents:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Ref InstrumentationResourceTypes]
+          - ""
   IsGov:
     Fn::Or:
       - Fn::Equals:
@@ -184,6 +189,18 @@ Resources:
       Parameters:
         DdApiKey: !Ref APIKey
         DdSite: !Ref DatadogSite
+  # EventBridge pipeline forwarding CloudTrail events to Datadog's instrumenter-events
+  # intake. Deployed only when at least one InstrumentationResourceTypes value is set;
+  # single-region (covers the region this stack is deployed in).
+  DatadogAgentInstallForwardingStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldForwardEvents
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agent_install_forwarding.yaml"
+      Parameters:
+        APIKey: !Ref APIKey
+        APPKey: !Ref APPKey
+        DatadogSite: !Ref DatadogSite
 Outputs:
   IAMRoleName:
     Description: AWS IAM Role named to be used with the DataDog AWS Integration
