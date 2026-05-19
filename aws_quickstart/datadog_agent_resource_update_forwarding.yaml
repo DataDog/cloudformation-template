@@ -27,10 +27,6 @@ Parameters:
       aws:eks:cluster) to forward CloudTrail events for. Only rules for the listed
       types are deployed.
 Conditions:
-  # CFN has no substring intrinsic in Conditions. Pad the joined string with the
-  # delimiter on both ends, split on the padded token, rejoin without the delimiter,
-  # and check whether the result differs from the original — if it does, the token
-  # was present.
   IncludeEC2:
     Fn::Not:
       - Fn::Equals:
@@ -42,15 +38,11 @@ Conditions:
           - !Join ["", !Split [",aws:eks:cluster,", !Sub ",${InstrumentationResourceTypes},"]]
           - !Sub ",${InstrumentationResourceTypes},"
 Resources:
-  # EventBridge connection storing the Datadog API + APP key credentials used by
-  # the API destination below. Both headers are routed through Secrets Manager:
-  # DD-API-KEY via ApiKeyAuthParameters, DD-APPLICATION-KEY via
-  # InvocationHttpParameters.HeaderParameters with IsValueSecret=true.
   DDIntakeConnection:
     Type: AWS::Events::Connection
     Properties:
       Name: datadog-agent-resource-update-intake-connection
-      Description: Datadog instrumenter-events intake credentials
+      Description: Credentials for the Datadog resource update intake
       AuthorizationType: API_KEY
       AuthParameters:
         ApiKeyAuthParameters:
@@ -91,15 +83,12 @@ Resources:
               - Effect: Allow
                 Action: events:InvokeApiDestination
                 Resource: !Sub "arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/*"
-  # $or splits each rule into a creation branch (no resource filter — the request
-  # doesn't carry the field we'd filter on) and a tag branch (filtered to the
-  # target resource type so we don't spam the intake with sibling resources).
   DDEventForwardingRuleEC2:
     Type: AWS::Events::Rule
     Condition: IncludeEC2
     Properties:
       Name: datadog-agent-resource-update-rule-ec2
-      Description: Forward EC2 CloudTrail events to the Datadog instrumenter-events intake
+      Description: Forward EC2 CloudTrail events to the Datadog resource update intake
       State: ENABLED
       EventPattern:
         source:
@@ -129,7 +118,7 @@ Resources:
     Condition: IncludeEKS
     Properties:
       Name: datadog-agent-resource-update-rule-eks
-      Description: Forward EKS CloudTrail events to the Datadog instrumenter-events intake
+      Description: Forward EKS CloudTrail events to the Datadog resource update intake
       State: ENABLED
       EventPattern:
         source:
