@@ -1,6 +1,6 @@
 # 4.11.0 (May 19, 2026)
 
-- Add an EventBridge → Datadog API destination pipeline that forwards CloudTrail events for the resource types listed in `InstrumentationResourceTypes`, enabling the Datadog Agent install feature to react to lifecycle changes in real time. When `InstrumentationResourceTypes` is non-empty, a nested stack provisions an `AWS::Events::Connection` (DD-API-KEY + DD-APPLICATION-KEY, both routed through Secrets Manager), an `AWS::Events::ApiDestination` pointing at the per-site Datadog intake URL, an invocation role, and one `AWS::Events::Rule` per UDM type in the list. v1 covers `aws:ec2:instance` (`RunInstances`, `CreateTags`/`DeleteTags` filtered to instance resource IDs) and `aws:eks:cluster` (`CreateCluster`, `TagResource`/`UntagResource` filtered to cluster ARNs). Single-region by design — deploy the stack in each region you want covered. Affects `main_v2.yaml`, `datadog_agent_resource_update_forwarding.yaml` (new)
+- Add an EventBridge pipeline that forwards EC2 and EKS lifecycle CloudTrail events to Datadog, enabling the Datadog Agent install feature to react to resource changes in real time. Customers enable forwarding per resource type when configuring Agent install. Single-region by design — deploy the stack in each region you want covered. Affects `main_v2.yaml`, `datadog_agent_resource_update_forwarding.yaml` (new)
 
 # 4.10.0 (May 13, 2026)
 
