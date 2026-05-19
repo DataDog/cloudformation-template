@@ -91,6 +91,9 @@ Resources:
               - Effect: Allow
                 Action: events:InvokeApiDestination
                 Resource: !Sub "arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/*"
+  # $or splits each rule into a creation branch (no resource filter — the request
+  # doesn't carry the field we'd filter on) and a tag branch (filtered to the
+  # target resource type so we don't spam the intake with sibling resources).
   DDEventForwardingRuleEC2:
     Type: AWS::Events::Rule
     Condition: IncludeEC2
@@ -104,12 +107,19 @@ Resources:
         detail-type:
           - "AWS API Call via CloudTrail"
         detail:
-          eventName:
-            - RunInstances
-            - CreateTags
-            - DeleteTags
           errorCode:
             - exists: false
+          $or:
+            - eventName:
+                - RunInstances
+            - eventName:
+                - CreateTags
+                - DeleteTags
+              requestParameters:
+                resourcesSet:
+                  items:
+                    resourceId:
+                      - prefix: "i-"
       Targets:
         - Id: datadog-intake
           Arn: !GetAtt DDIntakeApiDestination.Arn
@@ -127,12 +137,17 @@ Resources:
         detail-type:
           - "AWS API Call via CloudTrail"
         detail:
-          eventName:
-            - CreateCluster
-            - TagResource
-            - UntagResource
           errorCode:
             - exists: false
+          $or:
+            - eventName:
+                - CreateCluster
+            - eventName:
+                - TagResource
+                - UntagResource
+              requestParameters:
+                resourceArn:
+                  - wildcard: "*:cluster/*"
       Targets:
         - Id: datadog-intake
           Arn: !GetAtt DDIntakeApiDestination.Arn
