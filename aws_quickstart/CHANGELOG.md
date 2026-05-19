@@ -1,6 +1,6 @@
 # 4.11.0 (May 19, 2026)
 
-- Add an EventBridge pipeline that forwards EC2 and EKS lifecycle CloudTrail events to Datadog, enabling the Datadog Agent install feature to react to resource changes in real time. Customers enable forwarding per resource type when configuring Agent install. Single-region by design — deploy the stack in each region you want covered. Affects `main_v2.yaml`, `datadog_agent_resource_update_forwarding.yaml` (new)
+- Add an EventBridge pipeline that forwards EC2 and EKS lifecycle CloudTrail events to Datadog, enabling the Datadog Agent install feature to react to resource changes in real time. Customers enable forwarding per resource type when configuring Agent install.
 
 # 4.10.0 (May 13, 2026)
 
