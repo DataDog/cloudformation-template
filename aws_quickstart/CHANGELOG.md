@@ -1,3 +1,7 @@
+# 4.11.0 (May 19, 2026)
+
+- Make the `InstrumentationResourceTypes` parameter (added in 4.10.0) available in `main_workflow.yaml` and `main_extended_workflow.yaml` as well
+
 # 4.10.0 (May 13, 2026)
 
 - Add `InstrumentationResourceTypes` parameter to `main_v2.yaml`. When set to a comma-separated list of UDM resource types (e.g. `aws:ec2:instance,aws:ecs:cluster,aws:eks:cluster`), the integration role's permission-attach Lambda calls `GET /api/unstable/instrumenter/aws/iam_permissions?resource_type=...&chunked=true` and attaches the returned IAM permissions as additional managed policies on the integration role, so customers can install the Datadog Agent on those resources without extra IAM setup. Failure to fetch or attach these extra permissions is non-blocking — the integration install proceeds with a warning. Affects `main_v2.yaml`, `datadog_integration_role.yaml`, `attach_integration_permissions.py`
