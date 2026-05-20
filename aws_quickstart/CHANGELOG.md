@@ -1,6 +1,6 @@
 # 4.11.0 (May 19, 2026)
 
-- Make the `InstrumentationResourceTypes` parameter (added in 4.10.0) available in `main_extended.yaml` and `main_extended_workflow.yaml` as well
+- Make the `InstrumentationResourceTypes` parameter (added in 4.10.0) available in `main_workflow.yaml` and `main_extended_workflow.yaml` as well
 
 # 4.10.0 (May 13, 2026)
 

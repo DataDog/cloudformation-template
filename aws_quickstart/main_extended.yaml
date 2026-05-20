@@ -116,13 +116,6 @@ Parameters:
       For cross-account Agentless Scanning: the ARNs of Agentless Scanner roles authorized to scan this account.
     AllowedPattern: "|arn:aws:iam::[0-9]{12}:role/.+"
     Default: ""
-  InstrumentationResourceTypes:
-    Type: CommaDelimitedList
-    Description: >-
-      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster, aws:eks:cluster)
-      that the Datadog integration role should be granted the IAM permissions required to instrument with the Datadog
-      Agent. Leave blank to skip granting any extra instrumentation permissions.
-    Default: ""
 Rules:
   CSPMResourceCollectionValidState:
     Assertions:
@@ -276,8 +269,6 @@ Resources:
         ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
         ResourceCollectionPermissions: !If [ResourceCollectionPermissions, true, false]
-        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
-        DatadogSite: !Ref DatadogSite
         DdAWSAccountId: !If
           - IsGov
           - !If
@@ -336,7 +327,6 @@ Metadata:
         - ScannerDelegateRoleName
         - ScannerInstanceRoleARN
         - DisableMetricCollection
-        - InstrumentationResourceTypes
     ParameterLabels:
       APIKey:
         default: "DatadogApiKey *"
