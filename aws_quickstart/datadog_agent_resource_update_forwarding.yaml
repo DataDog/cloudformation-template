@@ -1,0 +1,143 @@
+# version: <VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Integration - EventBridge forwarding of resource update events
+Parameters:
+  APIKey:
+    Description: >-
+      API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys).
+    Type: String
+    AllowedPattern: "([0-9a-f]{32})?"
+    NoEcho: true
+  APPKey:
+    Description: >-
+      APP key for the Datadog account (find at https://app.datadoghq.com/organization-settings/application-keys).
+    Type: String
+    AllowedPattern: "(([0-9a-f]{40})|(ddapp_[a-zA-Z0-9]{34}))?"
+    NoEcho: true
+  DatadogSite:
+    Type: String
+    Default: datadoghq.com
+    Description: >-
+      Datadog site events are forwarded to.
+  InstrumentationResourceTypes:
+    Type: String
+    Default: ""
+    Description: >-
+      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance,
+      aws:eks:cluster) to forward CloudTrail events for. Only rules for the listed
+      types are deployed.
+Conditions:
+  IncludeEC2:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Split [",aws:ec2:instance,", !Sub ",${InstrumentationResourceTypes},"]]
+          - !Sub ",${InstrumentationResourceTypes},"
+  IncludeEKS:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Split [",aws:eks:cluster,", !Sub ",${InstrumentationResourceTypes},"]]
+          - !Sub ",${InstrumentationResourceTypes},"
+Resources:
+  DDIntakeConnection:
+    Type: AWS::Events::Connection
+    Properties:
+      Name: datadog-agent-resource-update-intake-connection
+      Description: Credentials for the Datadog resource update intake
+      AuthorizationType: API_KEY
+      AuthParameters:
+        ApiKeyAuthParameters:
+          ApiKeyName: DD-API-KEY
+          ApiKeyValue: !Ref APIKey
+        InvocationHttpParameters:
+          HeaderParameters:
+            - Key: DD-APPLICATION-KEY
+              Value: !Ref APPKey
+              IsValueSecret: true
+  DDIntakeApiDestination:
+    Type: AWS::Events::ApiDestination
+    Properties:
+      Name: datadog-agent-resource-update-intake-destination
+      ConnectionArn: !GetAtt DDIntakeConnection.Arn
+      InvocationEndpoint: !Sub "https://api.${DatadogSite}/api/unstable/instrumenter/events"
+      HttpMethod: POST
+      InvocationRateLimitPerSecond: 10
+  DDEventBridgeInvocationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: datadog-agent-resource-update-eventbridge-invocation-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: datadog-eventbridge-invoke
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: events:InvokeApiDestination
+                Resource: !Sub "arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/*"
+  DDEventForwardingRuleEC2:
+    Type: AWS::Events::Rule
+    Condition: IncludeEC2
+    Properties:
+      Name: datadog-agent-resource-update-rule-ec2
+      Description: Forward EC2 CloudTrail events to the Datadog resource update intake
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          errorCode:
+            - exists: false
+          $or:
+            - eventName:
+                - RunInstances
+            - eventName:
+                - CreateTags
+                - DeleteTags
+              requestParameters:
+                resourcesSet:
+                  items:
+                    resourceId:
+                      - prefix: "i-"
+      Targets:
+        - Id: datadog-intake
+          Arn: !GetAtt DDIntakeApiDestination.Arn
+          RoleArn: !GetAtt DDEventBridgeInvocationRole.Arn
+  DDEventForwardingRuleEKS:
+    Type: AWS::Events::Rule
+    Condition: IncludeEKS
+    Properties:
+      Name: datadog-agent-resource-update-rule-eks
+      Description: Forward EKS CloudTrail events to the Datadog resource update intake
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.eks
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          errorCode:
+            - exists: false
+          $or:
+            - eventName:
+                - CreateCluster
+            - eventName:
+                - TagResource
+                - UntagResource
+              requestParameters:
+                resourceArn:
+                  - wildcard: "*:cluster/*"
+      Targets:
+        - Id: datadog-intake
+          Arn: !GetAtt DDIntakeApiDestination.Arn
+          RoleArn: !GetAtt DDEventBridgeInvocationRole.Arn
