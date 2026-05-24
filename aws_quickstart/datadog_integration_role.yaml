@@ -359,5 +359,5 @@ Metadata:
       - Label:
           default: Optional
         Parameters:
-          - CloudSecurityPostureManagementPermissions
+          - ResourceCollectionPermissions
           - DdAWSAccountId
