@@ -1,10 +1,6 @@
-# 4.14.0 (May 27, 2026)
-
-- Extend the EventBridge pipeline (added in 4.13.0) to forward additional EC2 instance and EKS cluster update events, so the Datadog Agent management feature reacts to more types of resource changes in real time.
-
 # 4.13.0 (May 27, 2026)
 
-- Add an EventBridge pipeline that forwards EC2 and EKS lifecycle CloudTrail events to Datadog, enabling the Datadog Agent management feature to react to resource changes in real time. Customers enable forwarding per resource type when configuring Agent management.
+- Add an EventBridge pipeline that forwards EC2 and EKS resource lifecycle and configuration update events to Datadog, enabling the Datadog Agent management feature to react to changes in real time. Customers enable forwarding per resource type when configuring Agent management.
 
 # 4.12.0 (May 27, 2026)
 
