@@ -64,7 +64,6 @@ Resources:
   DDEventBridgeInvocationRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: datadog-agent-resource-update-eventbridge-invocation-role
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
