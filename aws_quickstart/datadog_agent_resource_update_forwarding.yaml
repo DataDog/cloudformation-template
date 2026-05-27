@@ -101,6 +101,7 @@ Resources:
           $or:
             - eventName:
                 - RunInstances
+                - ModifyInstanceAttribute
             - eventName:
                 - CreateTags
                 - DeleteTags
@@ -131,6 +132,8 @@ Resources:
           $or:
             - eventName:
                 - CreateCluster
+                - UpdateClusterConfig
+                - UpdateClusterVersion
             - eventName:
                 - TagResource
                 - UntagResource
