@@ -1,3 +1,7 @@
+# 4.11.1 (May 27, 2026)
+
+- Forward `InstrumentationResourceTypes` and `DatadogSite` from workflow and extended templates to the nested integration role stack, so launches can attach the Agent instrumentation IAM permissions selected during onboarding. Affects `main_workflow.yaml`, `main_extended_workflow.yaml`, and `main_extended.yaml`
+
 # 4.11.0 (May 19, 2026)
 
 - Allow the Datadog Agent running in agentless scanner instances to read the systemd journal.
