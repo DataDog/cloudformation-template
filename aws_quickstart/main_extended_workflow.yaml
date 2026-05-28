@@ -92,6 +92,13 @@ Parameters:
       Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
+  InstrumentationResourceTypes:
+    Type: CommaDelimitedList
+    Description: >-
+      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster, aws:eks:cluster)
+      that the Datadog integration role should be granted the IAM permissions required to instrument with the Datadog
+      Agent. Leave blank to skip granting any extra instrumentation permissions.
+    Default: ""
   AgentlessVulnerabilityScanning:
     Type: String
     AllowedValues:
@@ -125,13 +132,6 @@ Parameters:
     Description: >-
       For cross-account Agentless Scanning: the ARNs of Agentless Scanner roles authorized to scan this account.
     AllowedPattern: "|arn:aws:iam::[0-9]{12}:role/.+"
-    Default: ""
-  InstrumentationResourceTypes:
-    Type: CommaDelimitedList
-    Description: >-
-      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster, aws:eks:cluster)
-      that the Datadog integration role should be granted the IAM permissions required to instrument with the Datadog
-      Agent. Leave blank to skip granting any extra instrumentation permissions.
     Default: ""
   WorkflowId:
     Description: >-

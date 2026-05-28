@@ -1,10 +1,10 @@
-# 4.13.0 (May 27, 2026)
+# 4.12.0 (May 28, 2026)
 
 - Add an EventBridge pipeline that forwards EC2 and EKS resource lifecycle and configuration update events to Datadog, enabling the Datadog Agent management feature to react to changes in real time. Customers enable forwarding per resource type when configuring Agent management.
 
-# 4.12.0 (May 27, 2026)
+# 4.11.1 (May 27, 2026)
 
-- Make the `InstrumentationResourceTypes` parameter (added in 4.10.0) available in `main_workflow.yaml` and `main_extended_workflow.yaml` as well
+- Forward `InstrumentationResourceTypes` and `DatadogSite` from workflow and extended templates to the nested integration role stack, so launches can attach the Agent instrumentation IAM permissions selected during onboarding. Affects `main_workflow.yaml`, `main_extended_workflow.yaml`, and `main_extended.yaml`
 
 # 4.11.0 (May 19, 2026)
 
