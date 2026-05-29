@@ -29,6 +29,7 @@ Parameters:
       - us2.ddog-gov.com
       - ap1.datadoghq.com
       - ap2.datadoghq.com
+      - uk1.datadoghq.com
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
@@ -105,6 +106,9 @@ Mappings:
     us2.ddog-gov.com:
       AccountId: "382742775718"
       AccountIdGovCloud: "486737091498"
+    uk1.datadoghq.com:
+      AccountId: "117348461845"
+      AccountIdGovCloud: "NOT_APPLICABLE"
 Conditions:
   ResourceCollectionPermissions:
     Fn::Equals:
