@@ -219,6 +219,11 @@ Conditions:
     Fn::Equals:
       - !Ref DisableResourceCollection
       - false
+  ShouldForwardEvents:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Ref InstrumentationResourceTypes]
+          - ""
   EnableAgentlessScanning:
     Fn::And:
       - Fn::Not:
@@ -555,6 +560,20 @@ Resources:
         account_id: !Ref AWS::AccountId
         stack_id: !Ref AWS::StackId
         forwarder_arn: !GetAtt ForwarderStack.Outputs.DatadogForwarderArn
+
+  # EventBridge pipeline forwarding CloudTrail events to the Datadog resource update
+  # intake. Deployed only when at least one InstrumentationResourceTypes value is set;
+  # single-region (covers the region this stack is deployed in).
+  DatadogAgentResourceUpdateForwardingStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldForwardEvents
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agent_resource_update_forwarding.yaml"
+      Parameters:
+        APIKey: !Ref APIKey
+        APPKey: !Ref APPKey
+        DatadogSite: !Ref DatadogSite
+        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
 
   # Step 6: Notify starting agentless scanning setup (if enabling)
   NotifyAgentlessScanningStarted:
