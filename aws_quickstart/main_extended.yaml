@@ -35,7 +35,7 @@ Parameters:
     Description: >-
       Define your Datadog Site to send data to.
       Allowed values: datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com,
-      ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com (GovCloud), us2.ddog-gov.com (GovCloud).
+      ap1.datadoghq.com, ap2.datadoghq.com, uk1.datadoghq.com, ddog-gov.com (GovCloud), us2.ddog-gov.com (GovCloud).
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
@@ -184,6 +184,9 @@ Mappings:
     us2.ddog-gov.com:
       AccountId: "382742775718"
       AccountIdGovCloud: "486737091498"
+    uk1.datadoghq.com:
+      AccountId: "117348461845"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     datad0g.com:
       AccountId: "727006795293"
       AccountIdGovCloud: "NOT_APPLICABLE"

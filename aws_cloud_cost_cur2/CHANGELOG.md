@@ -1,3 +1,7 @@
+## 0.0.4
+
+Add `uk1.datadoghq.com` to the `DatadogSite` allowed values (UK1 site support).
+
 ## 0.0.3
 
 Add `us2.ddog-gov.com` to the `DatadogSite` allowed values (us2.fed GovCloud support).

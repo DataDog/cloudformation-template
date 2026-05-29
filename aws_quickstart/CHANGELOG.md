@@ -1,3 +1,7 @@
+# 4.13.0 (May 29, 2026)
+
+- Add `uk1.datadoghq.com` site support. Affects `main_v2.yaml`, `main_workflow.yaml`, `main_extended.yaml`, and `main_extended_workflow.yaml`.
+
 # 4.12.0 (May 28, 2026)
 
 - Add an EventBridge pipeline that forwards EC2 and EKS resource lifecycle and configuration update events to Datadog, enabling the Datadog Agent management feature to react to changes in real time. Customers enable forwarding per resource type when configuring Agent management.

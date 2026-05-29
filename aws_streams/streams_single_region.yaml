@@ -112,6 +112,8 @@ Mappings:
             Endpoint: "https://awsmetrics-intake.ddog-gov.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "us2.ddog-gov.com":
             Endpoint: "https://awsmetrics-intake.us2.ddog-gov.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+        "uk1.datadoghq.com":
+            Endpoint: "https://awsmetrics-intake.uk1.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
 Resources:
   DatadogStreamLogs:
     Type: AWS::Logs::LogGroup
