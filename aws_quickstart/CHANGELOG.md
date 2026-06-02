@@ -1,3 +1,7 @@
+# 4.16.0 (July 16, 2026)
+
+- Add `datadog_agentless_delegate_role_saas.yaml` for SaaS-mode Agentless Scanning. The template provisions only the `DatadogAgentlessScannerDelegateRole` and its three managed policies (Orchestrator, Worker, DSPM) — no scanner EC2/VPC/ASG resources. The delegate role's trust policy is keyed on the local Datadog integration role (default `DatadogIntegrationRole`), so Datadog assumes the integration role and chains into the delegate role to perform agentless scans. `SecurityAudit` is unconditionally attached to the integration role. `DatadogIntegrationRoleName` is required (defaults to `DatadogIntegrationRole`). Released alongside an entry added to `release.sh` so the new template participates in the standard placeholder substitution and upload pipeline.
+
 # 4.15.0 (June 12, 2026)
 
 - Add an IAM role to `datadog_agent_resource_update_forwarding.yaml` to allow EventBridge in secondary regions to forward events to the primary region's default event bus.

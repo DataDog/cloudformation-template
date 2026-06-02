@@ -164,7 +164,7 @@ done
 embed_python_source datadog_integration_permissions.yaml attach_integration_permissions.py
 
 # Process Agentless Scanning templates
-for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml datadog_agentless_delegate_role_stackset.yaml; do
+for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml datadog_agentless_delegate_role_stackset.yaml datadog_agentless_delegate_role_saas.yaml; do
     # Note: unlike above, here we remove the 'v' prefix from the version
     perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION#v}/g" "$template"
 
