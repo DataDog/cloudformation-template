@@ -1,6 +1,6 @@
 # version: v<VERSION_PLACEHOLDER>
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Creates a Datadog Agentless Scanning delegate role for SaaS-mode deployments (no scanner infrastructure; trusted by the local Datadog integration role).
+Description: Attaches Datadog Agentless Scanning permissions for SaaS-mode deployments to the Datadog integration role.
 Parameters:
   AccountId:
     Type: String
@@ -52,17 +52,11 @@ Parameters:
     Description: Enable Agentless Compliance Scanning for hosts.
     Default: false
 
-  ScannerDelegateRoleName:
-    Type: String
-    Description: The name of the role assumed by the Datadog Agentless Scanner via the Datadog integration role.
-    Default: DatadogAgentlessScannerDelegateRole
-
   DatadogIntegrationRoleName:
     Type: String
     Description: >-
       The name of the IAM role used by the Datadog AWS integration. In SaaS mode, Datadog assumes this
-      role and then chains into the delegate role to perform agentless scans. The SecurityAudit policy is
-      also attached to this role.
+      role directly to perform agentless scans. The SecurityAudit policy is also attached to this role.
     Default: DatadogIntegrationRole
     AllowedPattern: '[\w+=,.@-]{1,64}'
 
@@ -76,10 +70,12 @@ Rules:
           Please log in to the AWS account where you want to set up Datadog Agentless Scanning and try again.
 
 Resources:
-  ScannerDelegateRoleOrchestratorPolicy:
+  DatadogAgentlessSaaSScanningPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      Description: Policy for the Datadog Agentless Scanner orchestrator allowing the creation and deletion of snapshots.
+      Description: Policy for Datadog Agentless Scanning in SaaS mode.
+      Roles:
+        - !Ref DatadogIntegrationRoleName
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -159,14 +155,6 @@ Resources:
             Condition:
               StringEquals:
                 'aws:ResourceTag/DatadogAgentlessScanner': 'true'
-
-  ScannerDelegateRoleWorkerPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      Description: Policy for the Datadog Agentless Scanner worker allowing the listing and reading of snapshots.
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
           - Sid: DatadogAgentlessScannerSnapshotAccess
             Action:
               - 'ebs:ListSnapshotBlocks'
@@ -226,14 +214,6 @@ Resources:
                 "ecr:ResourceTag/DatadogAgentlessScanner": "false"
             Effect: Allow
             Resource: "arn:aws:ecr:*:*:repository/*"
-
-  ScannerDelegateRoleWorkerDSPMPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      Description: Policy for the Datadog Agentless Scanner worker allowing the listing and reading of S3 buckets.
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
           - Sid: DatadogAgentlessScannerAccessS3Objects
             Action: 's3:GetObject'
             Effect: Allow
@@ -251,43 +231,6 @@ Resources:
             Condition:
               StringLike:
                 'kms:ViaService': 's3.*.amazonaws.com'
-
-  ScannerDelegateRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Ref 'ScannerDelegateRoleName'
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: DatadogIntegrationRoleAssumeRole
-            Effect: Allow
-            Principal:
-              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DatadogIntegrationRoleName}"
-            Action: 'sts:AssumeRole'
-      MaxSessionDuration: 3600
-      ManagedPolicyArns:
-        - !Ref 'ScannerDelegateRoleOrchestratorPolicy'
-        - !Ref 'ScannerDelegateRoleWorkerPolicy'
-        - !Ref 'ScannerDelegateRoleWorkerDSPMPolicy'
-      Description: Role assumed by the Datadog Agentless scanner (via the Datadog integration role) to perform scans
-      Tags:
-        - Key: DatadogAgentlessScanner
-          Value: 'true'
-        - Key: Datadog
-          Value: 'true'
-
-  DatadogIntegrationRoleAssumeDelegatePolicy:
-    Type: AWS::IAM::RolePolicy
-    Properties:
-      RoleName: !Ref DatadogIntegrationRoleName
-      PolicyName: DatadogAgentlessAssumeDelegateRole
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: AllowAssumeAgentlessDelegateRole
-            Effect: Allow
-            Action: 'sts:AssumeRole'
-            Resource: !GetAtt ScannerDelegateRole.Arn
 
   LambdaExecutionRoleDatadogAgentlessAPICall:
     Type: AWS::IAM::Role
@@ -341,10 +284,7 @@ Resources:
       IntegrationRoleName: !Ref "DatadogIntegrationRoleName"
       Partition: !Ref "AWS::Partition"
       # Optional parameters
-      DelegateRoleArn: !GetAtt "ScannerDelegateRole.Arn"
-      OrchestratorPolicyArn: !Ref "ScannerDelegateRoleOrchestratorPolicy"
-      WorkerPolicyArn: !Ref "ScannerDelegateRoleWorkerPolicy"
-      WorkerDSPMPolicyArn: !Ref "ScannerDelegateRoleWorkerDSPMPolicy"
+      SaaSScanningPolicyArn: !Ref "DatadogAgentlessSaaSScanningPolicy"
 
   DatadogAgentlessAPICallFunction:
     Type: "AWS::Lambda::Function"
@@ -367,7 +307,6 @@ Metadata:
       - Label:
           default: "Required"
         Parameters:
-          - ScannerDelegateRoleName
           - DatadogIntegrationRoleName
       - Label:
           default: "Advanced"
