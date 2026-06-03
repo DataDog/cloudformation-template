@@ -79,8 +79,7 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: DatadogAgentlessScannerResourceTagging
-            Action: 'ec2:CreateTags'
+          - Action: 'ec2:CreateTags'
             Effect: Allow
             Resource:
               - 'arn:aws:ec2:*:*:volume/*'
@@ -93,19 +92,16 @@ Resources:
                   - CreateVolume
                   - CopySnapshot
                   - CopyImage
-          - Sid: DatadogAgentlessScannerVolumeSnapshotCreation
-            Action: 'ec2:CreateSnapshot'
+          - Action: 'ec2:CreateSnapshot'
             Effect: Allow
             Resource: 'arn:aws:ec2:*:*:volume/*'
             Condition:
               StringNotEquals:
                 'aws:ResourceTag/DatadogAgentlessScanner': 'false'
-          - Sid: DatadogAgentlessScannerCopySnapshotSource
-            Action: 'ec2:CopySnapshot'
+          - Action: 'ec2:CopySnapshot'
             Effect: Allow
             Resource: 'arn:aws:ec2:*:*:snapshot/snap-*'
-          - Sid: DatadogAgentlessScannerCopySnapshotDestination
-            Action: 'ec2:CopySnapshot'
+          - Action: 'ec2:CopySnapshot'
             Effect: Allow
             Resource: 'arn:aws:ec2:*:*:snapshot/${*}'
             Condition:
@@ -113,8 +109,7 @@ Resources:
                 'aws:TagKeys': DatadogAgentlessScanner*
               StringEquals:
                 'aws:RequestTag/DatadogAgentlessScanner': 'true'
-          - Sid: DatadogAgentlessScannerSnapshotCreation
-            Action: 'ec2:CreateSnapshot'
+          - Action: 'ec2:CreateSnapshot'
             Effect: Allow
             Resource: 'arn:aws:ec2:*:*:snapshot/*'
             Condition:
@@ -122,19 +117,16 @@ Resources:
                 'aws:TagKeys': DatadogAgentlessScanner*
               StringEquals:
                 'aws:RequestTag/DatadogAgentlessScanner': 'true'
-          - Sid: DatadogAgentlessScannerSnapshotCleanup
-            Action: 'ec2:DeleteSnapshot'
+          - Action: 'ec2:DeleteSnapshot'
             Effect: Allow
             Resource: 'arn:aws:ec2:*:*:snapshot/*'
             Condition:
               StringEquals:
                 'aws:ResourceTag/DatadogAgentlessScanner': 'true'
-          - Sid: DatadogAgentlessScannerDescribeSnapshots
-            Action: 'ec2:DescribeSnapshots'
+          - Action: 'ec2:DescribeSnapshots'
             Effect: Allow
             Resource: '*'
-          - Sid: DatadogAgentlessScannerEncryptedCopyGrant
-            Action: 'kms:CreateGrant'
+          - Action: 'kms:CreateGrant'
             Effect: Allow
             Resource: 'arn:aws:kms:*:*:key/*'
             Condition:
@@ -144,19 +136,16 @@ Resources:
                 'kms:ViaService': 'ec2.*.amazonaws.com'
               Bool:
                 'kms:GrantIsForAWSResource': true
-          - Sid: DatadogAgentlessScannerEncryptedCopyDescribe
-            Action: 'kms:DescribeKey'
+          - Action: 'kms:DescribeKey'
             Effect: Allow
             Resource: 'arn:aws:kms:*:*:key/*'
-          - Sid: DatadogAgentlessScannerImageCleanup
-            Action: 'ec2:DeregisterImage'
+          - Action: 'ec2:DeregisterImage'
             Effect: Allow
             Resource: 'arn:aws:ec2:*:*:image/*'
             Condition:
               StringEquals:
                 'aws:ResourceTag/DatadogAgentlessScanner': 'true'
-          - Sid: DatadogAgentlessScannerSnapshotAccess
-            Action:
+          - Action:
               - 'ebs:ListSnapshotBlocks'
               - 'ebs:ListChangedBlocks'
               - 'ebs:GetSnapshotBlock'
@@ -165,16 +154,13 @@ Resources:
             Condition:
               StringEquals:
                 'aws:ResourceTag/DatadogAgentlessScanner': 'true'
-          - Sid: DatadogAgentlessScannerDescribeSnapshots
-            Action: 'ec2:DescribeSnapshots'
+          - Action: 'ec2:DescribeSnapshots'
             Effect: Allow
             Resource: '*'
-          - Sid: DatadogAgentlessScannerDescribeVolumes
-            Action: 'ec2:DescribeVolumes'
+          - Action: 'ec2:DescribeVolumes'
             Effect: Allow
             Resource: '*'
-          - Sid: DatadogAgentlessScannerDecryptEncryptedSnapshots
-            Action: 'kms:Decrypt'
+          - Action: 'kms:Decrypt'
             Effect: Allow
             Resource: 'arn:aws:kms:*:*:key/*'
             Condition:
@@ -182,31 +168,26 @@ Resources:
                 'kms:EncryptionContextKeys': 'aws:ebs:id'
               StringLike:
                 'kms:ViaService': 'ec2.*.amazonaws.com'
-          - Sid: DatadogAgentlessScannerKMSDescribe
-            Action: 'kms:DescribeKey'
+          - Action: 'kms:DescribeKey'
             Effect: Allow
             Resource: 'arn:aws:kms:*:*:key/*'
-          - Sid: DatadogAgentlessScannerGetLambdaDetails
-            Action: 'lambda:GetFunction'
+          - Action: 'lambda:GetFunction'
             Effect: Allow
             Resource: 'arn:aws:lambda:*:*:function:*'
             Condition:
               StringNotEquals:
                 'aws:ResourceTag/DatadogAgentlessScanner': 'false'
-          - Sid: DatadogAgentlessScannerGetLambdaLayerDetails
-            Action: 'lambda:GetLayerVersion'
+          - Action: 'lambda:GetLayerVersion'
             Effect: Allow
             Resource: 'arn:aws:lambda:*:*:layer:*:*'
             Condition:
               StringNotEquals:
                 'aws:ResourceTag/DatadogAgentlessScanner': 'false'
-          - Sid: DatadogAgentlessScannerECRAuthorizationToken
-            Action:
+          - Action:
               - "ecr:GetAuthorizationToken"
             Effect: Allow
             Resource: "*"
-          - Sid: DatadogAgentlessScannerECRImages
-            Action:
+          - Action:
               - "ecr:GetDownloadUrlForLayer"
               - "ecr:BatchGetImage"
             Condition:
@@ -214,16 +195,13 @@ Resources:
                 "ecr:ResourceTag/DatadogAgentlessScanner": "false"
             Effect: Allow
             Resource: "arn:aws:ecr:*:*:repository/*"
-          - Sid: DatadogAgentlessScannerAccessS3Objects
-            Action: 's3:GetObject'
+          - Action: 's3:GetObject'
             Effect: Allow
             Resource: 'arn:aws:s3:::*/*'
-          - Sid: DatadogAgentlessScannerListS3Buckets
-            Action: 's3:ListBucket'
+          - Action: 's3:ListBucket'
             Effect: Allow
             Resource: 'arn:aws:s3:::*'
-          - Sid: DatadogAgentlessScannerDecryptS3Objects
-            Action:
+          - Action:
               - 'kms:Decrypt'
               - 'kms:GenerateDataKey'
             Effect: Allow

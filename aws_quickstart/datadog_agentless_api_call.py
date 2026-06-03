@@ -25,6 +25,7 @@ def call_datadog_agentless_api(context, event, method):
     instance_role_arn = event["ResourceProperties"].get("InstanceRoleArn")
     instance_profile_arn = event["ResourceProperties"].get("InstanceProfileArn")
     scanner_policy_arn = event["ResourceProperties"].get("ScannerPolicyArn")
+    saas_scanning_policy_arn = event["ResourceProperties"].get("SaaSScanningPolicyArn")
     orchestrator_policy_arn = event["ResourceProperties"].get("OrchestratorPolicyArn")
     worker_policy_arn = event["ResourceProperties"].get("WorkerPolicyArn")
     worker_dspm_policy_arn = event["ResourceProperties"].get("WorkerDSPMPolicyArn")
@@ -65,6 +66,7 @@ def call_datadog_agentless_api(context, event, method):
                     "instance_role_arn": instance_role_arn,
                     "instance_profile_arn": instance_profile_arn,
                     "scanner_policy_arn": scanner_policy_arn,
+                    "saas_scanning_policy_arn": saas_scanning_policy_arn,
                     "orchestrator_policy_arn": orchestrator_policy_arn,
                     "worker_policy_arn": worker_policy_arn,
                     "worker_dspm_policy_arn": worker_dspm_policy_arn,
