@@ -248,6 +248,26 @@ Resources:
         RefreshCadence:
           Frequency: "SYNCHRONOUS"
 
+  CURWaitHandle:
+    Condition: ShouldCreateCloudCostReport
+    DependsOn: DDCURReportDefinition
+    Type: "AWS::CloudFormation::WaitConditionHandle"
+
+  CUREmptyWaitHandle:
+    Type: "AWS::CloudFormation::WaitConditionHandle"
+
+  CURWaitCondition:
+    Type: "AWS::CloudFormation::WaitCondition"
+    Properties:
+      Handle:
+        !If [
+          ShouldCreateCloudCostReport,
+          !Ref CURWaitHandle,
+          !Ref CUREmptyWaitHandle,
+        ]
+      Timeout: "1"
+      Count: 0
+
   # Lambda function to call Datadog API and configure CCM
   DatadogCCMAPIHandlerLambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -282,7 +302,9 @@ Resources:
 
   DatadogCCMConfiguration:
     Type: Custom::DatadogCCMConfiguration
-    DependsOn: DatadogCCMIAMPolicy
+    DependsOn:
+      - DatadogCCMIAMPolicy
+      - CURWaitCondition
     Properties:
       ServiceToken: !GetAtt DatadogCCMAPICallFunction.Arn
       APIKey: !Ref DatadogApiKey
