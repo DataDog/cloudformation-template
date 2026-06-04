@@ -57,7 +57,6 @@ Parameters:
     Description: >-
       The name of the IAM role used by the Datadog AWS integration. In SaaS mode, Datadog assumes this
       role directly to perform agentless scans. The SecurityAudit policy is also attached to this role.
-    Default: DatadogIntegrationRole
     AllowedPattern: '[\w+=,.@-]{1,64}'
 
 Rules:
