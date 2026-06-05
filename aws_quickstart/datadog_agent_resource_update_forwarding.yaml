@@ -101,6 +101,9 @@ Resources:
               - Effect: Allow
                 Action: events:PutEvents
                 Resource: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default"
+      Tags:
+        - Key: datadog:primary-region
+          Value: !Ref AWS::Region
   DDEventForwardingRuleEC2:
     Type: AWS::Events::Rule
     Condition: IncludeEC2
