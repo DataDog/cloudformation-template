@@ -35,9 +35,10 @@ Parameters:
   InstrumentationResourceTypes:
     Type: CommaDelimitedList
     Description: >-
-      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster, aws:eks:cluster)
-      to enable Datadog Agent installation for. The integration role is granted the IAM permissions required to
-      instrument these resources, and CloudTrail events for them are forwarded to Datadog.
+      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:eks:cluster) to enable
+      Datadog Agent installation for. The integration role is granted the IAM permissions required to instrument
+      these resources. CloudTrail update events are forwarded to Datadog for the supported resource types
+      (currently aws:ec2:instance and aws:eks:cluster); other types receive IAM permissions but no event forwarding.
 Rules:
   ValidateAccountId:
     Assertions:

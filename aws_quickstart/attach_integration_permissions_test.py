@@ -19,21 +19,16 @@ from attach_integration_permissions import (
     attach_instrumentation_permissions,
     cleanup_existing_policies,
     cleanup_instrumentation_policies,
+    cleanup_legacy_policies,
     handle_create_update,
     handle_delete,
     POLICY_NAME_STANDARD,
     BASE_POLICY_PREFIX_INSTRUMENTATION,
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
+    LEGACY_POLICY_NAME_STANDARD,
+    LEGACY_PREFIX_RESOURCE_COLLECTION,
+    LEGACY_PREFIX_INSTRUMENTATION,
 )
-
-
-# Policy names the pre-extraction inline trigger (<= v4.13) created and, crucially, deletes by name
-# in its Delete handler. The extracted custom resource must NOT reuse these, or an in-place upgrade
-# could let the old handler wipe the freshly re-attached policies. See the comment on the constants
-# in datadog_integration_permissions.yaml.
-LEGACY_POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
-LEGACY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
-LEGACY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions"
 
 
 class TestParseResourceTypes(unittest.TestCase):
@@ -231,6 +226,42 @@ class TestCleanup(unittest.TestCase):
         self.assertTrue(all(BASE_POLICY_PREFIX_INSTRUMENTATION in arn for arn in detached))
 
 
+class TestCleanupLegacyPolicies(unittest.TestCase):
+    # Removing the old un-suffixed policies before attaching the v2 ones is what keeps both
+    # generations from sitting attached at once during an in-place upgrade (IAM managed-policy limit).
+    def setUp(self):
+        self.iam = MagicMock()
+        self.iam.exceptions.NoSuchEntityException = type("NSE", (Exception,), {})
+        self.iam.exceptions.DeleteConflictException = type("DCE", (Exception,), {})
+        self.iam.detach_role_policy.side_effect = self.iam.exceptions.NoSuchEntityException
+        self.iam.delete_policy.side_effect = self.iam.exceptions.NoSuchEntityException
+
+    def _detached_arns(self):
+        return [c.kwargs["PolicyArn"] for c in self.iam.detach_role_policy.call_args_list]
+
+    def test_only_targets_legacy_names_not_v2(self):
+        cleanup_legacy_policies(self.iam, "MyRole", "123456789012", "aws", include_base=True, max_policies=3)
+        for arn in self._detached_arns():
+            # Legacy managed-policy ARNs must never carry the -v2 generation segment.
+            self.assertNotIn("-permissions-v2-", arn)
+
+    def test_include_base_true_cleans_base_and_instrumentation(self):
+        cleanup_legacy_policies(self.iam, "MyRole", "123456789012", "aws", include_base=True, max_policies=3)
+        arns = self._detached_arns()
+        self.assertTrue(any(LEGACY_PREFIX_RESOURCE_COLLECTION + "-MyRole" in a for a in arns))
+        self.assertTrue(any(LEGACY_PREFIX_INSTRUMENTATION + "-MyRole" in a for a in arns))
+        self.iam.delete_role_policy.assert_called_once_with(
+            RoleName="MyRole", PolicyName=LEGACY_POLICY_NAME_STANDARD
+        )
+
+    def test_include_base_false_leaves_base_policies(self):
+        cleanup_legacy_policies(self.iam, "MyRole", "123456789012", "aws", include_base=False, max_policies=3)
+        arns = self._detached_arns()
+        self.assertTrue(all(LEGACY_PREFIX_RESOURCE_COLLECTION + "-MyRole" not in a for a in arns))
+        self.assertTrue(any(LEGACY_PREFIX_INSTRUMENTATION + "-MyRole" in a for a in arns))
+        self.iam.delete_role_policy.assert_not_called()
+
+
 class TestManageBasePermissions(unittest.TestCase):
     # ManageBasePermissions gates the standard + resource-collection policies. The role-creation
     # path sets it true (manage everything); the post-setup add-on sets it false so it manages only
@@ -253,13 +284,14 @@ class TestManageBasePermissions(unittest.TestCase):
         props.update(overrides)
         return {"RequestType": "Create", "ResourceProperties": props}
 
+    @patch("attach_integration_permissions.cleanup_legacy_policies")
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.attach_instrumentation_permissions")
     @patch("attach_integration_permissions.attach_resource_collection_permissions")
     @patch("attach_integration_permissions.attach_standard_permissions")
     @patch("attach_integration_permissions.cleanup_existing_policies")
     def test_create_manage_base_true_attaches_base(
-        self, mock_cleanup, mock_standard, mock_rc, mock_instr, mock_client
+        self, mock_cleanup, mock_standard, mock_rc, mock_instr, mock_client, mock_legacy
     ):
         mock_client.return_value = self.iam
         handle_create_update(self._props(ManageBasePermissions="true"), None)
@@ -267,14 +299,16 @@ class TestManageBasePermissions(unittest.TestCase):
         mock_standard.assert_called_once()
         mock_rc.assert_called_once()
         mock_instr.assert_called_once()
+        self.assertTrue(mock_legacy.call_args.kwargs["include_base"])
 
+    @patch("attach_integration_permissions.cleanup_legacy_policies")
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.attach_instrumentation_permissions")
     @patch("attach_integration_permissions.attach_resource_collection_permissions")
     @patch("attach_integration_permissions.attach_standard_permissions")
     @patch("attach_integration_permissions.cleanup_existing_policies")
     def test_create_manage_base_false_only_instrumentation(
-        self, mock_cleanup, mock_standard, mock_rc, mock_instr, mock_client
+        self, mock_cleanup, mock_standard, mock_rc, mock_instr, mock_client, mock_legacy
     ):
         mock_client.return_value = self.iam
         handle_create_update(self._props(ManageBasePermissions="false"), None)
@@ -282,6 +316,8 @@ class TestManageBasePermissions(unittest.TestCase):
         mock_standard.assert_not_called()
         mock_rc.assert_not_called()
         mock_instr.assert_called_once()
+        # Add-on mode must not touch the role stack's standard/resource-collection policies.
+        self.assertFalse(mock_legacy.call_args.kwargs["include_base"])
 
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.cleanup_instrumentation_policies")

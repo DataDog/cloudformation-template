@@ -19,6 +19,13 @@ API_CALL_SOURCE_HEADER_VALUE = "cfn-quickstart"
 POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicyV2"
 BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions-v2"
 BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions-v2"
+# Un-suffixed names created by the pre-extraction inline trigger (<= v4.13). We clean these up
+# ourselves before attaching the v2 policies so the two generations never sit attached at the
+# same time (IAM caps managed policies per role, default 10); the old trigger's own Delete
+# handler then no-ops against names that are already gone.
+LEGACY_POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
+LEGACY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
+LEGACY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions"
 STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
 RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
 INSTRUMENTATION_PERMISSIONS_API_PATH = "/api/unstable/instrumenter/aws/iam_permissions"
@@ -101,6 +108,23 @@ def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_
 
 def cleanup_instrumentation_policies(iam_client, role_name, account_id, partition, max_policies=10):
     _cleanup_chunked_policies(iam_client, role_name, account_id, partition, BASE_POLICY_PREFIX_INSTRUMENTATION, max_policies)
+
+
+def cleanup_legacy_policies(iam_client, role_name, account_id, partition, include_base, max_policies=10):
+    # Remove the un-suffixed policies left by the inline trigger of releases that predate this
+    # nested template, so they are gone before the v2 policies are attached (avoids piling both
+    # generations against the IAM managed-policy limit during an in-place upgrade). include_base
+    # is False in add-on mode, where the role stack still owns the standard/resource-collection
+    # policies and this stack must not touch them.
+    _cleanup_chunked_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_INSTRUMENTATION, max_policies)
+    if include_base:
+        _cleanup_chunked_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_RESOURCE_COLLECTION, max_policies)
+        try:
+            iam_client.delete_role_policy(RoleName=role_name, PolicyName=LEGACY_POLICY_NAME_STANDARD)
+        except iam_client.exceptions.NoSuchEntityException:
+            pass
+        except Exception as e:
+            LOGGER.error(f"Error deleting legacy inline policy {LEGACY_POLICY_NAME_STANDARD}: {str(e)}")
 
 
 def attach_standard_permissions(iam_client, role_name):
@@ -211,6 +235,7 @@ def handle_create_update(event, context):
 
     try:
         iam_client = boto3.client('iam')
+        cleanup_legacy_policies(iam_client, role_name, account_id, partition, include_base=manage_base_permissions)
         if manage_base_permissions:
             cleanup_existing_policies(iam_client, role_name, account_id, partition)
             attach_standard_permissions(iam_client, role_name)
