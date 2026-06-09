@@ -95,18 +95,18 @@ Resources:
                 Action:
                   - "s3:*"
                 Resource:
-                  - "arn:aws:s3:::cf-templates-*"
+                  - !Sub "arn:${AWS::Partition}:s3:::cf-templates-*"
               - Effect: Allow
                 Action:
                   - "cloudformation:*"
                 Resource:
-                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stack/StackSet-DatadogStreams-*"
-                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stackset/DatadogStreams*"
+                  - !Sub "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/StackSet-DatadogStreams-*"
+                  - !Sub "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stackset/DatadogStreams*"
               - Effect: Allow
                 Action:
                   - "sns:Publish"
                 Resource:
-                  - "arn:aws:sns:*:*:CfnNotificationSNSTopic"
+                  - !Sub "arn:${AWS::Partition}:sns:*:*:CfnNotificationSNSTopic"
               - Effect: Allow
                 Action:
                   - iam:GetRole
@@ -115,7 +115,7 @@ Resources:
                   StringEquals:
                     "iam:PassedToService": "streams.metrics.cloudwatch.amazonaws.com"
                 Resource:
-                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/DatadogMetricStreamRole"
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/DatadogMetricStreamRole"
               - Effect: Allow
                 Action:
                   - iam:GetRole
@@ -124,7 +124,7 @@ Resources:
                   StringEquals:
                     "iam:PassedToService": "firehose.amazonaws.com"
                 Resource:
-                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/DatadogServiceRole"
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/DatadogServiceRole"
               - Effect: Allow
                 Action:
                   - s3:CreateBucket
@@ -134,7 +134,7 @@ Resources:
                   - s3:PutBucketTagging
                   - s3:PutObjectTagging
                 Resource:
-                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
+                  - !Sub "arn:${AWS::Partition}:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
@@ -145,7 +145,7 @@ Resources:
                   - logs:DescribeLogStreams
                   - logs:TagResource
                 Resource:
-                  - !Sub "arn:aws:logs:*:${AWS::AccountId}:log-group:datadog-metric-stream*"
+                  - !Sub "arn:${AWS::Partition}:logs:*:${AWS::AccountId}:log-group:datadog-metric-stream*"
               - Effect: Allow
                 Action:
                   - firehose:CreateDeliveryStream
@@ -153,7 +153,7 @@ Resources:
                   - firehose:DeleteDeliveryStream
                   - firehose:TagDeliveryStream
                 Resource:
-                  - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-metrics-stream"
+                  - !Sub "arn:${AWS::Partition}:firehose:*:${AWS::AccountId}:deliverystream/datadog-metrics-stream"
               - Effect: Allow
                 Action:
                   - cloudwatch:PutMetricStream
@@ -162,7 +162,7 @@ Resources:
                   - cloudwatch:DeleteMetricStream
                   - cloudwatch:TagResource
                 Resource:
-                  - !Sub "arn:aws:cloudwatch:*:${AWS::AccountId}:metric-stream/datadog-metrics-stream"
+                  - !Sub "arn:${AWS::Partition}:cloudwatch:*:${AWS::AccountId}:metric-stream/datadog-metrics-stream"
   ServiceRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -191,8 +191,8 @@ Resources:
                   - "s3:ListBucketMultipartUploads"
                   - "s3:PutObject"
                 Resource:
-                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
-                  - !Sub "arn:aws:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*/*"
+                  - !Sub "arn:${AWS::Partition}:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
+                  - !Sub "arn:${AWS::Partition}:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*/*"
   DatadogMetricStreamRole:
     Type: AWS::IAM::Role
     Properties:
@@ -217,7 +217,7 @@ Resources:
                   - "firehose:PutRecord"
                   - "firehose:PutRecordBatch"
                 Resource:
-                  - !Sub "arn:aws:firehose:*:${AWS::AccountId}:deliverystream/datadog-metrics-stream"
+                  - !Sub "arn:${AWS::Partition}:firehose:*:${AWS::AccountId}:deliverystream/datadog-metrics-stream"
       Description: A metric stream role
   DatadogStreamStackSet:
     Type: AWS::CloudFormation::StackSet
@@ -231,7 +231,7 @@ Resources:
             Accounts:
               - !Ref "AWS::AccountId"
           Regions: !Ref Regions
-      TemplateURL: "https://s3.amazonaws.com/<BUCKET_PLACEHOLDER>/aws/streams_single_region.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/streams_single_region.yaml"
       Parameters:
         - ParameterKey: ApiKey
           ParameterValue: !Ref ApiKey
