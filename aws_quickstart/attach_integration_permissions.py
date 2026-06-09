@@ -10,9 +10,15 @@ import boto3
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
 API_CALL_SOURCE_HEADER_VALUE = "cfn-quickstart"
-POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
-BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
-BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions"
+# The "-v2" generation suffix is load-bearing, not cosmetic. Extracting this custom resource
+# out of datadog_integration_role.yaml means an in-place upgrade from a release that still had
+# the inline trigger (<= v4.13) removes that old trigger, whose Delete handler deletes policies
+# by the un-suffixed names. CloudFormation can run that delete after this nested stack has
+# re-attached them, which would leave the role with no permissions. Using distinct names here
+# means the old handler only ever cleans up the old-named policies and never touches these.
+POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicyV2"
+BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions-v2"
+BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions-v2"
 STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
 RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
 INSTRUMENTATION_PERMISSIONS_API_PATH = "/api/unstable/instrumenter/aws/iam_permissions"

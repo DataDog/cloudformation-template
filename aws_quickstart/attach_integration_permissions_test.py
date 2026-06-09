@@ -21,9 +21,19 @@ from attach_integration_permissions import (
     cleanup_instrumentation_policies,
     handle_create_update,
     handle_delete,
+    POLICY_NAME_STANDARD,
     BASE_POLICY_PREFIX_INSTRUMENTATION,
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
 )
+
+
+# Policy names the pre-extraction inline trigger (<= v4.13) created and, crucially, deletes by name
+# in its Delete handler. The extracted custom resource must NOT reuse these, or an in-place upgrade
+# could let the old handler wipe the freshly re-attached policies. See the comment on the constants
+# in datadog_integration_permissions.yaml.
+LEGACY_POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
+LEGACY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
+LEGACY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions"
 
 
 class TestParseResourceTypes(unittest.TestCase):
@@ -275,6 +285,24 @@ class TestManageBasePermissions(unittest.TestCase):
         handle_delete(event, None)
         mock_cleanup_base.assert_called_once()
         mock_cleanup_instr.assert_called_once()
+
+
+class TestUpgradeSafePolicyNames(unittest.TestCase):
+    # Guards the invariant that makes in-place upgrades from the inline-trigger era safe: the names
+    # this template manages must be disjoint from the names the legacy (<= v4.13) Delete handler
+    # removes, so the old handler can never wipe a policy this stack just attached.
+    role = "DatadogIntegrationRole"
+
+    def test_standard_policy_name_differs_from_legacy(self):
+        self.assertNotEqual(POLICY_NAME_STANDARD, LEGACY_POLICY_NAME_STANDARD)
+
+    def test_managed_policy_names_disjoint_from_legacy(self):
+        def names(prefix):
+            return {f"{prefix}-{self.role}-{i+1}" for i in range(10)}
+
+        new_names = names(BASE_POLICY_PREFIX_RESOURCE_COLLECTION) | names(BASE_POLICY_PREFIX_INSTRUMENTATION)
+        legacy_names = names(LEGACY_PREFIX_RESOURCE_COLLECTION) | names(LEGACY_PREFIX_INSTRUMENTATION)
+        self.assertEqual(new_names & legacy_names, set())
 
 
 if __name__ == "__main__":
