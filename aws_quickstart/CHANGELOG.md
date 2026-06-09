@@ -1,3 +1,7 @@
+# 4.14.0 (June 8, 2026)
+
+- Add `main_agent_installation.yaml`, a standalone add-on template that lets customers who declined the Agent installation option during initial AWS integration setup enable it later against an existing integration role. It attaches the instrumentation IAM permissions and deploys the EventBridge forwarding pipeline without touching the standard or resource-collection policies owned by the role stack. To keep this DRY, the permission-attachment custom resource was extracted out of `datadog_integration_role.yaml` into a new nested `datadog_integration_permissions.yaml` (gated by a `ManageBasePermissions` flag) that both the role template and the add-on consume. Behavior of `main_v2.yaml`, `main_workflow.yaml`, `main_extended.yaml`, and `main_extended_workflow.yaml` is unchanged. Affects `datadog_integration_role.yaml`, `datadog_integration_permissions.yaml`, `main_agent_installation.yaml`, and `release.sh`.
+
 # 4.13.0 (May 29, 2026)
 
 - Add `uk1.datadoghq.com` site support. Affects `main_v2.yaml`, `main_workflow.yaml`, `main_extended.yaml`, and `main_extended_workflow.yaml`.

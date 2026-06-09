@@ -1,0 +1,113 @@
+# version: <VERSION_PLACEHOLDER>
+#
+# Post-setup Agent installation add-on. Lets customers who declined the Agent installation option
+# during initial AWS integration setup enable it later, against an existing integration role: it
+# attaches the instrumentation IAM permissions and deploys the EventBridge forwarding pipeline,
+# without touching the standard or resource-collection policies owned by the role stack.
+#
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Integration - Agent installation add-on
+Parameters:
+  APIKey:
+    Description: >-
+      API key for the Datadog account (find at https://app.datadoghq.com/organization-settings/api-keys).
+    Type: String
+    NoEcho: true
+  APPKey:
+    Description: >-
+      APP key for the Datadog account (find at https://app.datadoghq.com/organization-settings/application-keys).
+    Type: String
+    NoEcho: true
+  DatadogSite:
+    Type: String
+    Default: datadoghq.com
+    Description: >-
+      Define your Datadog Site to send data to.
+      Allowed values: datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com,
+      ap1.datadoghq.com, ap2.datadoghq.com, uk1.datadoghq.com, ddog-gov.com (GovCloud), us2.ddog-gov.com (GovCloud).
+  IAMRoleName:
+    Description: Name of the existing IAM role used by the Datadog AWS integration.
+    Type: String
+    Default: DatadogIntegrationRole
+  AccountId:
+    Type: String
+    Description: The AWS account ID of the account integrated in Datadog.
+  InstrumentationResourceTypes:
+    Type: CommaDelimitedList
+    Description: >-
+      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster, aws:eks:cluster)
+      to enable Datadog Agent installation for. The integration role is granted the IAM permissions required to
+      instrument these resources, and CloudTrail events for them are forwarded to Datadog.
+Rules:
+  ValidateAccountId:
+    Assertions:
+      - Assert: !Equals [!Ref AccountId, !Ref "AWS::AccountId"]
+        AssertDescription: "The AWS Account Id of the account integrated in Datadog does not match the AWS Account Id of the account where this stack will be created."
+Conditions:
+  ShouldForwardEvents:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Ref InstrumentationResourceTypes]
+          - ""
+Resources:
+  # Attaches only the instrumentation IAM policies to the existing integration role. ManageBasePermissions
+  # is false so the standard and resource-collection policies owned by the role stack are left untouched.
+  DatadogIntegrationPermissionsStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_permissions.yaml"
+      Parameters:
+        IAMRoleName: !Ref IAMRoleName
+        ResourceCollectionPermissions: false
+        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+        DatadogSite: !Ref DatadogSite
+        ManageBasePermissions: false
+  # EventBridge pipeline forwarding CloudTrail events to the Datadog resource update intake.
+  # Deployed only when at least one InstrumentationResourceTypes value is set; single-region
+  # (covers the region this stack is deployed in).
+  DatadogAgentResourceUpdateForwardingStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldForwardEvents
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agent_resource_update_forwarding.yaml"
+      Parameters:
+        APIKey: !Ref APIKey
+        APPKey: !Ref APPKey
+        DatadogSite: !Ref DatadogSite
+        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+Outputs:
+  IAMRoleName:
+    Description: AWS IAM Role named to be used with the DataDog AWS Integration
+    Value: !Ref IAMRoleName
+  AccountId:
+    Description: AWS Account number
+    Value: !Ref "AWS::AccountId"
+  Region:
+    Description: AWS Region
+    Value: !Ref "AWS::Region"
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Required
+        Parameters:
+          - APIKey
+          - APPKey
+          - DatadogSite
+          - AccountId
+          - InstrumentationResourceTypes
+      - Label:
+          default: Advanced
+        Parameters:
+          - IAMRoleName
+    ParameterLabels:
+      APIKey:
+        default: "DatadogApiKey *"
+      APPKey:
+        default: "DatadogAppKey *"
+      DatadogSite:
+        default: "DatadogSite *"
+      AccountId:
+        default: "AccountId *"
+      InstrumentationResourceTypes:
+        default: "InstrumentationResourceTypes *"

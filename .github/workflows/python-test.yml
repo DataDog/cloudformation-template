@@ -21,3 +21,7 @@ jobs:
         run: |
           cd aws_quickstart
           python -B -S -m unittest datadog_agentless_api_call_test.py -v
+      - name: Run integration permissions unit tests
+        run: |
+          cd aws_quickstart
+          python -B -S -m unittest attach_integration_permissions_test.py -v

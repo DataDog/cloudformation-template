@@ -19,6 +19,8 @@ from attach_integration_permissions import (
     attach_instrumentation_permissions,
     cleanup_existing_policies,
     cleanup_instrumentation_policies,
+    handle_create_update,
+    handle_delete,
     BASE_POLICY_PREFIX_INSTRUMENTATION,
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
 )
@@ -194,6 +196,85 @@ class TestCleanup(unittest.TestCase):
         detached = [c.kwargs["PolicyArn"] for c in self.iam.detach_role_policy.call_args_list]
         self.assertEqual(len(detached), 2)
         self.assertTrue(all(BASE_POLICY_PREFIX_INSTRUMENTATION in arn for arn in detached))
+
+
+class TestManageBasePermissions(unittest.TestCase):
+    # ManageBasePermissions gates the standard + resource-collection policies. The role-creation
+    # path sets it true (manage everything); the post-setup add-on sets it false so it manages only
+    # the instrumentation policies and never touches the standard/resource-collection policies the
+    # role stack owns.
+    def setUp(self):
+        self.iam = MagicMock()
+        self.iam.exceptions.NoSuchEntityException = type("NSE", (Exception,), {})
+        self.iam.exceptions.DeleteConflictException = type("DCE", (Exception,), {})
+
+    def _props(self, **overrides):
+        props = {
+            "DatadogIntegrationRole": "DatadogIntegrationRole",
+            "AccountId": "123456789012",
+            "Partition": "aws",
+            "ResourceCollectionPermissions": "true",
+            "InstrumentationResourceTypes": "",
+            "DatadogSite": "datadoghq.com",
+        }
+        props.update(overrides)
+        return {"RequestType": "Create", "ResourceProperties": props}
+
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    @patch("attach_integration_permissions.attach_resource_collection_permissions")
+    @patch("attach_integration_permissions.attach_standard_permissions")
+    @patch("attach_integration_permissions.cleanup_existing_policies")
+    def test_create_manage_base_true_attaches_base(
+        self, mock_cleanup, mock_standard, mock_rc, mock_instr, mock_client
+    ):
+        mock_client.return_value = self.iam
+        handle_create_update(self._props(ManageBasePermissions="true"), None)
+        mock_cleanup.assert_called_once()
+        mock_standard.assert_called_once()
+        mock_rc.assert_called_once()
+        mock_instr.assert_called_once()
+
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    @patch("attach_integration_permissions.attach_resource_collection_permissions")
+    @patch("attach_integration_permissions.attach_standard_permissions")
+    @patch("attach_integration_permissions.cleanup_existing_policies")
+    def test_create_manage_base_false_only_instrumentation(
+        self, mock_cleanup, mock_standard, mock_rc, mock_instr, mock_client
+    ):
+        mock_client.return_value = self.iam
+        handle_create_update(self._props(ManageBasePermissions="false"), None)
+        mock_cleanup.assert_not_called()
+        mock_standard.assert_not_called()
+        mock_rc.assert_not_called()
+        mock_instr.assert_called_once()
+
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.cleanup_instrumentation_policies")
+    @patch("attach_integration_permissions.cleanup_existing_policies")
+    def test_delete_manage_base_false_only_instrumentation(
+        self, mock_cleanup_base, mock_cleanup_instr, mock_client
+    ):
+        mock_client.return_value = self.iam
+        event = self._props(ManageBasePermissions="false")
+        event["RequestType"] = "Delete"
+        handle_delete(event, None)
+        mock_cleanup_base.assert_not_called()
+        mock_cleanup_instr.assert_called_once()
+
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.cleanup_instrumentation_policies")
+    @patch("attach_integration_permissions.cleanup_existing_policies")
+    def test_delete_manage_base_true_cleans_both(
+        self, mock_cleanup_base, mock_cleanup_instr, mock_client
+    ):
+        mock_client.return_value = self.iam
+        event = self._props(ManageBasePermissions="true")
+        event["RequestType"] = "Delete"
+        handle_delete(event, None)
+        mock_cleanup_base.assert_called_once()
+        mock_cleanup_instr.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -171,9 +171,11 @@ def handle_delete(event, context):
     role_name = props['DatadogIntegrationRole']
     account_id = props['AccountId']
     partition = props.get('Partition', 'aws')
+    manage_base_permissions = str(props.get('ManageBasePermissions', 'true')).lower() == 'true'
     iam_client = boto3.client('iam')
     try:
-        cleanup_existing_policies(iam_client, role_name, account_id, partition)
+        if manage_base_permissions:
+            cleanup_existing_policies(iam_client, role_name, account_id, partition)
         cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
@@ -186,6 +188,7 @@ def handle_create_update(event, context):
     role_name = props['DatadogIntegrationRole']
     account_id = props['AccountId']
     partition = props.get('Partition', 'aws')
+    manage_base_permissions = str(props.get('ManageBasePermissions', 'true')).lower() == 'true'
     should_install_security_audit_policy = str(props['ResourceCollectionPermissions']).lower() == 'true'
     datadog_site = props.get('DatadogSite') or 'datadoghq.com'
     instrumentation_resource_types = parse_resource_types(props.get('InstrumentationResourceTypes'))
@@ -195,10 +198,11 @@ def handle_create_update(event, context):
 
     try:
         iam_client = boto3.client('iam')
-        cleanup_existing_policies(iam_client, role_name, account_id, partition)
-        attach_standard_permissions(iam_client, role_name)
-        if should_install_security_audit_policy:
-            attach_resource_collection_permissions(iam_client, role_name)
+        if manage_base_permissions:
+            cleanup_existing_policies(iam_client, role_name, account_id, partition)
+            attach_standard_permissions(iam_client, role_name)
+            if should_install_security_audit_policy:
+                attach_resource_collection_permissions(iam_client, role_name)
         attach_instrumentation_permissions(
             iam_client, role_name, account_id, partition,
             datadog_site, instrumentation_resource_types, previous_instrumentation_resource_types,
