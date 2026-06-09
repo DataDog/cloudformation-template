@@ -27,7 +27,6 @@ from attach_integration_permissions import (
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
     LEGACY_POLICY_NAME_STANDARD,
     LEGACY_PREFIX_RESOURCE_COLLECTION,
-    LEGACY_PREFIX_INSTRUMENTATION,
 )
 
 
@@ -148,20 +147,10 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.assertEqual(sent_request.headers.get("Dd-aws-api-call-source"), "cfn-quickstart")
 
     @patch("attach_integration_permissions.urllib.request.urlopen")
-    def test_cleans_legacy_instrumentation_after_successful_fetch(self, mock_urlopen):
-        # Upgrade case: once the v2 permissions are fetched, the legacy un-suffixed instrumentation
-        # policies are removed (so they don't linger), but only after the fetch succeeds.
-        mock_urlopen.return_value = self._mock_chunks_response([["ec2:Describe*"]])
-        self._attach(["aws:ec2:instance"])
-        detached = [c.kwargs["PolicyArn"] for c in self.iam.detach_role_policy.call_args_list]
-        self.assertTrue(any(LEGACY_PREFIX_INSTRUMENTATION + "-" + self.role_name in a for a in detached))
-
-    @patch("attach_integration_permissions.urllib.request.urlopen")
     def test_fetch_failure_preserves_existing_policies(self, mock_urlopen):
         # Regression: a transient API failure on Update must not silently revoke the
-        # previously-attached instrumentation policies — including the legacy un-suffixed
-        # ones during an upgrade, since their cleanup is deferred until after a successful
-        # fetch. The function must neither call detach_role_policy / delete_policy nor raise.
+        # previously-attached instrumentation policies. The function must neither
+        # call detach_role_policy / delete_policy nor raise.
         mock_urlopen.side_effect = HTTPError(
             "u", 500, "boom", {}, BytesIO(b'{"errors":["upstream down"]}')
         )
@@ -264,10 +253,10 @@ class TestCleanupLegacyBasePolicies(unittest.TestCase):
         )
 
     def test_does_not_touch_instrumentation(self):
-        # Legacy instrumentation cleanup is deferred to attach_instrumentation_permissions (post-fetch).
+        # Base cleanup only handles standard/resource-collection; instrumentation is managed separately.
         cleanup_legacy_base_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=3)
         arns = self._detached_arns()
-        self.assertTrue(all(LEGACY_PREFIX_INSTRUMENTATION + "-MyRole" not in a for a in arns))
+        self.assertTrue(all("instrumentation" not in a for a in arns))
 
 
 class TestManageBasePermissions(unittest.TestCase):
@@ -378,21 +367,24 @@ class TestManageBasePermissions(unittest.TestCase):
 
 
 class TestUpgradeSafePolicyNames(unittest.TestCase):
-    # Guards the invariant that makes in-place upgrades from the inline-trigger era safe: the names
-    # this template manages must be disjoint from the names the legacy (<= v4.13) Delete handler
-    # removes, so the old handler can never wipe a policy this stack just attached.
+    # Guards the invariant that makes in-place upgrades from the inline-trigger era safe: the standard
+    # and resource-collection names this template manages must be disjoint from the names the legacy
+    # (<= v4.13) Delete handler removes, so the old handler can never wipe a policy this stack just
+    # attached. Instrumentation is intentionally excluded — that feature is unreleased, so no field
+    # stack has legacy instrumentation policies, and it keeps the un-suffixed name.
     role = "DatadogIntegrationRole"
 
     def test_standard_policy_name_differs_from_legacy(self):
         self.assertNotEqual(POLICY_NAME_STANDARD, LEGACY_POLICY_NAME_STANDARD)
 
-    def test_managed_policy_names_disjoint_from_legacy(self):
+    def test_resource_collection_names_disjoint_from_legacy(self):
         def names(prefix):
             return {f"{prefix}-{self.role}-{i+1}" for i in range(10)}
 
-        new_names = names(BASE_POLICY_PREFIX_RESOURCE_COLLECTION) | names(BASE_POLICY_PREFIX_INSTRUMENTATION)
-        legacy_names = names(LEGACY_PREFIX_RESOURCE_COLLECTION) | names(LEGACY_PREFIX_INSTRUMENTATION)
-        self.assertEqual(new_names & legacy_names, set())
+        self.assertEqual(
+            names(BASE_POLICY_PREFIX_RESOURCE_COLLECTION) & names(LEGACY_PREFIX_RESOURCE_COLLECTION),
+            set(),
+        )
 
 
 if __name__ == "__main__":

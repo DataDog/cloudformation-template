@@ -108,22 +108,24 @@ Resources:
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
           API_CALL_SOURCE_HEADER_VALUE = "cfn-quickstart"
-          # The "-v2" generation suffix is load-bearing, not cosmetic. Extracting this custom resource
-          # out of datadog_integration_role.yaml means an in-place upgrade from a release that still had
-          # the inline trigger (<= v4.13) removes that old trigger, whose Delete handler deletes policies
-          # by the un-suffixed names. CloudFormation can run that delete after this nested stack has
-          # re-attached them, which would leave the role with no permissions. Using distinct names here
-          # means the old handler only ever cleans up the old-named policies and never touches these.
+          # The "-v2" suffix on the standard and resource-collection names is load-bearing, not cosmetic.
+          # Extracting this custom resource out of datadog_integration_role.yaml means an in-place upgrade
+          # from a release that still had the inline trigger (<= v4.13) removes that old trigger, whose
+          # Delete handler deletes the standard/resource-collection policies by their un-suffixed names.
+          # CloudFormation can run that delete after this nested stack has re-attached them, which would
+          # leave the role without those permissions. The v2 names dodge that: the old handler only ever
+          # touches the old-named policies. Instrumentation needs no such suffix — that feature is
+          # unreleased, so no field stack carries instrumentation policies for the old handler to collide
+          # with, and the inline trigger is gone for good from v4.14 onward.
           POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicyV2"
           BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions-v2"
-          BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions-v2"
-          # Un-suffixed names created by the pre-extraction inline trigger (<= v4.13). We clean these up
-          # ourselves before attaching the v2 policies so the two generations never sit attached at the
-          # same time (IAM caps managed policies per role, default 10); the old trigger's own Delete
-          # handler then no-ops against names that are already gone.
+          BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions"
+          # Un-suffixed standard/resource-collection names created by the pre-extraction inline trigger
+          # (<= v4.13). We clean these up ourselves before attaching the v2 policies so the two generations
+          # never sit attached at once (IAM caps managed policies per role, default 10); the old trigger's
+          # own Delete handler then no-ops against names that are already gone.
           LEGACY_POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
           LEGACY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
-          LEGACY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions"
           STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
           RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
           INSTRUMENTATION_PERMISSIONS_API_PATH = "/api/unstable/instrumenter/aws/iam_permissions"
@@ -289,12 +291,9 @@ Resources:
                   )
                   return
 
-              # Only now that the fetch has succeeded do we remove the existing instrumentation policies —
-              # both this template's v2 names and any legacy un-suffixed ones from a pre-extraction upgrade.
-              # Deferring until here is what keeps a transient fetch failure above from leaving the role
-              # with no instrumentation permissions.
+              # Only now that the fetch has succeeded do we remove the existing instrumentation policies, so
+              # a transient fetch failure above leaves the previously-attached policies in place.
               cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
-              _cleanup_chunked_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_INSTRUMENTATION)
               for i, chunk in enumerate(permission_chunks):
                   policy_name = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{i+1}"
                   try:
