@@ -211,13 +211,10 @@ Resources:
 
 
           def cleanup_legacy_base_policies(iam_client, role_name, account_id, partition, max_policies=10):
-              # Remove the un-suffixed standard + resource-collection policies left by the inline trigger of
-              # releases that predate this nested template, so they are gone before the v2 standard/RC
-              # policies are attached (keeps both generations from piling up against the IAM managed-policy
-              # limit during an in-place upgrade). Only the role-creation path calls this; the add-on must
-              # not touch the standard/RC policies the role stack owns. The legacy *instrumentation* policies
-              # are handled in attach_instrumentation_permissions instead, where cleanup is deferred until a
-              # successful fetch so a transient API failure can't leave the role with no instrumentation.
+              # Remove the un-suffixed standard + resource-collection policies left by the pre-extraction
+              # inline trigger before the v2 policies are attached, so the two generations don't pile up
+              # against the IAM managed-policy limit during an in-place upgrade. Only the role-creation path
+              # calls this; the add-on must not touch the policies the role stack owns.
               _cleanup_chunked_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_RESOURCE_COLLECTION, max_policies)
               try:
                   iam_client.delete_role_policy(RoleName=role_name, PolicyName=LEGACY_POLICY_NAME_STANDARD)
