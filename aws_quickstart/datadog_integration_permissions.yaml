@@ -197,15 +197,18 @@ Resources:
                   _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name)
 
 
-          def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
-              _cleanup_chunked_policies(iam_client, role_name, account_id, partition, BASE_POLICY_PREFIX_RESOURCE_COLLECTION, max_policies)
-
+          def _cleanup_base_policies(iam_client, role_name, account_id, partition, rc_prefix, standard_name, max_policies=10):
+              _cleanup_chunked_policies(iam_client, role_name, account_id, partition, rc_prefix, max_policies)
               try:
-                  iam_client.delete_role_policy(RoleName=role_name, PolicyName=POLICY_NAME_STANDARD)
+                  iam_client.delete_role_policy(RoleName=role_name, PolicyName=standard_name)
               except iam_client.exceptions.NoSuchEntityException:
                   pass
               except Exception as e:
-                  LOGGER.error(f"Error deleting inline policy {POLICY_NAME_STANDARD}: {str(e)}")
+                  LOGGER.error(f"Error deleting inline policy {standard_name}: {str(e)}")
+
+
+          def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
+              _cleanup_base_policies(iam_client, role_name, account_id, partition, BASE_POLICY_PREFIX_RESOURCE_COLLECTION, POLICY_NAME_STANDARD, max_policies)
 
 
           def cleanup_instrumentation_policies(iam_client, role_name, account_id, partition, max_policies=10):
@@ -217,13 +220,7 @@ Resources:
               # inline trigger before the v2 policies are attached, so the two generations don't pile up
               # against the IAM managed-policy limit during an in-place upgrade. Only the role-creation path
               # calls this; the add-on must not touch the policies the role stack owns.
-              _cleanup_chunked_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_RESOURCE_COLLECTION, max_policies)
-              try:
-                  iam_client.delete_role_policy(RoleName=role_name, PolicyName=LEGACY_POLICY_NAME_STANDARD)
-              except iam_client.exceptions.NoSuchEntityException:
-                  pass
-              except Exception as e:
-                  LOGGER.error(f"Error deleting legacy inline policy {LEGACY_POLICY_NAME_STANDARD}: {str(e)}")
+              _cleanup_base_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_RESOURCE_COLLECTION, LEGACY_POLICY_NAME_STANDARD, max_policies)
 
 
           def attach_standard_permissions(iam_client, role_name):
@@ -290,8 +287,6 @@ Resources:
                   )
                   return
 
-              # Only now that the fetch has succeeded do we remove the existing instrumentation policies, so
-              # a transient fetch failure above leaves the previously-attached policies in place.
               cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
               for i, chunk in enumerate(permission_chunks):
                   policy_name = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{i+1}"

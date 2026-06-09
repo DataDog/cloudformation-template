@@ -30,6 +30,20 @@ from attach_integration_permissions import (
 )
 
 
+def make_iam_mock(cleanup_side_effects=True):
+    iam = MagicMock()
+    iam.exceptions.NoSuchEntityException = type("NSE", (Exception,), {})
+    iam.exceptions.DeleteConflictException = type("DCE", (Exception,), {})
+    if cleanup_side_effects:
+        iam.detach_role_policy.side_effect = iam.exceptions.NoSuchEntityException
+        iam.delete_policy.side_effect = iam.exceptions.NoSuchEntityException
+    return iam
+
+
+def detached_arns(iam):
+    return [c.kwargs["PolicyArn"] for c in iam.detach_role_policy.call_args_list]
+
+
 class TestParseResourceTypes(unittest.TestCase):
     def test_none(self):
         self.assertEqual(parse_resource_types(None), [])
@@ -84,12 +98,8 @@ class TestBuildInstrumentationURL(unittest.TestCase):
 
 class TestAttachInstrumentationPermissions(unittest.TestCase):
     def setUp(self):
-        self.iam = MagicMock()
-        self.iam.exceptions.NoSuchEntityException = type("NSE", (Exception,), {})
-        self.iam.exceptions.DeleteConflictException = type("DCE", (Exception,), {})
+        self.iam = make_iam_mock()
         self.iam.create_policy.return_value = {"Policy": {"Arn": "arn:aws:iam::123:policy/X"}}
-        self.iam.detach_role_policy.side_effect = self.iam.exceptions.NoSuchEntityException
-        self.iam.delete_policy.side_effect = self.iam.exceptions.NoSuchEntityException
         self.role_name = "DatadogIntegrationRole"
         self.account_id = "123456789012"
         self.partition = "aws"
@@ -204,23 +214,19 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
 
 class TestCleanup(unittest.TestCase):
     def setUp(self):
-        self.iam = MagicMock()
-        self.iam.exceptions.NoSuchEntityException = type("NSE", (Exception,), {})
-        self.iam.exceptions.DeleteConflictException = type("DCE", (Exception,), {})
-        self.iam.detach_role_policy.side_effect = self.iam.exceptions.NoSuchEntityException
-        self.iam.delete_policy.side_effect = self.iam.exceptions.NoSuchEntityException
+        self.iam = make_iam_mock()
 
     def test_cleanup_existing_does_not_touch_instrumentation(self):
         cleanup_existing_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=2)
 
-        detached = [c.kwargs["PolicyArn"] for c in self.iam.detach_role_policy.call_args_list]
+        detached = detached_arns(self.iam)
         self.assertTrue(all(BASE_POLICY_PREFIX_INSTRUMENTATION not in arn for arn in detached))
         self.assertTrue(any(BASE_POLICY_PREFIX_RESOURCE_COLLECTION in arn for arn in detached))
 
     def test_cleanup_instrumentation_targets_only_instrumentation_prefix(self):
         cleanup_instrumentation_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=2)
 
-        detached = [c.kwargs["PolicyArn"] for c in self.iam.detach_role_policy.call_args_list]
+        detached = detached_arns(self.iam)
         self.assertEqual(len(detached), 2)
         self.assertTrue(all(BASE_POLICY_PREFIX_INSTRUMENTATION in arn for arn in detached))
 
@@ -229,24 +235,17 @@ class TestCleanupLegacyBasePolicies(unittest.TestCase):
     # Removing the old un-suffixed base policies before attaching the v2 ones is what keeps both
     # generations from sitting attached at once during an in-place upgrade (IAM managed-policy limit).
     def setUp(self):
-        self.iam = MagicMock()
-        self.iam.exceptions.NoSuchEntityException = type("NSE", (Exception,), {})
-        self.iam.exceptions.DeleteConflictException = type("DCE", (Exception,), {})
-        self.iam.detach_role_policy.side_effect = self.iam.exceptions.NoSuchEntityException
-        self.iam.delete_policy.side_effect = self.iam.exceptions.NoSuchEntityException
-
-    def _detached_arns(self):
-        return [c.kwargs["PolicyArn"] for c in self.iam.detach_role_policy.call_args_list]
+        self.iam = make_iam_mock()
 
     def test_only_targets_legacy_names_not_v2(self):
         cleanup_legacy_base_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=3)
-        for arn in self._detached_arns():
+        for arn in detached_arns(self.iam):
             # Legacy managed-policy ARNs must never carry the -v2 generation segment.
             self.assertNotIn("-permissions-v2-", arn)
 
     def test_cleans_legacy_resource_collection_and_standard(self):
         cleanup_legacy_base_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=3)
-        arns = self._detached_arns()
+        arns = detached_arns(self.iam)
         self.assertTrue(any(LEGACY_PREFIX_RESOURCE_COLLECTION + "-MyRole" in a for a in arns))
         self.iam.delete_role_policy.assert_called_once_with(
             RoleName="MyRole", PolicyName=LEGACY_POLICY_NAME_STANDARD
@@ -255,7 +254,7 @@ class TestCleanupLegacyBasePolicies(unittest.TestCase):
     def test_does_not_touch_instrumentation(self):
         # Base cleanup only handles standard/resource-collection; instrumentation is managed separately.
         cleanup_legacy_base_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=3)
-        arns = self._detached_arns()
+        arns = detached_arns(self.iam)
         self.assertTrue(all("instrumentation" not in a for a in arns))
 
 
@@ -265,9 +264,7 @@ class TestManageBasePermissions(unittest.TestCase):
     # the instrumentation policies and never touches the standard/resource-collection policies the
     # role stack owns.
     def setUp(self):
-        self.iam = MagicMock()
-        self.iam.exceptions.NoSuchEntityException = type("NSE", (Exception,), {})
-        self.iam.exceptions.DeleteConflictException = type("DCE", (Exception,), {})
+        self.iam = make_iam_mock(cleanup_side_effects=False)
 
     def _props(self, **overrides):
         props = {
