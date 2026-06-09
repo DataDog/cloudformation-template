@@ -367,22 +367,31 @@ class TestManageBasePermissions(unittest.TestCase):
 
 
 class TestUpgradeSafePolicyNames(unittest.TestCase):
-    # Guards the invariant that makes in-place upgrades from the inline-trigger era safe: the standard
-    # and resource-collection names this template manages must be disjoint from the names the legacy
-    # (<= v4.13) Delete handler removes, so the old handler can never wipe a policy this stack just
-    # attached. Instrumentation is intentionally excluded — that feature is unreleased, so no field
-    # stack has legacy instrumentation policies, and it keeps the un-suffixed name.
+    # Guards the invariant that makes the inline-trigger era safe: every policy name this template
+    # attaches must be disjoint from the un-suffixed names the legacy (<= v4.13) Delete handler removes,
+    # so the old handler can never wipe a policy this stack attached. This covers instrumentation too —
+    # the add-on attaches instrumentation policies against an existing role, and a later upgrade of that
+    # role's stack removes the old trigger, whose unconditional instrumentation cleanup would otherwise
+    # delete them.
     role = "DatadogIntegrationRole"
+    # Un-suffixed prefix the legacy trigger deletes instrumentation policies by.
+    LEGACY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions"
+
+    def _names(self, prefix):
+        return {f"{prefix}-{self.role}-{i+1}" for i in range(10)}
 
     def test_standard_policy_name_differs_from_legacy(self):
         self.assertNotEqual(POLICY_NAME_STANDARD, LEGACY_POLICY_NAME_STANDARD)
 
     def test_resource_collection_names_disjoint_from_legacy(self):
-        def names(prefix):
-            return {f"{prefix}-{self.role}-{i+1}" for i in range(10)}
-
         self.assertEqual(
-            names(BASE_POLICY_PREFIX_RESOURCE_COLLECTION) & names(LEGACY_PREFIX_RESOURCE_COLLECTION),
+            self._names(BASE_POLICY_PREFIX_RESOURCE_COLLECTION) & self._names(LEGACY_PREFIX_RESOURCE_COLLECTION),
+            set(),
+        )
+
+    def test_instrumentation_names_disjoint_from_legacy(self):
+        self.assertEqual(
+            self._names(BASE_POLICY_PREFIX_INSTRUMENTATION) & self._names(self.LEGACY_PREFIX_INSTRUMENTATION),
             set(),
         )
 

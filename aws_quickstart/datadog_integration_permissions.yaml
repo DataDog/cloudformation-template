@@ -108,22 +108,24 @@ Resources:
           LOGGER = logging.getLogger()
           LOGGER.setLevel(logging.INFO)
           API_CALL_SOURCE_HEADER_VALUE = "cfn-quickstart"
-          # The "-v2" suffix on the standard and resource-collection names is load-bearing, not cosmetic.
-          # Extracting this custom resource out of datadog_integration_role.yaml means an in-place upgrade
-          # from a release that still had the inline trigger (<= v4.13) removes that old trigger, whose
-          # Delete handler deletes the standard/resource-collection policies by their un-suffixed names.
-          # CloudFormation can run that delete after this nested stack has re-attached them, which would
-          # leave the role without those permissions. The v2 names dodge that: the old handler only ever
-          # touches the old-named policies. Instrumentation needs no such suffix — that feature is
-          # unreleased, so no field stack carries instrumentation policies for the old handler to collide
-          # with, and the inline trigger is gone for good from v4.14 onward.
+          # The "-v2" suffix on these policy names is load-bearing, not cosmetic. The pre-extraction
+          # inline trigger (<= v4.13) deletes policies by their un-suffixed names on teardown, and that
+          # teardown runs whenever the old trigger is removed — i.e. when a role stack is upgraded off
+          # <= v4.13. Distinct v2 names ensure that destructive delete can never hit the policies this
+          # template attaches:
+          #   - standard / resource-collection: an in-place role-stack upgrade removes the old trigger
+          #     after this nested stack has re-attached them; v2 names keep them from being wiped.
+          #   - instrumentation: the add-on attaches these against an existing role; if that role's stack
+          #     is later upgraded off <= v4.13, the old trigger's unconditional instrumentation cleanup
+          #     would wipe them unless they sit under a name it doesn't know.
           POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicyV2"
           BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions-v2"
-          BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions"
+          BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions-v2"
           # Un-suffixed standard/resource-collection names created by the pre-extraction inline trigger
-          # (<= v4.13). We clean these up ourselves before attaching the v2 policies so the two generations
-          # never sit attached at once (IAM caps managed policies per role, default 10); the old trigger's
-          # own Delete handler then no-ops against names that are already gone.
+          # (<= v4.13). The role-creation path cleans these up before attaching the v2 policies so the two
+          # generations never sit attached at once (IAM caps managed policies per role, default 10); the
+          # old trigger's own Delete handler then no-ops against names that are already gone. Legacy
+          # instrumentation policies need no such cleanup — that feature is unreleased, so none exist.
           LEGACY_POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
           LEGACY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
           STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
