@@ -140,9 +140,11 @@ def attach_resource_collection_permissions(iam_client, role_name):
         )
 
 
-def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types, previous_resource_types):
-    # Best-effort: instrumentation permissions are additive convenience on top of the
-    # integration, so any failure here is logged and swallowed rather than blocking install.
+def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types, previous_resource_types, fail_on_error=False):
+    # Best-effort by default: instrumentation permissions are additive convenience on top of the
+    # integration, so any failure is logged and swallowed rather than blocking install. The
+    # post-setup add-on passes fail_on_error=True because attaching these policies is the stack's
+    # whole purpose, so a silent SUCCESS that attached nothing would be worse than a visible failure.
     # Fetch before cleanup so that a transient API failure on an Update leaves the
     # previously-attached policies in place instead of silently revoking them.
     if not resource_types:
@@ -157,6 +159,8 @@ def attach_instrumentation_permissions(iam_client, role_name, account_id, partit
         LOGGER.info(f"Fetching instrumentation permissions for {resource_types} from {url}")
         permission_chunks = fetch_permissions_from_datadog(url)
     except Exception as e:
+        if fail_on_error:
+            raise
         LOGGER.warning(
             f"Failed to fetch instrumentation permissions for {resource_types}: {e}. "
             "Leaving any previously-attached instrumentation policies in place."
@@ -169,6 +173,8 @@ def attach_instrumentation_permissions(iam_client, role_name, account_id, partit
         try:
             _create_and_attach_policy(iam_client, role_name, policy_name, chunk)
         except Exception as e:
+            if fail_on_error:
+                raise
             LOGGER.warning(f"Failed to create/attach instrumentation policy {policy_name}: {e}. Continuing.")
 
 
@@ -195,6 +201,7 @@ def handle_create_update(event, context):
     account_id = props['AccountId']
     partition = props.get('Partition', 'aws')
     manage_base_permissions = str(props.get('ManageBasePermissions', 'true')).lower() == 'true'
+    fail_on_instrumentation_error = str(props.get('FailOnInstrumentationError', 'false')).lower() == 'true'
     should_install_security_audit_policy = str(props['ResourceCollectionPermissions']).lower() == 'true'
     datadog_site = props.get('DatadogSite') or 'datadoghq.com'
     instrumentation_resource_types = parse_resource_types(props.get('InstrumentationResourceTypes'))
@@ -212,6 +219,7 @@ def handle_create_update(event, context):
         attach_instrumentation_permissions(
             iam_client, role_name, account_id, partition,
             datadog_site, instrumentation_resource_types, previous_instrumentation_resource_types,
+            fail_on_error=fail_on_instrumentation_error,
         )
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:

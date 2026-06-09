@@ -36,6 +36,17 @@ Parameters:
       Set this value to "true" to manage the standard and resource-collection permissions on the role
       (the role-creation case). Set it to "false" to manage only the instrumentation permissions and
       leave the standard and resource-collection policies untouched (the post-setup add-on case).
+  FailOnInstrumentationError:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Set this value to "true" to fail the stack when the instrumentation permissions cannot be fetched
+      or attached. Defaults to "false" (best-effort) for the role-creation case, where instrumentation is
+      an optional add-on to the broader install. The post-setup add-on sets this to "true" because
+      attaching the instrumentation permissions is the stack's only purpose.
 Resources:
   DatadogAttachIntegrationPermissionsLambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -225,9 +236,11 @@ Resources:
                   )
 
 
-          def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types, previous_resource_types):
-              # Best-effort: instrumentation permissions are additive convenience on top of the
-              # integration, so any failure here is logged and swallowed rather than blocking install.
+          def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types, previous_resource_types, fail_on_error=False):
+              # Best-effort by default: instrumentation permissions are additive convenience on top of the
+              # integration, so any failure is logged and swallowed rather than blocking install. The
+              # post-setup add-on passes fail_on_error=True because attaching these policies is the stack's
+              # whole purpose, so a silent SUCCESS that attached nothing would be worse than a visible failure.
               # Fetch before cleanup so that a transient API failure on an Update leaves the
               # previously-attached policies in place instead of silently revoking them.
               if not resource_types:
@@ -242,6 +255,8 @@ Resources:
                   LOGGER.info(f"Fetching instrumentation permissions for {resource_types} from {url}")
                   permission_chunks = fetch_permissions_from_datadog(url)
               except Exception as e:
+                  if fail_on_error:
+                      raise
                   LOGGER.warning(
                       f"Failed to fetch instrumentation permissions for {resource_types}: {e}. "
                       "Leaving any previously-attached instrumentation policies in place."
@@ -254,6 +269,8 @@ Resources:
                   try:
                       _create_and_attach_policy(iam_client, role_name, policy_name, chunk)
                   except Exception as e:
+                      if fail_on_error:
+                          raise
                       LOGGER.warning(f"Failed to create/attach instrumentation policy {policy_name}: {e}. Continuing.")
 
 
@@ -280,6 +297,7 @@ Resources:
               account_id = props['AccountId']
               partition = props.get('Partition', 'aws')
               manage_base_permissions = str(props.get('ManageBasePermissions', 'true')).lower() == 'true'
+              fail_on_instrumentation_error = str(props.get('FailOnInstrumentationError', 'false')).lower() == 'true'
               should_install_security_audit_policy = str(props['ResourceCollectionPermissions']).lower() == 'true'
               datadog_site = props.get('DatadogSite') or 'datadoghq.com'
               instrumentation_resource_types = parse_resource_types(props.get('InstrumentationResourceTypes'))
@@ -297,6 +315,7 @@ Resources:
                   attach_instrumentation_permissions(
                       iam_client, role_name, account_id, partition,
                       datadog_site, instrumentation_resource_types, previous_instrumentation_resource_types,
+                      fail_on_error=fail_on_instrumentation_error,
                   )
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
               except Exception as e:
@@ -321,3 +340,4 @@ Resources:
       InstrumentationResourceTypes: !Ref InstrumentationResourceTypes
       DatadogSite: !Ref DatadogSite
       ManageBasePermissions: !Ref ManageBasePermissions
+      FailOnInstrumentationError: !Ref FailOnInstrumentationError

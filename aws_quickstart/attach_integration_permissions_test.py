@@ -184,6 +184,29 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.assertEqual(self.iam.create_policy.call_count, 3)
         self.assertEqual(self.iam.attach_role_policy.call_count, 2)
 
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_fail_on_error_raises_on_fetch_failure(self, mock_urlopen):
+        # Add-on mode (fail_on_error=True): a fetch failure must propagate so the stack fails
+        # instead of silently reporting SUCCESS with nothing attached.
+        mock_urlopen.side_effect = HTTPError(
+            "u", 500, "boom", {}, BytesIO(b'{"errors":["upstream down"]}')
+        )
+        with self.assertRaises(Exception):
+            attach_instrumentation_permissions(
+                self.iam, self.role_name, self.account_id, self.partition, self.site,
+                ["aws:ec2:instance"], (), fail_on_error=True,
+            )
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_fail_on_error_raises_on_attach_failure(self, mock_urlopen):
+        mock_urlopen.return_value = self._mock_chunks_response([["chunk1:Action"]])
+        self.iam.create_policy.side_effect = Exception("AccessDenied")
+        with self.assertRaises(Exception):
+            attach_instrumentation_permissions(
+                self.iam, self.role_name, self.account_id, self.partition, self.site,
+                ["aws:ec2:instance"], (), fail_on_error=True,
+            )
+
 
 class TestCleanup(unittest.TestCase):
     def setUp(self):
@@ -285,6 +308,29 @@ class TestManageBasePermissions(unittest.TestCase):
         handle_delete(event, None)
         mock_cleanup_base.assert_called_once()
         mock_cleanup_instr.assert_called_once()
+
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    def test_create_threads_fail_on_instrumentation_error(self, mock_instr, mock_client):
+        mock_client.return_value = self.iam
+        handle_create_update(
+            self._props(ManageBasePermissions="false", FailOnInstrumentationError="true"), None
+        )
+        self.assertTrue(mock_instr.call_args.kwargs["fail_on_error"])
+
+    @patch("attach_integration_permissions.cfnresponse")
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    def test_create_reports_failed_when_instrumentation_raises(
+        self, mock_instr, mock_client, mock_cfn
+    ):
+        # Add-on mode: a propagated instrumentation failure must surface as a FAILED response.
+        mock_client.return_value = self.iam
+        mock_instr.side_effect = Exception("AccessDenied")
+        handle_create_update(
+            self._props(ManageBasePermissions="false", FailOnInstrumentationError="true"), None
+        )
+        self.assertEqual(mock_cfn.send.call_args.args[2], mock_cfn.FAILED)
 
 
 class TestUpgradeSafePolicyNames(unittest.TestCase):

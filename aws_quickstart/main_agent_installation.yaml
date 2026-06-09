@@ -62,6 +62,7 @@ Resources:
         InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
         DatadogSite: !Ref DatadogSite
         ManageBasePermissions: false
+        FailOnInstrumentationError: true
   # EventBridge pipeline forwarding CloudTrail events to the Datadog resource update intake.
   # Deployed only when at least one InstrumentationResourceTypes value is set; single-region
   # (covers the region this stack is deployed in).
