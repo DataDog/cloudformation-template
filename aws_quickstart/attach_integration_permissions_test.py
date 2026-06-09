@@ -19,7 +19,7 @@ from attach_integration_permissions import (
     attach_instrumentation_permissions,
     cleanup_existing_policies,
     cleanup_instrumentation_policies,
-    cleanup_legacy_policies,
+    cleanup_legacy_base_policies,
     handle_create_update,
     handle_delete,
     POLICY_NAME_STANDARD,
@@ -148,10 +148,20 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.assertEqual(sent_request.headers.get("Dd-aws-api-call-source"), "cfn-quickstart")
 
     @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_cleans_legacy_instrumentation_after_successful_fetch(self, mock_urlopen):
+        # Upgrade case: once the v2 permissions are fetched, the legacy un-suffixed instrumentation
+        # policies are removed (so they don't linger), but only after the fetch succeeds.
+        mock_urlopen.return_value = self._mock_chunks_response([["ec2:Describe*"]])
+        self._attach(["aws:ec2:instance"])
+        detached = [c.kwargs["PolicyArn"] for c in self.iam.detach_role_policy.call_args_list]
+        self.assertTrue(any(LEGACY_PREFIX_INSTRUMENTATION + "-" + self.role_name in a for a in detached))
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
     def test_fetch_failure_preserves_existing_policies(self, mock_urlopen):
         # Regression: a transient API failure on Update must not silently revoke the
-        # previously-attached instrumentation policies. The function must neither
-        # call detach_role_policy / delete_policy nor raise.
+        # previously-attached instrumentation policies — including the legacy un-suffixed
+        # ones during an upgrade, since their cleanup is deferred until after a successful
+        # fetch. The function must neither call detach_role_policy / delete_policy nor raise.
         mock_urlopen.side_effect = HTTPError(
             "u", 500, "boom", {}, BytesIO(b'{"errors":["upstream down"]}')
         )
@@ -226,8 +236,8 @@ class TestCleanup(unittest.TestCase):
         self.assertTrue(all(BASE_POLICY_PREFIX_INSTRUMENTATION in arn for arn in detached))
 
 
-class TestCleanupLegacyPolicies(unittest.TestCase):
-    # Removing the old un-suffixed policies before attaching the v2 ones is what keeps both
+class TestCleanupLegacyBasePolicies(unittest.TestCase):
+    # Removing the old un-suffixed base policies before attaching the v2 ones is what keeps both
     # generations from sitting attached at once during an in-place upgrade (IAM managed-policy limit).
     def setUp(self):
         self.iam = MagicMock()
@@ -240,26 +250,24 @@ class TestCleanupLegacyPolicies(unittest.TestCase):
         return [c.kwargs["PolicyArn"] for c in self.iam.detach_role_policy.call_args_list]
 
     def test_only_targets_legacy_names_not_v2(self):
-        cleanup_legacy_policies(self.iam, "MyRole", "123456789012", "aws", include_base=True, max_policies=3)
+        cleanup_legacy_base_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=3)
         for arn in self._detached_arns():
             # Legacy managed-policy ARNs must never carry the -v2 generation segment.
             self.assertNotIn("-permissions-v2-", arn)
 
-    def test_include_base_true_cleans_base_and_instrumentation(self):
-        cleanup_legacy_policies(self.iam, "MyRole", "123456789012", "aws", include_base=True, max_policies=3)
+    def test_cleans_legacy_resource_collection_and_standard(self):
+        cleanup_legacy_base_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=3)
         arns = self._detached_arns()
         self.assertTrue(any(LEGACY_PREFIX_RESOURCE_COLLECTION + "-MyRole" in a for a in arns))
-        self.assertTrue(any(LEGACY_PREFIX_INSTRUMENTATION + "-MyRole" in a for a in arns))
         self.iam.delete_role_policy.assert_called_once_with(
             RoleName="MyRole", PolicyName=LEGACY_POLICY_NAME_STANDARD
         )
 
-    def test_include_base_false_leaves_base_policies(self):
-        cleanup_legacy_policies(self.iam, "MyRole", "123456789012", "aws", include_base=False, max_policies=3)
+    def test_does_not_touch_instrumentation(self):
+        # Legacy instrumentation cleanup is deferred to attach_instrumentation_permissions (post-fetch).
+        cleanup_legacy_base_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=3)
         arns = self._detached_arns()
-        self.assertTrue(all(LEGACY_PREFIX_RESOURCE_COLLECTION + "-MyRole" not in a for a in arns))
-        self.assertTrue(any(LEGACY_PREFIX_INSTRUMENTATION + "-MyRole" in a for a in arns))
-        self.iam.delete_role_policy.assert_not_called()
+        self.assertTrue(all(LEGACY_PREFIX_INSTRUMENTATION + "-MyRole" not in a for a in arns))
 
 
 class TestManageBasePermissions(unittest.TestCase):
@@ -284,7 +292,7 @@ class TestManageBasePermissions(unittest.TestCase):
         props.update(overrides)
         return {"RequestType": "Create", "ResourceProperties": props}
 
-    @patch("attach_integration_permissions.cleanup_legacy_policies")
+    @patch("attach_integration_permissions.cleanup_legacy_base_policies")
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.attach_instrumentation_permissions")
     @patch("attach_integration_permissions.attach_resource_collection_permissions")
@@ -299,9 +307,9 @@ class TestManageBasePermissions(unittest.TestCase):
         mock_standard.assert_called_once()
         mock_rc.assert_called_once()
         mock_instr.assert_called_once()
-        self.assertTrue(mock_legacy.call_args.kwargs["include_base"])
+        mock_legacy.assert_called_once()
 
-    @patch("attach_integration_permissions.cleanup_legacy_policies")
+    @patch("attach_integration_permissions.cleanup_legacy_base_policies")
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.attach_instrumentation_permissions")
     @patch("attach_integration_permissions.attach_resource_collection_permissions")
@@ -317,7 +325,7 @@ class TestManageBasePermissions(unittest.TestCase):
         mock_rc.assert_not_called()
         mock_instr.assert_called_once()
         # Add-on mode must not touch the role stack's standard/resource-collection policies.
-        self.assertFalse(mock_legacy.call_args.kwargs["include_base"])
+        mock_legacy.assert_not_called()
 
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.cleanup_instrumentation_policies")

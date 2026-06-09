@@ -208,21 +208,21 @@ Resources:
               _cleanup_chunked_policies(iam_client, role_name, account_id, partition, BASE_POLICY_PREFIX_INSTRUMENTATION, max_policies)
 
 
-          def cleanup_legacy_policies(iam_client, role_name, account_id, partition, include_base, max_policies=10):
-              # Remove the un-suffixed policies left by the inline trigger of releases that predate this
-              # nested template, so they are gone before the v2 policies are attached (avoids piling both
-              # generations against the IAM managed-policy limit during an in-place upgrade). include_base
-              # is False in add-on mode, where the role stack still owns the standard/resource-collection
-              # policies and this stack must not touch them.
-              _cleanup_chunked_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_INSTRUMENTATION, max_policies)
-              if include_base:
-                  _cleanup_chunked_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_RESOURCE_COLLECTION, max_policies)
-                  try:
-                      iam_client.delete_role_policy(RoleName=role_name, PolicyName=LEGACY_POLICY_NAME_STANDARD)
-                  except iam_client.exceptions.NoSuchEntityException:
-                      pass
-                  except Exception as e:
-                      LOGGER.error(f"Error deleting legacy inline policy {LEGACY_POLICY_NAME_STANDARD}: {str(e)}")
+          def cleanup_legacy_base_policies(iam_client, role_name, account_id, partition, max_policies=10):
+              # Remove the un-suffixed standard + resource-collection policies left by the inline trigger of
+              # releases that predate this nested template, so they are gone before the v2 standard/RC
+              # policies are attached (keeps both generations from piling up against the IAM managed-policy
+              # limit during an in-place upgrade). Only the role-creation path calls this; the add-on must
+              # not touch the standard/RC policies the role stack owns. The legacy *instrumentation* policies
+              # are handled in attach_instrumentation_permissions instead, where cleanup is deferred until a
+              # successful fetch so a transient API failure can't leave the role with no instrumentation.
+              _cleanup_chunked_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_RESOURCE_COLLECTION, max_policies)
+              try:
+                  iam_client.delete_role_policy(RoleName=role_name, PolicyName=LEGACY_POLICY_NAME_STANDARD)
+              except iam_client.exceptions.NoSuchEntityException:
+                  pass
+              except Exception as e:
+                  LOGGER.error(f"Error deleting legacy inline policy {LEGACY_POLICY_NAME_STANDARD}: {str(e)}")
 
 
           def attach_standard_permissions(iam_client, role_name):
@@ -289,7 +289,12 @@ Resources:
                   )
                   return
 
+              # Only now that the fetch has succeeded do we remove the existing instrumentation policies —
+              # both this template's v2 names and any legacy un-suffixed ones from a pre-extraction upgrade.
+              # Deferring until here is what keeps a transient fetch failure above from leaving the role
+              # with no instrumentation permissions.
               cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
+              _cleanup_chunked_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_INSTRUMENTATION)
               for i, chunk in enumerate(permission_chunks):
                   policy_name = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{i+1}"
                   try:
@@ -333,8 +338,8 @@ Resources:
 
               try:
                   iam_client = boto3.client('iam')
-                  cleanup_legacy_policies(iam_client, role_name, account_id, partition, include_base=manage_base_permissions)
                   if manage_base_permissions:
+                      cleanup_legacy_base_policies(iam_client, role_name, account_id, partition)
                       cleanup_existing_policies(iam_client, role_name, account_id, partition)
                       attach_standard_permissions(iam_client, role_name)
                       if should_install_security_audit_policy:
