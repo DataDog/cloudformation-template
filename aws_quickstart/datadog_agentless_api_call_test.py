@@ -195,6 +195,9 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         mock_is_enabled.return_value = False
         mock_response = self.create_mock_response(200)
         mock_urlopen.return_value = mock_response
+        self.base_event["ResourceProperties"]["SaaSScanningPolicyArn"] = (
+            "arn:aws:iam::123456789012:policy/datadog-agentless-saas-scanning"
+        )
 
         call_datadog_agentless_api(self.context, self.base_event, "POST")
 
@@ -207,6 +210,10 @@ class TestCallDatadogAgentlessAPI(unittest.TestCase):
         self.assertIn("data", payload)
         self.assertIn("type", payload["data"])
         self.assertEqual(payload["data"]["type"], "aws_scan_options")
+        self.assertEqual(
+            payload["meta"]["resources"]["saas_scanning_policy_arn"],
+            "arn:aws:iam::123456789012:policy/datadog-agentless-saas-scanning",
+        )
 
 
 class TestIsAgentlessScanningEnabled(unittest.TestCase):

@@ -1,3 +1,7 @@
+# 4.14.0 (June 2, 2026)
+
+- Add `datadog_agentless_saas.yaml` for SaaS-mode Agentless Scanning. The template provisions a single managed policy with the SaaS scanner permissions and attaches it to the local Datadog integration role — no scanner EC2/VPC/ASG resources and no delegate-role chaining. `SecurityAudit` is unconditionally attached to the integration role. `DatadogIntegrationRoleName` is required. Released alongside an entry added to `release.sh` so the new template participates in the standard placeholder substitution and upload pipeline.
+
 # 4.13.0 (May 29, 2026)
 
 - Add `uk1.datadoghq.com` site support. Affects `main_v2.yaml`, `main_workflow.yaml`, `main_extended.yaml`, and `main_extended_workflow.yaml`.
