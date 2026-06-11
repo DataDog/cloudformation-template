@@ -10,9 +10,26 @@ import boto3
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
 API_CALL_SOURCE_HEADER_VALUE = "cfn-quickstart"
-POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
-BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
-BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions"
+# The "-v2" suffix on these policy names is load-bearing, not cosmetic. The pre-extraction
+# inline trigger (<= v4.13) deletes policies by their un-suffixed names on teardown, and that
+# teardown runs whenever the old trigger is removed — i.e. when a role stack is upgraded off
+# <= v4.13. Distinct v2 names ensure that destructive delete can never hit the policies this
+# template attaches:
+#   - standard / resource-collection: an in-place role-stack upgrade removes the old trigger
+#     after this nested stack has re-attached them; v2 names keep them from being wiped.
+#   - instrumentation: the add-on attaches these against an existing role; if that role's stack
+#     is later upgraded off <= v4.13, the old trigger's unconditional instrumentation cleanup
+#     would wipe them unless they sit under a name it doesn't know.
+POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicyV2"
+BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions-v2"
+BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions-v2"
+# Un-suffixed standard/resource-collection names created by the pre-extraction inline trigger
+# (<= v4.13). The role-creation path cleans these up before attaching the v2 policies so the two
+# generations never sit attached at once (IAM caps managed policies per role, default 10); the
+# old trigger's own Delete handler then no-ops against names that are already gone. Legacy
+# instrumentation policies need no such cleanup — that feature is unreleased, so none exist.
+LEGACY_POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
+LEGACY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
 STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
 RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
 INSTRUMENTATION_PERMISSIONS_API_PATH = "/api/unstable/instrumenter/aws/iam_permissions"
@@ -82,19 +99,30 @@ def _cleanup_chunked_policies(iam_client, role_name, account_id, partition, pref
         _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name)
 
 
-def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
-    _cleanup_chunked_policies(iam_client, role_name, account_id, partition, BASE_POLICY_PREFIX_RESOURCE_COLLECTION, max_policies)
-
+def _cleanup_base_policies(iam_client, role_name, account_id, partition, rc_prefix, standard_name, max_policies=10):
+    _cleanup_chunked_policies(iam_client, role_name, account_id, partition, rc_prefix, max_policies)
     try:
-        iam_client.delete_role_policy(RoleName=role_name, PolicyName=POLICY_NAME_STANDARD)
+        iam_client.delete_role_policy(RoleName=role_name, PolicyName=standard_name)
     except iam_client.exceptions.NoSuchEntityException:
         pass
     except Exception as e:
-        LOGGER.error(f"Error deleting inline policy {POLICY_NAME_STANDARD}: {str(e)}")
+        LOGGER.error(f"Error deleting inline policy {standard_name}: {str(e)}")
+
+
+def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
+    _cleanup_base_policies(iam_client, role_name, account_id, partition, BASE_POLICY_PREFIX_RESOURCE_COLLECTION, POLICY_NAME_STANDARD, max_policies)
 
 
 def cleanup_instrumentation_policies(iam_client, role_name, account_id, partition, max_policies=10):
     _cleanup_chunked_policies(iam_client, role_name, account_id, partition, BASE_POLICY_PREFIX_INSTRUMENTATION, max_policies)
+
+
+def cleanup_legacy_base_policies(iam_client, role_name, account_id, partition, max_policies=10):
+    # Remove the un-suffixed standard + resource-collection policies left by the pre-extraction
+    # inline trigger before the v2 policies are attached, so the two generations don't pile up
+    # against the IAM managed-policy limit during an in-place upgrade. Only the role-creation path
+    # calls this; the add-on must not touch the policies the role stack owns.
+    _cleanup_base_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_RESOURCE_COLLECTION, LEGACY_POLICY_NAME_STANDARD, max_policies)
 
 
 def attach_standard_permissions(iam_client, role_name):
@@ -134,9 +162,11 @@ def attach_resource_collection_permissions(iam_client, role_name):
         )
 
 
-def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types, previous_resource_types):
-    # Best-effort: instrumentation permissions are additive convenience on top of the
-    # integration, so any failure here is logged and swallowed rather than blocking install.
+def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types, previous_resource_types, fail_on_error=False):
+    # Best-effort by default: instrumentation permissions are additive convenience on top of the
+    # integration, so any failure is logged and swallowed rather than blocking install. The
+    # post-setup add-on passes fail_on_error=True because attaching these policies is the stack's
+    # whole purpose, so a silent SUCCESS that attached nothing would be worse than a visible failure.
     # Fetch before cleanup so that a transient API failure on an Update leaves the
     # previously-attached policies in place instead of silently revoking them.
     if not resource_types:
@@ -151,6 +181,8 @@ def attach_instrumentation_permissions(iam_client, role_name, account_id, partit
         LOGGER.info(f"Fetching instrumentation permissions for {resource_types} from {url}")
         permission_chunks = fetch_permissions_from_datadog(url)
     except Exception as e:
+        if fail_on_error:
+            raise
         LOGGER.warning(
             f"Failed to fetch instrumentation permissions for {resource_types}: {e}. "
             "Leaving any previously-attached instrumentation policies in place."
@@ -163,6 +195,8 @@ def attach_instrumentation_permissions(iam_client, role_name, account_id, partit
         try:
             _create_and_attach_policy(iam_client, role_name, policy_name, chunk)
         except Exception as e:
+            if fail_on_error:
+                raise
             LOGGER.warning(f"Failed to create/attach instrumentation policy {policy_name}: {e}. Continuing.")
 
 
@@ -171,9 +205,11 @@ def handle_delete(event, context):
     role_name = props['DatadogIntegrationRole']
     account_id = props['AccountId']
     partition = props.get('Partition', 'aws')
+    manage_base_permissions = str(props.get('ManageBasePermissions', 'true')).lower() == 'true'
     iam_client = boto3.client('iam')
     try:
-        cleanup_existing_policies(iam_client, role_name, account_id, partition)
+        if manage_base_permissions:
+            cleanup_existing_policies(iam_client, role_name, account_id, partition)
         cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
@@ -186,6 +222,8 @@ def handle_create_update(event, context):
     role_name = props['DatadogIntegrationRole']
     account_id = props['AccountId']
     partition = props.get('Partition', 'aws')
+    manage_base_permissions = str(props.get('ManageBasePermissions', 'true')).lower() == 'true'
+    fail_on_instrumentation_error = str(props.get('FailOnInstrumentationError', 'false')).lower() == 'true'
     should_install_security_audit_policy = str(props['ResourceCollectionPermissions']).lower() == 'true'
     datadog_site = props.get('DatadogSite') or 'datadoghq.com'
     instrumentation_resource_types = parse_resource_types(props.get('InstrumentationResourceTypes'))
@@ -195,13 +233,16 @@ def handle_create_update(event, context):
 
     try:
         iam_client = boto3.client('iam')
-        cleanup_existing_policies(iam_client, role_name, account_id, partition)
-        attach_standard_permissions(iam_client, role_name)
-        if should_install_security_audit_policy:
-            attach_resource_collection_permissions(iam_client, role_name)
+        if manage_base_permissions:
+            cleanup_legacy_base_policies(iam_client, role_name, account_id, partition)
+            cleanup_existing_policies(iam_client, role_name, account_id, partition)
+            attach_standard_permissions(iam_client, role_name)
+            if should_install_security_audit_policy:
+                attach_resource_collection_permissions(iam_client, role_name)
         attach_instrumentation_permissions(
             iam_client, role_name, account_id, partition,
             datadog_site, instrumentation_resource_types, previous_instrumentation_resource_types,
+            fail_on_error=fail_on_instrumentation_error,
         )
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:

@@ -1,3 +1,7 @@
+# 4.14.0 (June 9, 2026)
+
+- Add `main_agent_installation.yaml`, a standalone template that enables Datadog Agent installation against an existing AWS integration role. Customers who skipped Agent installation during initial setup can deploy it later without recreating the integration.
+
 # 4.13.0 (May 29, 2026)
 
 - Add `uk1.datadoghq.com` site support. Affects `main_v2.yaml`, `main_workflow.yaml`, `main_extended.yaml`, and `main_extended_workflow.yaml`.
