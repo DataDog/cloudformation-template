@@ -1,6 +1,6 @@
 # 4.15.0 (June 12, 2026)
 
-- Add `DDEventBridgeCrossRegionRole` to `datadog_agent_resource_update_forwarding.yaml`. This IAM role allows EventBridge in secondary regions to forward events to the primary region's default event bus. The role is tagged with `datadog:primary-region` so the Datadog worker can discover the primary region without additional storage or API changes.
+- Add an IAM role to `datadog_agent_resource_update_forwarding.yaml` to allow EventBridge in secondary regions to forward events to the primary region's default event bus.
 
 # 4.14.0 (June 9, 2026)
 
