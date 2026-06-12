@@ -1,3 +1,7 @@
+# 4.15.0 (June 12, 2026)
+
+- Add `DDEventBridgeCrossRegionRole` to `datadog_agent_resource_update_forwarding.yaml`. This IAM role allows EventBridge in secondary regions to forward events to the primary region's default event bus. The role is tagged with `datadog:primary-region` so the Datadog worker can discover the primary region without additional storage or API changes.
+
 # 4.14.0 (June 9, 2026)
 
 - Add `main_agent_installation.yaml`, a standalone template that enables Datadog Agent installation against an existing AWS integration role. Customers who skipped Agent installation during initial setup can deploy it later without recreating the integration.
