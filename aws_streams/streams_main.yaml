@@ -231,7 +231,7 @@ Resources:
             Accounts:
               - !Ref "AWS::AccountId"
           Regions: !Ref Regions
-      TemplateURL: "https://s3.amazonaws.com/<BUCKET_PLACEHOLDER>/aws/streams_single_region.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/streams_single_region.yaml"
       Parameters:
         - ParameterKey: ApiKey
           ParameterValue: !Ref ApiKey
