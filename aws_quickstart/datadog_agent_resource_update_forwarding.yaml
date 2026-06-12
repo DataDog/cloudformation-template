@@ -82,6 +82,28 @@ Resources:
               - Effect: Allow
                 Action: events:InvokeApiDestination
                 Resource: !Sub "arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/*"
+  DDEventBridgeCrossRegionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: datadog-eventbridge-cross-region-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: datadog-eventbridge-cross-region
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default"
+      Tags:
+        - Key: datadog:primary-region
+          Value: !Ref AWS::Region
   DDEventForwardingRuleEC2:
     Type: AWS::Events::Rule
     Condition: IncludeEC2
