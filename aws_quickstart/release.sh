@@ -1,10 +1,9 @@
 #!/bin/bash
 
-# Usage: ./release.sh <S3_Bucket> [--private] [--yes]
+# Usage: ./release.sh [<S3_Bucket>] [--gov] [--private] [--yes]
 
 set -e
 
-VERSIONS_BUCKET="datadog-opensource-asset-versions"
 VERSIONS_JSON_PATH=".quickstart/versions.json"
 
 generate_versions_json() {
@@ -42,20 +41,18 @@ upload_versions_json() {
     echo "Uploaded versions.json to S3!"
 }
 
-# Read the S3 bucket
-if [ -z "$1" ]; then
-    echo "Must specify a S3 bucket to publish the template"
-    exit 1
-else
-    BUCKET=$1
-fi
-
-# Parse optional flags
+# Parse flags and optional bucket argument
+GOV=false
 PRIVATE_TEMPLATE=false
 AUTO_YES=false
-shift
+BUCKET=""
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --gov)
+            GOV=true
+            shift
+            ;;
         --private)
             PRIVATE_TEMPLATE=true
             shift
@@ -64,13 +61,28 @@ while [[ $# -gt 0 ]]; do
             AUTO_YES=true
             shift
             ;;
-        *)
+        --*)
             echo "Unknown option: $1"
-            echo "Usage: ./release.sh <S3_Bucket> [--private] [--yes]"
+            echo "Usage: ./release.sh [<S3_Bucket>] [--gov] [--private] [--yes]"
             exit 1
+            ;;
+        *)
+            BUCKET=$1
+            shift
             ;;
     esac
 done
+
+if [ "$GOV" = true ]; then
+    BUCKET="${BUCKET:-datadog-cloudformation-template-quickstart-us-gov}"
+    VERSIONS_BUCKET="datadog-opensource-asset-versions-us-gov"
+else
+    if [ -z "$BUCKET" ]; then
+        echo "Must specify a S3 bucket to publish the template"
+        exit 1
+    fi
+    VERSIONS_BUCKET="datadog-opensource-asset-versions"
+fi
 
 # Read the version
 VERSION=$(head -n 1 version.txt)
