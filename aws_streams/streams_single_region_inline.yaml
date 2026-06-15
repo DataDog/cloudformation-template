@@ -1,0 +1,343 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Datadog AWS Metric Streams (single-region, all-in-one)
+Parameters:
+  ApiKey:
+    Description: Your Datadog API Key
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: ApiKey is required
+    NoEcho: true
+  FilterMethod:
+    Description: '"Include" for an inclusion filter or "Exclude" for an exclusion filter for the following namespaces.'
+    Type: String
+    Default: "Include"
+  FirstNamespace:
+    Description: A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+    Type: String
+    Default: ""
+  SecondNamespace:
+    Description: A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+    Type: String
+    Default: ""
+  ThirdNamespace:
+    Description: >-
+      A namespace to use for filtering. Leave blank if you do not need to filter by namespace.
+      If you need to filter more than 3 namespaces, manually edit the settings for the streams
+      within the AWS CloudWatch Console after the stack is created successfully.
+    Type: String
+    Default: ""
+  IncludeLinkedAccounts:
+    Description: >-
+      Set to "true" to include metrics from source accounts linked to this monitoring account
+      via CloudWatch cross-account observability. Only relevant if this account is configured
+      as a monitoring account. Defaults to "false".
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+  DdSite:
+    Type: String
+    Default: datadoghq.com
+    Description: Define your Datadog Site to send data to. For example, datadoghq.eu, us5.datadoghq.com, or ap1.datadoghq.com
+    AllowedPattern: .+
+    ConstraintDescription: DdSite is required
+
+Conditions:
+  IsInclude: !Equals [!Ref FilterMethod, "Include"]
+  IsExclude: !Not [!Equals [!Ref FilterMethod, "Include"]]
+  HasIncludeNamespace1:
+    !And [
+      !Not [!Equals [!Ref FirstNamespace, ""]],
+      !Equals [!Ref FilterMethod, "Include"],
+    ]
+  HasIncludeNamespace2:
+    !And [
+      !Not [!Equals [!Ref SecondNamespace, ""]],
+      !Equals [!Ref FilterMethod, "Include"],
+    ]
+  HasIncludeNamespace3:
+    !And [
+      !Not [!Equals [!Ref ThirdNamespace, ""]],
+      !Equals [!Ref FilterMethod, "Include"],
+    ]
+  HasExcludeNamespace1:
+    !And [
+      !Not [!Equals [!Ref FirstNamespace, ""]],
+      !Not [!Equals [!Ref FilterMethod, "Include"]],
+    ]
+  HasExcludeNamespace2:
+    !And [
+      !Not [!Equals [!Ref SecondNamespace, ""]],
+      !Not [!Equals [!Ref FilterMethod, "Include"]],
+    ]
+  HasExcludeNamespace3:
+    !And [
+      !Not [!Equals [!Ref ThirdNamespace, ""]],
+      !Not [!Equals [!Ref FilterMethod, "Include"]],
+    ]
+
+Mappings:
+  DdSiteToEndpoint:
+    "datad0g.com":
+      Endpoint: "https://awsmetrics-http-intake.datad0g.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+    "datadoghq.eu":
+      Endpoint: "https://awsmetrics-intake.datadoghq.eu/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+    "us3.datadoghq.com":
+      Endpoint: "https://awsmetrics-intake.us3.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+    "us5.datadoghq.com":
+      Endpoint: "https://awsmetrics-intake.us5.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+    "ap1.datadoghq.com":
+      Endpoint: "https://awsmetrics-intake.ap1.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+    "ap2.datadoghq.com":
+      Endpoint: "https://awsmetrics-intake.ap2.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+    "datadoghq.com":
+      Endpoint: "https://awsmetrics-intake.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+    "ddog-gov.com":
+      Endpoint: "https://awsmetrics-intake.ddog-gov.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+    "us2.ddog-gov.com":
+      Endpoint: "https://awsmetrics-intake.us2.ddog-gov.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+    "uk1.datadoghq.com":
+      Endpoint: "https://awsmetrics-intake.uk1.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+
+Resources:
+  # ── IAM ──────────────────────────────────────────────────────────────────────
+  ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "DatadogServiceRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: firehose.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: datadog_stream_s3_policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*"
+                  - !Sub "arn:${AWS::Partition}:s3:::datadog-aws-metric-stream-backup-${AWS::AccountId}-*/*"
+
+  DatadogMetricStreamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "DatadogMetricStreamRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: streams.metrics.cloudwatch.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: datadog_stream_firehose_policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - firehose:PutRecord
+                  - firehose:PutRecordBatch
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:firehose:*:${AWS::AccountId}:deliverystream/datadog-metrics-stream"
+      Description: A metric stream role
+
+  # ── Logging ──────────────────────────────────────────────────────────────────
+  DatadogStreamLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "datadog-metric-stream"
+      RetentionInDays: 14
+
+  HTTPLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref DatadogStreamLogs
+      LogStreamName: "http_endpoint_delivery"
+
+  S3Backup:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref DatadogStreamLogs
+      LogStreamName: "s3_backup"
+
+  # ── S3 backup ─────────────────────────────────────────────────────────────────
+  DatadogStreamBackupBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "datadog-aws-metric-stream-backup-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "aws:kms"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ── Kinesis Firehose ──────────────────────────────────────────────────────────
+  DatadogMetricKinesisFirehose:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamName: "datadog-metrics-stream"
+      DeliveryStreamType: "DirectPut"
+      HttpEndpointDestinationConfiguration:
+        BufferingHints:
+          SizeInMBs: 4
+          IntervalInSeconds: 60
+        EndpointConfiguration:
+          Url: !FindInMap [DdSiteToEndpoint, !Ref DdSite, Endpoint]
+          Name: "Event intake"
+          AccessKey: !Ref ApiKey
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref DatadogStreamLogs
+          LogStreamName: "http_endpoint_delivery"
+        RoleARN: !GetAtt ServiceRole.Arn
+        RetryOptions:
+          DurationInSeconds: 60
+        S3BackupMode: "FailedDataOnly"
+        S3Configuration:
+          RoleARN: !GetAtt ServiceRole.Arn
+          BucketARN: !GetAtt DatadogStreamBackupBucket.Arn
+          ErrorOutputPrefix: "datadog_stream"
+          BufferingHints:
+            SizeInMBs: 4
+            IntervalInSeconds: 60
+          CompressionFormat: "GZIP"
+          CloudWatchLoggingOptions:
+            Enabled: true
+            LogGroupName: !Ref DatadogStreamLogs
+            LogStreamName: "s3_backup"
+      Tags:
+        - Key: "Team"
+          Value: "aws-integration"
+        - Key: "StreamAccountID"
+          Value: !Ref "AWS::AccountId"
+
+  # ── CloudWatch Metric Stream ──────────────────────────────────────────────────
+  DatadogMetricStreamAllNamespaces:
+    Type: AWS::CloudWatch::MetricStream
+    Properties:
+      Name: "datadog-metrics-stream"
+      FirehoseArn: !GetAtt DatadogMetricKinesisFirehose.Arn
+      RoleArn: !GetAtt DatadogMetricStreamRole.Arn
+      OutputFormat: "opentelemetry0.7"
+      IncludeLinkedAccountsMetrics: !Ref IncludeLinkedAccounts
+      IncludeFilters: !If
+        - IsInclude
+        - - !If
+            - HasIncludeNamespace1
+            - Namespace: !Ref FirstNamespace
+            - !Ref "AWS::NoValue"
+          - !If
+            - HasIncludeNamespace2
+            - Namespace: !Ref SecondNamespace
+            - !Ref "AWS::NoValue"
+          - !If
+            - HasIncludeNamespace3
+            - Namespace: !Ref ThirdNamespace
+            - !Ref "AWS::NoValue"
+        - !Ref "AWS::NoValue"
+      ExcludeFilters: !If
+        - IsExclude
+        - - !If
+            - HasExcludeNamespace1
+            - Namespace: !Ref FirstNamespace
+            - !Ref "AWS::NoValue"
+          - !If
+            - HasExcludeNamespace2
+            - Namespace: !Ref SecondNamespace
+            - !Ref "AWS::NoValue"
+          - !If
+            - HasExcludeNamespace3
+            - Namespace: !Ref ThirdNamespace
+            - !Ref "AWS::NoValue"
+        - !Ref "AWS::NoValue"
+      StatisticsConfigurations:
+        - IncludeMetrics:
+            - Namespace: "AWS/ApplicationELB"
+              MetricName: "TargetResponseTime"
+          AdditionalStatistics: ["p50", "p90", "p95", "p99"]
+        - IncludeMetrics:
+            - Namespace: "AWS/ELB"
+              MetricName: "Latency"
+            - Namespace: "AWS/ELB"
+              MetricName: "TargetResponseTime"
+          AdditionalStatistics: ["p95", "p99"]
+        - IncludeMetrics:
+            - Namespace: "AWS/S3"
+              MetricName: "FirstByteLatency"
+            - Namespace: "AWS/S3"
+              MetricName: "TotalRequestLatency"
+          AdditionalStatistics: ["p50", "p90", "p95", "p99", "p99.9"]
+        - IncludeMetrics:
+            - Namespace: "AWS/ApiGateway"
+              MetricName: "IntegrationLatency"
+            - Namespace: "AWS/ApiGateway"
+              MetricName: "Latency"
+          AdditionalStatistics: ["p90", "p95", "p99"]
+        - IncludeMetrics:
+            - Namespace: "AWS/States"
+              MetricName: "ExecutionTime"
+            - Namespace: "AWS/States"
+              MetricName: "LambdaFunctionRunTime"
+            - Namespace: "AWS/States"
+              MetricName: "LambdaFunctionScheduleTime"
+            - Namespace: "AWS/States"
+              MetricName: "LambdaFunctionTime"
+            - Namespace: "AWS/States"
+              MetricName: "ActivityRunTime"
+            - Namespace: "AWS/States"
+              MetricName: "ActivityScheduleTime"
+            - Namespace: "AWS/States"
+              MetricName: "ActivityTime"
+          AdditionalStatistics: ["p95", "p99"]
+        - IncludeMetrics:
+            - Namespace: "AWS/Lambda"
+              MetricName: "Duration"
+          AdditionalStatistics: ["p50", "p80", "p95", "p99", "p99.9"]
+        - IncludeMetrics:
+            - Namespace: "AWS/Lambda"
+              MetricName: "PostRuntimeExtensionsDuration"
+          AdditionalStatistics: ["p50", "p99"]
+        - IncludeMetrics:
+            - Namespace: "AWS/AppSync"
+              MetricName: "Latency"
+          AdditionalStatistics: ["p90"]
+        - IncludeMetrics:
+            - Namespace: "AWS/AppRunner"
+              MetricName: "RequestLatency"
+          AdditionalStatistics: ["p50", "p95", "p99"]
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Required
+        Parameters:
+          - ApiKey
+          - DdSite
+      - Label:
+          default: Optional
+        Parameters:
+          - FilterMethod
+          - FirstNamespace
+          - SecondNamespace
+          - ThirdNamespace
+          - IncludeLinkedAccounts
