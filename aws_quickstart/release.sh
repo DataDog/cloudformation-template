@@ -127,11 +127,24 @@ cp datadog_agentless_api_call.py "${TEMP_DIR}/"
 # Change to temp directory for processing
 cd "${TEMP_DIR}"
 
+# Mirror forwarder template to GovCloud bucket so nested stack TemplateURL is reachable.
+# Fetch via HTTPS (public bucket) since GovCloud credentials can't reach commercial S3.
+if [ "$GOV" = true ]; then
+    echo "Mirroring forwarder template to GovCloud bucket..."
+    FORWARDER_TMP=$(mktemp)
+    curl -fsSL "https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/latest.yaml" -o "${FORWARDER_TMP}"
+    aws s3 cp "${FORWARDER_TMP}" "s3://${BUCKET}/aws/forwarder/latest.yaml"
+    rm -f "${FORWARDER_TMP}"
+    echo "Mirrored forwarder template!"
+fi
+
 # Update placeholder
 for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main_extended.yaml datadog_integration_role.yaml main_agent_installation.yaml; do
     perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" $template
     perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" $template
     if [ "$GOV" = true ]; then
+        # Rewrite forwarder URL to GovCloud bucket before generic endpoint substitution
+        perl -pi -e "s|datadog-cloudformation-template\.s3\.amazonaws\.com/aws/forwarder/latest\.yaml|${BUCKET}.s3.us-gov-west-1.amazonaws.com/aws/forwarder/latest.yaml|g" $template
         perl -pi -e 's/\.s3\.amazonaws\.com/.s3.us-gov-west-1.amazonaws.com/g' $template
     fi
 done
