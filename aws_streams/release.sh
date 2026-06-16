@@ -65,6 +65,12 @@ fi
 # Use datadog-cloudformation-stream-template as the s3 template for production
 cp streams_main.yaml streams_main.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" streams_main.yaml
+if [ "$GOV" = true ]; then
+    # streams_main.yaml references the nested streams_single_region.yaml via a
+    # path-style https://s3.amazonaws.com/<bucket>/... URL. GovCloud CloudFormation
+    # cannot reach the commercial S3 endpoint, so rewrite it to the GovCloud region.
+    perl -pi -e 's|https://s3\.amazonaws\.com/|https://s3.us-gov-west-1.amazonaws.com/|g' streams_main.yaml
+fi
 trap 'mv streams_main.yaml.bak streams_main.yaml' EXIT
 
 # Upload
@@ -74,6 +80,10 @@ else
     aws s3 cp . s3://${BUCKET}/aws --recursive --exclude "*" --include "*.yaml"
 fi
 echo "Done uploading the template, and here is the CloudFormation quick launch URL"
-echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-streams&templateURL=https://${BUCKET}.s3.amazonaws.com/aws/streams_main.yaml"
+if [ "$GOV" = true ]; then
+    echo "https://console.amazonaws-us-gov.com/cloudformation/home?region=us-gov-west-1#/stacks/create/review?stackName=datadog-aws-streams&templateURL=https://${BUCKET}.s3.us-gov-west-1.amazonaws.com/aws/streams_main.yaml"
+else
+    echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-streams&templateURL=https://${BUCKET}.s3.amazonaws.com/aws/streams_main.yaml"
+fi
 
 echo "Done!"
