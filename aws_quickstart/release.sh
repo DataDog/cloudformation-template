@@ -131,6 +131,9 @@ cd "${TEMP_DIR}"
 for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main_extended.yaml datadog_integration_role.yaml main_agent_installation.yaml; do
     perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" $template
     perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" $template
+    if [ "$GOV" = true ]; then
+        perl -pi -e 's/\.s3\.amazonaws\.com/.s3.us-gov-west-1.amazonaws.com/g' $template
+    fi
 done
 
 # Process Agentless Scanning templates

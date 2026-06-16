@@ -119,6 +119,9 @@ fi
 cp main.yaml main.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main.yaml
 perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main.yaml
+if [ "$GOV" = true ]; then
+    perl -pi -e 's/\.s3\.amazonaws\.com/.s3.us-gov-west-1.amazonaws.com/g' main.yaml
+fi
 
 trap 'mv main.yaml.bak main.yaml' EXIT
 
