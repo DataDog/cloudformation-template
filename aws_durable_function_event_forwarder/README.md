@@ -31,16 +31,13 @@ EventBridge rule  ->  Firehose  ->  Datadog HTTP intake (raw EventBridge JSON)
 
 | Parameter | Required | Default | Description |
 | --- | --- | --- | --- |
-| `DdApiKey` | one of three | "" | Plaintext Datadog API key (`NoEcho`). |
-| `DdApiKeySecretArn` | one of three | "" | ARN of a Secrets Manager secret whose `SecretString` is the API key. Resolved via `{{resolve:secretsmanager:...}}`. |
-| `DdApiKeySsmParameterName` | one of three | "" | Name of an SSM SecureString parameter holding the API key. Resolved via `{{resolve:ssm-secure:...}}`. |
-| `DdSite` | no | `datadoghq.com` | Datadog site; used to build the Firehose destination URL. |
+| `DdApiKey` | one of three | "" | Plaintext Datadog API key. |
+| `DdApiKeySecretArn` | one of three | "" | ARN of a Secrets Manager secret whose `SecretString` is the API key. |
+| `DdApiKeySsmParameterName` | one of three | "" | Name of an SSM SecureString parameter holding the API key. |
+| `DdSite` | no | `datadoghq.com` | Datadog site to deliver events to. |
 | `Statuses` | no | "" | EventBridge `detail.status` values to forward (uppercase, comma-delimited). Empty (the default) forwards **all** statuses. |
 | `FunctionArnFilter1` … `FunctionArnFilter5` | no | "" | Up to 5 independent function-ARN filters. Each accepts an **unqualified** function ARN or an EventBridge wildcard over one (for example `arn:aws:lambda:us-east-2:123456789012:function:my-durable-*`); do not add a version/alias suffix — `:*` is appended automatically. All five empty matches all functions in the region. |
 | `BufferIntervalSeconds` | no | `60` | Firehose buffer interval (60–900). |
-
-`Rules.ApiKeyRequired` asserts at least one of the three API key parameters
-is set and fails the stack action with a clear message otherwise.
 
 ## Outputs
 
@@ -49,7 +46,7 @@ is set and fails the stack action with a clear message otherwise.
 | `DeliveryStreamArn` | Firehose delivery stream ARN. |
 | `BackupBucketName` | S3 bucket name for failed records. |
 | `EventRuleArn` | EventBridge rule ARN. |
-| `ForwarderVersion` | Template version (from `Mappings.Constants`). |
+| `ForwarderVersion` | Template version. |
 
 ## Forwarded log shape
 
