@@ -2,6 +2,14 @@ stages:
   - validate
   - release
 
+# Release of the Lambda Durable Function event forwarder template is owned by the
+# serverless team in DataDog/serverless-ci. Its job publishes
+# aws_durable_function_event_forwarder/ to S3 on a merge to master.
+include:
+  - project: DataDog/serverless-ci
+    ref: main
+    file: durable-function-event-forwarder/gitlab-config.yml
+
 variables:
   AWS_DEFAULT_REGION: us-east-1
 
