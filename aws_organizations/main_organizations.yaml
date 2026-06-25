@@ -143,6 +143,39 @@ Resources:
       Path: "/"
       ManagedPolicyArns:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  DatadogAttachIntegrationPermissionsLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: !Sub "datadog-aws-integration-iam-permissions-${IAMRoleName}"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:CreatePolicy
+                  - iam:DeletePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${IAMRoleName}
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*
+                  - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
   DatadogAWSAccountIntegration:
     Type: "Custom::DatadogAWSAccountIntegration"
     UpdateReplacePolicy: Retain
@@ -391,6 +424,287 @@ Resources:
               raise TimeoutError("Lambda function timeout exceeded - increase the timeout set in the api_call Cloudformation template.")
 
           signal.signal(signal.SIGALRM, timeout_handler)
+  DatadogAttachIntegrationPermissionsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: "A function to attach Datadog AWS integration permissions to an IAM role."
+      Role: !GetAtt DatadogAttachIntegrationPermissionsLambdaExecutionRole.Arn
+      Handler: "index.handler"
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
+      Runtime: "python3.14"
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          from urllib.request import Request
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          import cfnresponse
+          import boto3
+
+          LOGGER = logging.getLogger()
+          LOGGER.setLevel(logging.INFO)
+          API_CALL_SOURCE_HEADER_VALUE = "cfn-organizations"
+          # The "-v2" suffix on these policy names is load-bearing, not cosmetic. The pre-extraction
+          # inline trigger (<= v4.13) deletes policies by their un-suffixed names on teardown, and that
+          # teardown runs whenever the old trigger is removed — i.e. when a role stack is upgraded off
+          # <= v4.13. Distinct v2 names ensure that destructive delete can never hit the policies this
+          # template attaches:
+          #   - standard / resource-collection: an in-place role-stack upgrade removes the old trigger
+          #     after this nested stack has re-attached them; v2 names keep them from being wiped.
+          #   - instrumentation: the add-on attaches these against an existing role; if that role's stack
+          #     is later upgraded off <= v4.13, the old trigger's unconditional instrumentation cleanup
+          #     would wipe them unless they sit under a name it doesn't know.
+          POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicyV2"
+          BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions-v2"
+          BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions-v2"
+          # Un-suffixed standard/resource-collection names created by the pre-extraction inline trigger
+          # (<= v4.13). The role-creation path cleans these up before attaching the v2 policies so the two
+          # generations never sit attached at once (IAM caps managed policies per role, default 10); the
+          # old trigger's own Delete handler then no-ops against names that are already gone. Legacy
+          # instrumentation policies need no such cleanup — that feature is unreleased, so none exist.
+          LEGACY_POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicy"
+          LEGACY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions"
+          STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
+          RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
+          INSTRUMENTATION_PERMISSIONS_API_PATH = "/api/unstable/instrumenter/aws/iam_permissions"
+
+
+          class DatadogAPIError(Exception):
+              pass
+
+
+          def fetch_permissions_from_datadog(api_url):
+              headers = {
+                  "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
+              }
+              request = Request(api_url, headers=headers)
+              request.get_method = lambda: "GET"
+
+              try:
+                  response = urllib.request.urlopen(request)
+              except urllib.error.HTTPError as e:
+                  error_body = json.loads(e.read())
+                  error_message = error_body.get('errors', ['Unknown error'])[0]
+                  raise DatadogAPIError(f"Datadog API error: {error_message}") from e
+
+              return json.loads(response.read())["data"]["attributes"]["permissions"]
+
+
+          def parse_resource_types(raw):
+              # CFN forwards CommaDelimitedList parameters as JSON arrays to custom resources,
+              # while String parameters arrive as comma-delimited strings; accept both.
+              if raw is None:
+                  return []
+              items = raw.split(",") if isinstance(raw, str) else list(raw)
+              return [t.strip() for t in items if t and t.strip()]
+
+
+          def build_instrumentation_permissions_url(datadog_site, resource_types):
+              query = urllib.parse.urlencode(
+                  [("resource_type", t) for t in resource_types] + [("chunked", "true")]
+              )
+              return f"https://api.{datadog_site}{INSTRUMENTATION_PERMISSIONS_API_PATH}?{query}"
+
+
+          def _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name):
+              # Detach + delete are both no-ops if the entity is already gone, so callers can blindly
+              # iterate the policy-name space without first checking what actually exists.
+              try:
+                  iam_client.detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+              except iam_client.exceptions.NoSuchEntityException:
+                  pass
+              except Exception as e:
+                  LOGGER.error(f"Error detaching policy {policy_name}: {str(e)}")
+
+              try:
+                  iam_client.delete_policy(PolicyArn=policy_arn)
+              except iam_client.exceptions.NoSuchEntityException:
+                  pass
+              except iam_client.exceptions.DeleteConflictException:
+                  LOGGER.warning(f"Policy {policy_name} still attached, skipping delete")
+              except Exception as e:
+                  LOGGER.error(f"Error deleting policy {policy_name}: {str(e)}")
+
+
+          def _cleanup_chunked_policies(iam_client, role_name, account_id, partition, prefix, max_policies=10):
+              for i in range(max_policies):
+                  policy_name = f"{prefix}-{role_name}-{i+1}"
+                  policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
+                  _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name)
+
+
+          def _cleanup_base_policies(iam_client, role_name, account_id, partition, rc_prefix, standard_name, max_policies=10):
+              _cleanup_chunked_policies(iam_client, role_name, account_id, partition, rc_prefix, max_policies)
+              try:
+                  iam_client.delete_role_policy(RoleName=role_name, PolicyName=standard_name)
+              except iam_client.exceptions.NoSuchEntityException:
+                  pass
+              except Exception as e:
+                  LOGGER.error(f"Error deleting inline policy {standard_name}: {str(e)}")
+
+
+          def cleanup_existing_policies(iam_client, role_name, account_id, partition, max_policies=10):
+              _cleanup_base_policies(iam_client, role_name, account_id, partition, BASE_POLICY_PREFIX_RESOURCE_COLLECTION, POLICY_NAME_STANDARD, max_policies)
+
+
+          def cleanup_instrumentation_policies(iam_client, role_name, account_id, partition, max_policies=10):
+              _cleanup_chunked_policies(iam_client, role_name, account_id, partition, BASE_POLICY_PREFIX_INSTRUMENTATION, max_policies)
+
+
+          def cleanup_legacy_base_policies(iam_client, role_name, account_id, partition, max_policies=10):
+              # Remove the un-suffixed standard + resource-collection policies left by the pre-extraction
+              # inline trigger before the v2 policies are attached, so the two generations don't pile up
+              # against the IAM managed-policy limit during an in-place upgrade. Only the role-creation path
+              # calls this; the add-on must not touch the policies the role stack owns.
+              _cleanup_base_policies(iam_client, role_name, account_id, partition, LEGACY_PREFIX_RESOURCE_COLLECTION, LEGACY_POLICY_NAME_STANDARD, max_policies)
+
+
+          def attach_standard_permissions(iam_client, role_name):
+              permissions = fetch_permissions_from_datadog(STANDARD_PERMISSIONS_API_URL)
+              policy_document = {
+                  "Version": "2012-10-17",
+                  "Statement": [{"Effect": "Allow", "Action": permissions, "Resource": "*"}],
+              }
+              iam_client.put_role_policy(
+                  RoleName=role_name,
+                  PolicyName=POLICY_NAME_STANDARD,
+                  PolicyDocument=json.dumps(policy_document, separators=(',', ':')),
+              )
+
+
+          def _create_and_attach_policy(iam_client, role_name, policy_name, actions):
+              policy_json = json.dumps(
+                  {
+                      "Version": "2012-10-17",
+                      "Statement": [{"Effect": "Allow", "Action": actions, "Resource": "*"}],
+                  },
+                  separators=(',', ':'),
+              )
+              LOGGER.info(f"Creating policy {policy_name} with {len(actions)} permissions ({len(policy_json)} characters)")
+              policy = iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
+              iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy['Policy']['Arn'])
+
+
+          def attach_resource_collection_permissions(iam_client, role_name):
+              permission_chunks = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
+              for i, chunk in enumerate(permission_chunks):
+                  _create_and_attach_policy(
+                      iam_client,
+                      role_name,
+                      f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{role_name}-{i+1}",
+                      chunk,
+                  )
+
+
+          def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types, previous_resource_types, fail_on_error=False):
+              # Best-effort by default: instrumentation permissions are additive convenience on top of the
+              # integration, so any failure is logged and swallowed rather than blocking install. The
+              # post-setup add-on passes fail_on_error=True because attaching these policies is the stack's
+              # whole purpose, so a silent SUCCESS that attached nothing would be worse than a visible failure.
+              # Fetch before cleanup so that a transient API failure on an Update leaves the
+              # previously-attached policies in place instead of silently revoking them.
+              if not resource_types:
+                  # Only clean up if the previous Update had instrumentation enabled — avoids running
+                  # delete calls on stacks that never opted in to instrumentation in the first place.
+                  if previous_resource_types:
+                      cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
+                  return
+
+              try:
+                  url = build_instrumentation_permissions_url(datadog_site, resource_types)
+                  LOGGER.info(f"Fetching instrumentation permissions for {resource_types} from {url}")
+                  permission_chunks = fetch_permissions_from_datadog(url)
+              except Exception as e:
+                  if fail_on_error:
+                      raise
+                  LOGGER.warning(
+                      f"Failed to fetch instrumentation permissions for {resource_types}: {e}. "
+                      "Leaving any previously-attached instrumentation policies in place."
+                  )
+                  return
+
+              cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
+              for i, chunk in enumerate(permission_chunks):
+                  policy_name = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{i+1}"
+                  try:
+                      _create_and_attach_policy(iam_client, role_name, policy_name, chunk)
+                  except Exception as e:
+                      if fail_on_error:
+                          raise
+                      LOGGER.warning(f"Failed to create/attach instrumentation policy {policy_name}: {e}. Continuing.")
+
+
+          def handle_delete(event, context):
+              props = event['ResourceProperties']
+              role_name = props['DatadogIntegrationRole']
+              account_id = props['AccountId']
+              partition = props.get('Partition', 'aws')
+              manage_base_permissions = str(props.get('ManageBasePermissions', 'true')).lower() == 'true'
+              iam_client = boto3.client('iam')
+              try:
+                  if manage_base_permissions:
+                      cleanup_existing_policies(iam_client, role_name, account_id, partition)
+                  cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
+              except Exception as e:
+                  LOGGER.error(f"Error deleting policy: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData={"Message": str(e)})
+
+
+          def handle_create_update(event, context):
+              props = event['ResourceProperties']
+              role_name = props['DatadogIntegrationRole']
+              account_id = props['AccountId']
+              partition = props.get('Partition', 'aws')
+              manage_base_permissions = str(props.get('ManageBasePermissions', 'true')).lower() == 'true'
+              fail_on_instrumentation_error = str(props.get('FailOnInstrumentationError', 'false')).lower() == 'true'
+              should_install_security_audit_policy = str(props['ResourceCollectionPermissions']).lower() == 'true'
+              datadog_site = props.get('DatadogSite') or 'datadoghq.com'
+              instrumentation_resource_types = parse_resource_types(props.get('InstrumentationResourceTypes'))
+              previous_instrumentation_resource_types = parse_resource_types(
+                  event.get('OldResourceProperties', {}).get('InstrumentationResourceTypes')
+              )
+
+              try:
+                  iam_client = boto3.client('iam')
+                  if manage_base_permissions:
+                      cleanup_legacy_base_policies(iam_client, role_name, account_id, partition)
+                      cleanup_existing_policies(iam_client, role_name, account_id, partition)
+                      attach_standard_permissions(iam_client, role_name)
+                      if should_install_security_audit_policy:
+                          attach_resource_collection_permissions(iam_client, role_name)
+                  attach_instrumentation_permissions(
+                      iam_client, role_name, account_id, partition,
+                      datadog_site, instrumentation_resource_types, previous_instrumentation_resource_types,
+                      fail_on_error=fail_on_instrumentation_error,
+                  )
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
+              except Exception as e:
+                  LOGGER.error(f"Error creating/attaching policy: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData={"Message": str(e)})
+
+
+          def handler(event, context):
+              LOGGER.info("Event received: %s", json.dumps(event))
+              if event['RequestType'] == 'Delete':
+                  handle_delete(event, context)
+              else:
+                  handle_create_update(event, context)
+  DatadogAttachIntegrationPermissionsFunctionTrigger:
+    Type: Custom::DatadogAttachIntegrationPermissionsFunctionTrigger
+    DependsOn: DatadogIntegrationRole
+    Properties:
+      ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
+      DatadogIntegrationRole: !Ref IAMRoleName
+      AccountId: !Ref AWS::AccountId
+      Partition: !Sub "${AWS::Partition}"
+      ResourceCollectionPermissions: !If [ResourceCollectionPermissions, "true", "false"]
+      ManageBasePermissions: "true"
   DatadogIntegrationRole:
     Type: "AWS::IAM::Role"
     Metadata:
@@ -435,903 +749,6 @@ Resources:
           [!Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"],
           !Ref AWS::NoValue,
         ]
-      Policies:
-        - PolicyName: DatadogAWSIntegrationPolicy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Resource: "*"
-                Action:
-                  - "account:GetAccountInformation"
-                  - "airflow:GetEnvironment"
-                  - "airflow:ListEnvironments"
-                  - "apigateway:GET"
-                  - "appsync:ListGraphqlApis"
-                  - "autoscaling:Describe*"
-                  - "backup:List*"
-                  - "batch:DescribeJobDefinitions"
-                  - "batch:DescribeJobQueues"
-                  - "batch:DescribeJobs"
-                  - "batch:ListJobs"
-                  - "bcm-data-exports:GetExport"
-                  - "bcm-data-exports:ListExports"
-                  - "budgets:ViewBudget"
-                  - "cloudfront:GetDistributionConfig"
-                  - "cloudfront:ListDistributions"
-                  - "cloudtrail:DescribeTrails"
-                  - "cloudtrail:GetTrail"
-                  - "cloudtrail:GetTrailStatus"
-                  - "cloudtrail:ListTrails"
-                  - "cloudtrail:LookupEvents"
-                  - "cloudwatch:Describe*"
-                  - "cloudwatch:Get*"
-                  - "cloudwatch:List*"
-                  - "codebuild:BatchGetProjects"
-                  - "codebuild:ListProjects"
-                  - "codedeploy:BatchGet*"
-                  - "codedeploy:List*"
-                  - "cur:DescribeReportDefinitions"
-                  - "directconnect:Describe*"
-                  - "dms:DescribeReplicationInstances"
-                  - "dynamodb:Describe*"
-                  - "dynamodb:List*"
-                  - "ec2:Describe*"
-                  - "ecs:Describe*"
-                  - "ecs:List*"
-                  - "eks:DescribeCluster"
-                  - "eks:ListClusters"
-                  - "elasticache:Describe*"
-                  - "elasticache:List*"
-                  - "elasticfilesystem:DescribeAccessPoints"
-                  - "elasticfilesystem:DescribeFileSystems"
-                  - "elasticfilesystem:DescribeTags"
-                  - "elasticloadbalancing:Describe*"
-                  - "elasticmapreduce:Describe*"
-                  - "elasticmapreduce:List*"
-                  - "es:DescribeElasticsearchDomains"
-                  - "es:ListDomainNames"
-                  - "es:ListTags"
-                  - "events:CreateEventBus"
-                  - "fsx:DescribeFileSystems"
-                  - "fsx:ListTagsForResource"
-                  - "health:DescribeAffectedEntities"
-                  - "health:DescribeEventDetails"
-                  - "health:DescribeEvents"
-                  - "iam:ListAccountAliases"
-                  - "iot:GetV2LoggingOptions"
-                  - "kinesis:Describe*"
-                  - "kinesis:List*"
-                  - "lambda:List*"
-                  - "logs:DeleteSubscriptionFilter"
-                  - "logs:DescribeDeliveries"
-                  - "logs:DescribeDeliverySources"
-                  - "logs:DescribeLogGroups"
-                  - "logs:DescribeLogStreams"
-                  - "logs:DescribeSubscriptionFilters"
-                  - "logs:FilterLogEvents"
-                  - "logs:GetDeliveryDestination"
-                  - "logs:PutSubscriptionFilter"
-                  - "logs:TestMetricFilter"
-                  - "network-firewall:DescribeLoggingConfiguration"
-                  - "network-firewall:ListFirewalls"
-                  - "oam:ListAttachedLinks"
-                  - "oam:ListSinks"
-                  - "organizations:Describe*"
-                  - "organizations:List*"
-                  - "rds:Describe*"
-                  - "rds:List*"
-                  - "redshift-serverless:ListNamespaces"
-                  - "redshift:DescribeClusters"
-                  - "redshift:DescribeLoggingStatus"
-                  - "route53:List*"
-                  - "route53resolver:ListResolverQueryLogConfigs"
-                  - "s3:GetBucketLocation"
-                  - "s3:GetBucketLogging"
-                  - "s3:GetBucketNotification"
-                  - "s3:GetBucketTagging"
-                  - "s3:ListAllMyBuckets"
-                  - "s3:PutBucketNotification"
-                  - "ses:Get*"
-                  - "ses:List*"
-                  - "sns:GetSubscriptionAttributes"
-                  - "sns:List*"
-                  - "sns:Publish"
-                  - "sqs:ListQueues"
-                  - "ssm:GetServiceSetting"
-                  - "ssm:ListCommands"
-                  - "states:DescribeStateMachine"
-                  - "states:ListStateMachines"
-                  - "support:DescribeTrustedAdvisor*"
-                  - "support:RefreshTrustedAdvisorCheck"
-                  - "tag:GetResources"
-                  - "tag:GetTagKeys"
-                  - "tag:GetTagValues"
-                  - "timestream:DescribeEndpoints"
-                  - "trustedadvisor:ListRecommendationResources"
-                  - "trustedadvisor:ListRecommendations"
-                  - "wafv2:ListLoggingConfigurations"
-                  - "xray:BatchGetTraces"
-                  - "xray:GetTraceSummaries"
-  DatadogIntegrationRoleManagedPolicy1:
-    Type: "AWS::IAM::ManagedPolicy"
-    Condition: ResourceCollectionPermissions
-    Properties:
-      ManagedPolicyName: !Sub
-        - "${IAMRoleName}-ManagedPolicy-1"
-        - { IAMRoleName: !Ref IAMRoleName }
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: "*"
-            Action:
-              - "account:GetContactInformation"
-              - "amplify:ListApps"
-              - "amplify:ListBackendEnvironments"
-              - "amplify:ListBranches"
-              - "amplify:ListDomainAssociations"
-              - "amplify:ListJobs"
-              - "amplify:ListWebhooks"
-              - "aoss:BatchGetCollection"
-              - "aoss:ListCollections"
-              - "app-integrations:GetApplication"
-              - "app-integrations:GetDataIntegration"
-              - "app-integrations:ListApplicationAssociations"
-              - "app-integrations:ListApplications"
-              - "app-integrations:ListDataIntegrationAssociations"
-              - "app-integrations:ListDataIntegrations"
-              - "app-integrations:ListEventIntegrationAssociations"
-              - "app-integrations:ListEventIntegrations"
-              - "appflow:DescribeConnector"
-              - "appflow:DescribeConnectorProfiles"
-              - "appflow:DescribeFlow"
-              - "appflow:ListConnectors"
-              - "application-signals:GetServiceLevelObjective"
-              - "application-signals:ListServiceLevelObjectives"
-              - "appstream:DescribeAppBlockBuilders"
-              - "appstream:DescribeAppBlocks"
-              - "appstream:DescribeApplications"
-              - "appstream:DescribeFleets"
-              - "appstream:DescribeImageBuilders"
-              - "appstream:DescribeImages"
-              - "appstream:DescribeStacks"
-              - "appsync:GetGraphqlApi"
-              - "aps:DescribeRuleGroupsNamespace"
-              - "aps:DescribeScraper"
-              - "aps:DescribeWorkspace"
-              - "aps:ListRuleGroupsNamespaces"
-              - "aps:ListScrapers"
-              - "aps:ListWorkspaces"
-              - "athena:BatchGetNamedQuery"
-              - "athena:BatchGetPreparedStatement"
-              - "auditmanager:GetAssessment"
-              - "auditmanager:GetAssessmentFramework"
-              - "auditmanager:GetControl"
-              - "b2bi:GetCapability"
-              - "b2bi:GetPartnership"
-              - "b2bi:GetProfile"
-              - "b2bi:GetTransformer"
-              - "b2bi:ListCapabilities"
-              - "b2bi:ListPartnerships"
-              - "b2bi:ListProfiles"
-              - "b2bi:ListTransformers"
-              - "backup-gateway:GetGateway"
-              - "backup-gateway:GetHypervisor"
-              - "backup-gateway:GetVirtualMachine"
-              - "backup-gateway:ListGateways"
-              - "backup-gateway:ListHypervisors"
-              - "backup-gateway:ListVirtualMachines"
-              - "backup:DescribeFramework"
-              - "backup:GetLegalHold"
-              - "backup:ListBackupPlans"
-              - "backup:ListFrameworks"
-              - "backup:ListLegalHolds"
-              - "backup:ListProtectedResources"
-              - "backup:ListRecoveryPointsByBackupVault"
-              - "batch:DescribeJobQueues"
-              - "batch:DescribeJobs"
-              - "batch:DescribeSchedulingPolicies"
-              - "batch:ListJobs"
-              - "batch:ListSchedulingPolicies"
-              - "bedrock:GetAgent"
-              - "bedrock:GetAgentActionGroup"
-              - "bedrock:GetAsyncInvoke"
-              - "bedrock:GetBlueprint"
-              - "bedrock:GetDataSource"
-              - "bedrock:GetEvaluationJob"
-              - "bedrock:GetFlow"
-              - "bedrock:GetFlowVersion"
-              - "bedrock:GetGuardrail"
-              - "bedrock:GetKnowledgeBase"
-              - "bedrock:GetModelInvocationJob"
-              - "bedrock:GetPrompt"
-              - "bedrock:ListAgentCollaborators"
-              - "bedrock:ListAsyncInvokes"
-              - "bedrock:ListBlueprints"
-              - "bedrock:ListKnowledgeBaseDocuments"
-              - "billingconductor:ListBillingGroups"
-              - "billingconductor:ListCustomLineItems"
-              - "billingconductor:ListPricingPlans"
-              - "billingconductor:ListPricingRules"
-              - "cassandra:Select"
-              - "ce:DescribeCostCategoryDefinition"
-              - "ce:GetAnomalyMonitors"
-              - "ce:GetAnomalySubscriptions"
-              - "ce:GetCostCategories"
-              - "cloudformation:DescribeGeneratedTemplate"
-              - "cloudformation:DescribeResourceScan"
-              - "cloudformation:ListGeneratedTemplates"
-              - "cloudformation:ListResourceScans"
-              - "cloudformation:ListTypes"
-              - "cloudhsm:DescribeBackups"
-              - "cloudhsm:DescribeClusters"
-              - "codeartifact:DescribeDomain"
-              - "codeartifact:DescribePackageGroup"
-              - "codeartifact:DescribeRepository"
-              - "codeartifact:ListDomains"
-              - "codeartifact:ListPackageGroups"
-              - "codeartifact:ListPackages"
-              - "codeguru-profiler:ListFindingsReports"
-              - "codeguru-profiler:ListProfilingGroups"
-              - "codeguru-reviewer:ListCodeReviews"
-              - "codeguru-reviewer:ListRepositoryAssociations"
-              - "codeguru-security:GetFindings"
-              - "codeguru-security:GetScan"
-              - "codeguru-security:ListScans"
-              - "codepipeline:GetActionType"
-              - "codepipeline:ListActionTypes"
-              - "codepipeline:ListWebhooks"
-              - "connect:DescribeAgentStatus"
-              - "connect:DescribeAuthenticationProfile"
-              - "connect:DescribeContactFlow"
-              - "connect:DescribeContactFlowModule"
-              - "connect:DescribeHoursOfOperation"
-              - "connect:DescribeInstance"
-              - "connect:DescribeQueue"
-              - "connect:DescribeQuickConnect"
-              - "connect:DescribeRoutingProfile"
-              - "connect:DescribeSecurityProfile"
-              - "connect:DescribeUser"
-              - "connect:ListAgentStatuses"
-              - "connect:ListAuthenticationProfiles"
-              - "connect:ListContactFlowModules"
-              - "connect:ListContactFlows"
-              - "connect:ListHoursOfOperations"
-              - "connect:ListQueues"
-              - "connect:ListQuickConnects"
-              - "connect:ListRoutingProfiles"
-              - "connect:ListSecurityProfiles"
-              - "connect:ListUsers"
-              - "controltower:GetLandingZone"
-              - "controltower:ListEnabledBaselines"
-              - "controltower:ListEnabledControls"
-              - "controltower:ListLandingZones"
-              - "databrew:ListDatasets"
-              - "databrew:ListRecipes"
-              - "databrew:ListRulesets"
-              - "databrew:ListSchedules"
-              - "datazone:GetDomain"
-              - "datazone:ListDomains"
-              - "deadline:GetBudget"
-              - "deadline:GetLicenseEndpoint"
-              - "deadline:GetQueue"
-              - "deadline:ListBudgets"
-              - "deadline:ListFarms"
-              - "deadline:ListFleets"
-              - "deadline:ListLicenseEndpoints"
-              - "deadline:ListMonitors"
-              - "deadline:ListQueues"
-              - "deadline:ListWorkers"
-              - "devicefarm:ListDeviceInstances"
-              - "devicefarm:ListDevicePools"
-              - "devicefarm:ListDevices"
-              - "devicefarm:ListInstanceProfiles"
-              - "devicefarm:ListNetworkProfiles"
-              - "devicefarm:ListRemoteAccessSessions"
-              - "devicefarm:ListTestGridProjects"
-              - "devicefarm:ListTestGridSessions"
-              - "devicefarm:ListUploads"
-              - "devicefarm:ListVPCEConfigurations"
-              - "dlm:GetLifecyclePolicies"
-              - "dlm:GetLifecyclePolicy"
-              - "docdb-elastic:GetCluster"
-              - "docdb-elastic:GetClusterSnapshot"
-              - "docdb-elastic:ListClusterSnapshots"
-              - "drs:DescribeJobs"
-              - "drs:DescribeLaunchConfigurationTemplates"
-              - "drs:DescribeRecoveryInstances"
-              - "drs:DescribeReplicationConfigurationTemplates"
-              - "drs:DescribeSourceNetworks"
-              - "drs:DescribeSourceServers"
-              - "dsql:GetCluster"
-              - "dsql:ListClusters"
-              - "dynamodb:DescribeBackup"
-              - "dynamodb:DescribeStream"
-              - "ec2:GetAllowedImagesSettings"
-              - "ec2:GetEbsDefaultKmsKeyId"
-              - "ec2:GetInstanceMetadataDefaults"
-              - "ec2:GetSerialConsoleAccessStatus"
-              - "ec2:GetSnapshotBlockPublicAccessState"
-              - "ec2:GetVerifiedAccessEndpointPolicy"
-  DatadogIntegrationRoleManagedPolicy2:
-    Type: "AWS::IAM::ManagedPolicy"
-    Condition: ResourceCollectionPermissions
-    Properties:
-      ManagedPolicyName: !Sub
-        - "${IAMRoleName}-ManagedPolicy-2"
-        - { IAMRoleName: !Ref IAMRoleName }
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: "*"
-            Action:
-              - "ec2:GetVerifiedAccessEndpointTargets"
-              - "ec2:GetVerifiedAccessGroupPolicy"
-              - "eks:DescribeAccessEntry"
-              - "eks:DescribeAddon"
-              - "eks:DescribeIdentityProviderConfig"
-              - "eks:DescribeInsight"
-              - "eks:DescribePodIdentityAssociation"
-              - "eks:DescribeUpdate"
-              - "eks:ListAccessEntries"
-              - "eks:ListAddons"
-              - "eks:ListAssociatedAccessPolicies"
-              - "eks:ListEksAnywhereSubscriptions"
-              - "eks:ListIdentityProviderConfigs"
-              - "eks:ListInsights"
-              - "eks:ListPodIdentityAssociations"
-              - "elasticmapreduce:ListInstanceFleets"
-              - "elasticmapreduce:ListInstanceGroups"
-              - "emr-containers:ListManagedEndpoints"
-              - "emr-containers:ListSecurityConfigurations"
-              - "emr-containers:ListVirtualClusters"
-              - "fis:GetAction"
-              - "fis:GetExperiment"
-              - "fis:GetExperimentTemplate"
-              - "fis:ListActions"
-              - "fis:ListExperimentTemplates"
-              - "fis:ListExperiments"
-              - "frauddetector:DescribeDetector"
-              - "frauddetector:DescribeModelVersions"
-              - "frauddetector:GetBatchImportJobs"
-              - "frauddetector:GetBatchPredictionJobs"
-              - "frauddetector:GetDetectorVersion"
-              - "frauddetector:GetEntityTypes"
-              - "frauddetector:GetEventTypes"
-              - "frauddetector:GetExternalModels"
-              - "frauddetector:GetLabels"
-              - "frauddetector:GetListsMetadata"
-              - "frauddetector:GetModels"
-              - "frauddetector:GetOutcomes"
-              - "frauddetector:GetRules"
-              - "frauddetector:GetVariables"
-              - "gamelift:DescribeGameSessionQueues"
-              - "gamelift:DescribeMatchmakingConfigurations"
-              - "gamelift:DescribeMatchmakingRuleSets"
-              - "gamelift:ListAliases"
-              - "gamelift:ListContainerFleets"
-              - "gamelift:ListContainerGroupDefinitions"
-              - "gamelift:ListGameServerGroups"
-              - "gamelift:ListLocations"
-              - "gamelift:ListScripts"
-              - "geo:DescribeGeofenceCollection"
-              - "geo:DescribeKey"
-              - "geo:DescribeMap"
-              - "geo:DescribePlaceIndex"
-              - "geo:DescribeRouteCalculator"
-              - "geo:DescribeTracker"
-              - "geo:ListGeofenceCollections"
-              - "geo:ListKeys"
-              - "geo:ListPlaceIndexes"
-              - "geo:ListRouteCalculators"
-              - "geo:ListTrackers"
-              - "glacier:GetVaultNotifications"
-              - "glue:ListRegistries"
-              - "grafana:DescribeWorkspace"
-              - "greengrass:GetBulkDeploymentStatus"
-              - "greengrass:GetComponent"
-              - "greengrass:GetConnectivityInfo"
-              - "greengrass:GetCoreDevice"
-              - "greengrass:GetDeployment"
-              - "greengrass:GetGroup"
-              - "imagebuilder:GetContainerRecipe"
-              - "imagebuilder:GetDistributionConfiguration"
-              - "imagebuilder:GetImageRecipe"
-              - "imagebuilder:GetInfrastructureConfiguration"
-              - "imagebuilder:GetLifecyclePolicy"
-              - "imagebuilder:GetWorkflow"
-              - "imagebuilder:ListComponents"
-              - "imagebuilder:ListContainerRecipes"
-              - "imagebuilder:ListDistributionConfigurations"
-              - "imagebuilder:ListImagePipelines"
-              - "imagebuilder:ListImageRecipes"
-              - "imagebuilder:ListImages"
-              - "imagebuilder:ListInfrastructureConfigurations"
-              - "imagebuilder:ListLifecyclePolicies"
-              - "imagebuilder:ListWorkflows"
-              - "iotfleetwise:GetCampaign"
-              - "iotfleetwise:GetSignalCatalog"
-              - "iotfleetwise:GetStateTemplate"
-              - "iotfleetwise:GetVehicle"
-              - "iotfleetwise:ListCampaigns"
-              - "iotfleetwise:ListDecoderManifests"
-              - "iotfleetwise:ListFleets"
-              - "iotfleetwise:ListSignalCatalogs"
-              - "iotfleetwise:ListStateTemplates"
-              - "iotfleetwise:ListVehicles"
-              - "iotsitewise:DescribeAsset"
-              - "iotsitewise:DescribeAssetModel"
-              - "iotsitewise:DescribeDashboard"
-              - "iotsitewise:DescribeDataset"
-              - "iotsitewise:DescribePortal"
-              - "iotsitewise:DescribeProject"
-              - "iotsitewise:ListAssets"
-              - "iotsitewise:ListDashboards"
-              - "iotsitewise:ListDatasets"
-              - "iotsitewise:ListPortals"
-              - "iotsitewise:ListProjects"
-              - "iotsitewise:ListTimeSeries"
-              - "iottwinmaker:GetComponentType"
-              - "iottwinmaker:GetEntity"
-              - "iottwinmaker:GetScene"
-              - "iottwinmaker:GetWorkspace"
-              - "iottwinmaker:ListComponentTypes"
-              - "iottwinmaker:ListEntities"
-              - "iottwinmaker:ListScenes"
-              - "iotwireless:GetDeviceProfile"
-              - "iotwireless:GetMulticastGroup"
-              - "iotwireless:GetNetworkAnalyzerConfiguration"
-              - "iotwireless:GetServiceProfile"
-              - "iotwireless:GetWirelessDevice"
-              - "iotwireless:GetWirelessGateway"
-              - "iotwireless:ListDestinations"
-              - "iotwireless:ListDeviceProfiles"
-              - "iotwireless:ListMulticastGroups"
-              - "iotwireless:ListNetworkAnalyzerConfigurations"
-              - "iotwireless:ListServiceProfiles"
-              - "iotwireless:ListWirelessDevices"
-              - "iotwireless:ListWirelessGateways"
-              - "ivs:GetChannel"
-              - "ivs:GetComposition"
-              - "ivs:GetEncoderConfiguration"
-              - "ivs:GetIngestConfiguration"
-              - "ivs:GetPublicKey"
-              - "ivs:GetRecordingConfiguration"
-              - "ivs:GetStage"
-              - "ivs:ListChannels"
-              - "ivs:ListCompositions"
-              - "ivs:ListEncoderConfigurations"
-              - "ivs:ListIngestConfigurations"
-              - "ivs:ListPlaybackKeyPairs"
-              - "ivs:ListPlaybackRestrictionPolicies"
-              - "ivs:ListPublicKeys"
-              - "ivs:ListRecordingConfigurations"
-              - "ivs:ListStages"
-              - "ivs:ListStorageConfigurations"
-              - "ivs:ListStreamKeys"
-              - "ivschat:GetLoggingConfiguration"
-              - "ivschat:GetRoom"
-              - "ivschat:ListLoggingConfigurations"
-              - "ivschat:ListRooms"
-              - "kendra:DescribeAccessControlConfiguration"
-              - "kendra:DescribeDataSource"
-              - "kendra:DescribeExperience"
-              - "kendra:DescribeFaq"
-              - "kendra:DescribeFeaturedResultsSet"
-              - "kendra:DescribeQuerySuggestionsBlockList"
-              - "kendra:DescribeThesaurus"
-              - "kendra:ListAccessControlConfigurations"
-              - "kendra:ListExperiences"
-              - "kendra:ListFaqs"
-              - "kendra:ListFeaturedResultsSets"
-              - "kendra:ListQuerySuggestionsBlockLists"
-              - "kendra:ListThesauri"
-              - "lakeformation:GetDataLakeSettings"
-              - "lakeformation:ListPermissions"
-              - "lambda:GetFunction"
-              - "launchwizard:GetDeployment"
-              - "launchwizard:ListDeployments"
-              - "lightsail:GetAlarms"
-              - "lightsail:GetCertificates"
-              - "lightsail:GetDistributions"
-              - "lightsail:GetInstancePortStates"
-              - "lightsail:GetRelationalDatabaseParameters"
-              - "lightsail:GetRelationalDatabaseSnapshots"
-              - "lightsail:GetRelationalDatabases"
-              - "lightsail:GetStaticIps"
-              - "macie2:GetAllowList"
-              - "macie2:GetCustomDataIdentifier"
-              - "macie2:GetMacieSession"
-              - "macie2:ListAllowLists"
-              - "macie2:ListCustomDataIdentifiers"
-              - "macie2:ListMembers"
-              - "managedblockchain:GetAccessor"
-              - "managedblockchain:GetMember"
-              - "managedblockchain:GetNetwork"
-              - "managedblockchain:GetNode"
-              - "managedblockchain:GetProposal"
-  DatadogIntegrationRoleManagedPolicy3:
-    Type: "AWS::IAM::ManagedPolicy"
-    Condition: ResourceCollectionPermissions
-    Properties:
-      ManagedPolicyName: !Sub
-        - "${IAMRoleName}-ManagedPolicy-3"
-        - { IAMRoleName: !Ref IAMRoleName }
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: "*"
-            Action:
-              - "managedblockchain:ListAccessors"
-              - "managedblockchain:ListInvitations"
-              - "managedblockchain:ListMembers"
-              - "managedblockchain:ListNodes"
-              - "managedblockchain:ListProposals"
-              - "mediaconvert:ListJobTemplates"
-              - "mediaconvert:ListPresets"
-              - "mediaconvert:ListQueues"
-              - "medialive:ListChannelPlacementGroups"
-              - "medialive:ListCloudWatchAlarmTemplateGroups"
-              - "medialive:ListCloudWatchAlarmTemplates"
-              - "medialive:ListClusters"
-              - "medialive:ListEventBridgeRuleTemplateGroups"
-              - "medialive:ListEventBridgeRuleTemplates"
-              - "medialive:ListInputDevices"
-              - "medialive:ListInputSecurityGroups"
-              - "medialive:ListInputs"
-              - "medialive:ListMultiplexes"
-              - "medialive:ListNetworks"
-              - "medialive:ListNodes"
-              - "medialive:ListReservations"
-              - "medialive:ListSdiSources"
-              - "medialive:ListSignalMaps"
-              - "mediapackage-vod:DescribeAsset"
-              - "mediapackage-vod:ListAssets"
-              - "mediapackage-vod:ListPackagingConfigurations"
-              - "mediapackage:ListChannels"
-              - "mediapackage:ListHarvestJobs"
-              - "mediapackagev2:GetChannel"
-              - "mediapackagev2:GetChannelGroup"
-              - "mediapackagev2:GetChannelPolicy"
-              - "mediapackagev2:GetOriginEndpoint"
-              - "mediapackagev2:GetOriginEndpointPolicy"
-              - "mediapackagev2:ListChannelGroups"
-              - "mediapackagev2:ListChannels"
-              - "mediapackagev2:ListHarvestJobs"
-              - "mediapackagev2:ListOriginEndpoints"
-              - "mediatailor:ListChannels"
-              - "mediatailor:ListLiveSources"
-              - "mediatailor:ListPlaybackConfigurations"
-              - "mediatailor:ListPrefetchSchedules"
-              - "mediatailor:ListSourceLocations"
-              - "mediatailor:ListVodSources"
-              - "memorydb:DescribeAcls"
-              - "memorydb:DescribeMultiRegionClusters"
-              - "memorydb:DescribeParameterGroups"
-              - "memorydb:DescribeReservedNodes"
-              - "memorydb:DescribeSnapshots"
-              - "memorydb:DescribeSubnetGroups"
-              - "memorydb:DescribeUsers"
-              - "mobiletargeting:GetApps"
-              - "mobiletargeting:GetCampaigns"
-              - "mobiletargeting:GetChannels"
-              - "mobiletargeting:GetEventStream"
-              - "mobiletargeting:GetSegments"
-              - "mobiletargeting:ListJourneys"
-              - "mobiletargeting:ListTemplates"
-              - "network-firewall:DescribeTLSInspectionConfiguration"
-              - "network-firewall:DescribeVpcEndpointAssociation"
-              - "network-firewall:ListTLSInspectionConfigurations"
-              - "network-firewall:ListVpcEndpointAssociations"
-              - "networkmanager:GetConnectPeer"
-              - "networkmanager:GetConnections"
-              - "networkmanager:GetCoreNetwork"
-              - "networkmanager:GetDevices"
-              - "networkmanager:GetLinks"
-              - "networkmanager:GetSites"
-              - "networkmanager:ListAttachments"
-              - "networkmanager:ListConnectPeers"
-              - "networkmanager:ListCoreNetworks"
-              - "networkmanager:ListPeerings"
-              - "omics:GetAnnotationStore"
-              - "omics:GetAnnotationStoreVersion"
-              - "omics:GetSequenceStore"
-              - "omics:GetVariantStore"
-              - "omics:GetWorkflow"
-              - "omics:GetWorkflowVersion"
-              - "omics:ListAnnotationStoreVersions"
-              - "omics:ListAnnotationStores"
-              - "omics:ListReadSets"
-              - "omics:ListReferenceStores"
-              - "omics:ListReferences"
-              - "omics:ListSequenceStores"
-              - "omics:ListVariantStores"
-              - "omics:ListWorkflowVersions"
-              - "omics:ListWorkflows"
-              - "osis:GetPipeline"
-              - "osis:GetPipelineBlueprint"
-              - "osis:ListPipelineBlueprints"
-              - "osis:ListPipelines"
-              - 'outposts:ListOutposts'
-              - 'outposts:ListSites'
-              - "payment-cryptography:GetKey"
-              - "payment-cryptography:ListAliases"
-              - "payment-cryptography:ListKeys"
-              - "pca-connector-ad:ListConnectors"
-              - "pca-connector-ad:ListDirectoryRegistrations"
-              - "pca-connector-ad:ListTemplates"
-              - "pca-connector-scep:ListConnectors"
-              - "personalize:DescribeAlgorithm"
-              - "personalize:DescribeBatchInferenceJob"
-              - "personalize:DescribeBatchSegmentJob"
-              - "personalize:DescribeCampaign"
-              - "personalize:DescribeDataDeletionJob"
-              - "personalize:DescribeDataset"
-              - "personalize:DescribeDatasetExportJob"
-              - "personalize:DescribeDatasetImportJob"
-              - "personalize:DescribeEventTracker"
-              - "personalize:DescribeFeatureTransformation"
-              - "personalize:DescribeFilter"
-              - "personalize:DescribeMetricAttribution"
-              - "personalize:DescribeRecipe"
-              - "personalize:DescribeRecommender"
-              - "personalize:DescribeSchema"
-              - "personalize:DescribeSolution"
-              - "personalize:ListBatchInferenceJobs"
-              - "personalize:ListBatchSegmentJobs"
-              - "personalize:ListCampaigns"
-              - "personalize:ListDataDeletionJobs"
-              - "personalize:ListDatasetExportJobs"
-              - "personalize:ListDatasetImportJobs"
-              - "personalize:ListDatasets"
-              - "personalize:ListEventTrackers"
-              - "personalize:ListFilters"
-              - "personalize:ListMetricAttributions"
-              - "personalize:ListRecipes"
-              - "personalize:ListRecommenders"
-              - "personalize:ListSchemas"
-              - "personalize:ListSolutions"
-              - "pipes:ListPipes"
-              - "proton:GetComponent"
-              - "proton:GetDeployment"
-              - "proton:GetEnvironment"
-              - "proton:GetEnvironmentAccountConnection"
-              - "proton:GetEnvironmentTemplate"
-              - "proton:GetEnvironmentTemplateVersion"
-              - "proton:GetRepository"
-              - "proton:GetService"
-              - "proton:GetServiceInstance"
-              - "proton:GetServiceTemplate"
-              - "proton:GetServiceTemplateVersion"
-              - "proton:ListComponents"
-              - "proton:ListDeployments"
-              - "proton:ListEnvironmentAccountConnections"
-              - "proton:ListEnvironmentTemplateVersions"
-              - "proton:ListEnvironmentTemplates"
-              - "proton:ListEnvironments"
-              - "proton:ListRepositories"
-              - "proton:ListServiceInstances"
-              - "proton:ListServiceTemplateVersions"
-              - "proton:ListServiceTemplates"
-              - "proton:ListServices"
-              - "qbusiness:GetApplication"
-              - "qbusiness:GetDataAccessor"
-              - "qbusiness:GetDataSource"
-              - "qbusiness:GetIndex"
-              - "qbusiness:GetPlugin"
-              - "qbusiness:GetRetriever"
-              - "qbusiness:GetWebExperience"
-              - "qbusiness:ListDataAccessors"
-              - "ram:GetResourceShareInvitations"
-              - "rbin:GetRule"
-              - "rbin:ListRules"
-              - "redshift-serverless:GetSnapshot"
-              - "redshift-serverless:ListEndpointAccess"
-              - "redshift-serverless:ListManagedWorkgroups"
-              - "redshift-serverless:ListNamespaces"
-              - "redshift-serverless:ListRecoveryPoints"
-              - "redshift-serverless:ListSnapshots"
-              - "refactor-spaces:ListApplications"
-              - "refactor-spaces:ListEnvironments"
-              - "refactor-spaces:ListRoutes"
-              - "refactor-spaces:ListServices"
-  DatadogIntegrationRoleManagedPolicy4:
-    Type: "AWS::IAM::ManagedPolicy"
-    Condition: ResourceCollectionPermissions
-    Properties:
-      ManagedPolicyName: !Sub
-        - "${IAMRoleName}-ManagedPolicy-4"
-        - { IAMRoleName: !Ref IAMRoleName }
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Resource: "*"
-            Action:
-              - "resiliencehub:DescribeApp"
-              - "resiliencehub:DescribeAppAssessment"
-              - "resiliencehub:ListAppAssessments"
-              - "resiliencehub:ListApps"
-              - "resiliencehub:ListResiliencyPolicies"
-              - "resource-explorer-2:GetIndex"
-              - "resource-explorer-2:GetManagedView"
-              - "resource-explorer-2:GetView"
-              - "resource-explorer-2:ListManagedViews"
-              - "resource-explorer-2:ListViews"
-              - "resource-groups:GetGroup"
-              - "resource-groups:ListGroups"
-              - "route53-recovery-readiness:ListCells"
-              - "route53-recovery-readiness:ListReadinessChecks"
-              - "route53-recovery-readiness:ListRecoveryGroups"
-              - "route53-recovery-readiness:ListResourceSets"
-              - "route53profiles:GetProfile"
-              - "route53profiles:ListProfileAssociations"
-              - "route53profiles:ListProfiles"
-              - "rum:GetAppMonitor"
-              - "rum:ListAppMonitors"
-              - "s3-outposts:ListRegionalBuckets"
-              - "scheduler:GetSchedule"
-              - "scheduler:ListScheduleGroups"
-              - "scheduler:ListSchedules"
-              - "securitylake:ListDataLakes"
-              - "securitylake:ListSubscribers"
-              - "serverlessrepo:GetApplication"
-              - "servicecatalog:DescribePortfolio"
-              - "servicecatalog:DescribeProduct"
-              - "servicecatalog:GetApplication"
-              - "servicecatalog:GetAttributeGroup"
-              - "servicecatalog:ListApplications"
-              - "servicecatalog:ListAttributeGroups"
-              - "servicecatalog:ListPortfolios"
-              - "servicecatalog:SearchProducts"
-              - "servicediscovery:GetNamespace"
-              - "servicediscovery:GetService"
-              - "servicediscovery:ListNamespaces"
-              - "servicediscovery:ListServices"
-              - "ses:GetArchive"
-              - "ses:GetContactList"
-              - "ses:GetCustomVerificationEmailTemplate"
-              - "ses:GetDedicatedIpPool"
-              - "ses:GetIdentityMailFromDomainAttributes"
-              - "ses:GetIngressPoint"
-              - "ses:GetMultiRegionEndpoint"
-              - "ses:GetRelay"
-              - "ses:GetRuleSet"
-              - "ses:GetTemplate"
-              - "ses:GetTrafficPolicy"
-              - "ses:ListAddonInstances"
-              - "ses:ListAddonSubscriptions"
-              - "ses:ListAddressLists"
-              - "ses:ListArchives"
-              - "ses:ListContactLists"
-              - "ses:ListCustomVerificationEmailTemplates"
-              - "ses:ListIngressPoints"
-              - "ses:ListMultiRegionEndpoints"
-              - "ses:ListRelays"
-              - "ses:ListRuleSets"
-              - "ses:ListTemplates"
-              - "ses:ListTrafficPolicies"
-              - "signer:GetSigningProfile"
-              - "signer:ListSigningProfiles"
-              - "sms-voice:DescribeConfigurationSets"
-              - "sms-voice:DescribeOptOutLists"
-              - "sms-voice:DescribePhoneNumbers"
-              - "sms-voice:DescribePools"
-              - "sms-voice:DescribeProtectConfigurations"
-              - "sms-voice:DescribeRegistrationAttachments"
-              - "sms-voice:DescribeRegistrations"
-              - "sms-voice:DescribeSenderIds"
-              - "sms-voice:DescribeVerifiedDestinationNumbers"
-              - "snowball:DescribeCluster"
-              - "snowball:DescribeJob"
-              - "sns:ListPlatformApplications"
-              - "social-messaging:GetLinkedWhatsAppBusinessAccount"
-              - "social-messaging:ListLinkedWhatsAppBusinessAccounts"
-              - "sqs:GetQueueUrl"
-              - "ssm-incidents:GetIncidentRecord"
-              - "ssm-incidents:GetReplicationSet"
-              - "ssm-incidents:GetResponsePlan"
-              - "ssm-incidents:ListIncidentRecords"
-              - "ssm-incidents:ListReplicationSets"
-              - "ssm-incidents:ListResponsePlans"
-              - "ssm:GetMaintenanceWindow"
-              - "ssm:GetPatchBaseline"
-              - "states:ListActivities"
-              - "states:ListExecutions"
-              - "states:ListStateMachineAliases"
-              - "storagegateway:DescribeFileSystemAssociations"
-              - "storagegateway:DescribeSMBFileShares"
-              - "textract:GetAdapter"
-              - "textract:GetAdapterVersion"
-              - "textract:ListAdapterVersions"
-              - "textract:ListAdapters"
-              - "timestream:ListScheduledQueries"
-              - "timestream:ListTables"
-              - "transcribe:GetCallAnalyticsJob"
-              - "transcribe:GetMedicalScribeJob"
-              - "transcribe:GetMedicalTranscriptionJob"
-              - "transcribe:GetTranscriptionJob"
-              - "transcribe:ListMedicalScribeJobs"
-              - "translate:GetParallelData"
-              - "translate:GetTerminology"
-              - "verifiedpermissions:GetPolicyStore"
-              - "verifiedpermissions:ListIdentitySources"
-              - "verifiedpermissions:ListPolicies"
-              - "verifiedpermissions:ListPolicyStores"
-              - "verifiedpermissions:ListPolicyTemplates"
-              - "vpc-lattice:GetListener"
-              - "vpc-lattice:GetResourceConfiguration"
-              - "vpc-lattice:GetResourceGateway"
-              - "vpc-lattice:GetRule"
-              - "vpc-lattice:GetService"
-              - "vpc-lattice:GetServiceNetwork"
-              - "vpc-lattice:GetTargetGroup"
-              - "vpc-lattice:ListAccessLogSubscriptions"
-              - "vpc-lattice:ListListeners"
-              - "vpc-lattice:ListResourceConfigurations"
-              - "vpc-lattice:ListResourceEndpointAssociations"
-              - "vpc-lattice:ListResourceGateways"
-              - "vpc-lattice:ListRules"
-              - "vpc-lattice:ListServiceNetworkResourceAssociations"
-              - "vpc-lattice:ListServiceNetworkServiceAssociations"
-              - "vpc-lattice:ListServiceNetworkVpcAssociations"
-              - "vpc-lattice:ListServiceNetworks"
-              - "vpc-lattice:ListServices"
-              - "vpc-lattice:ListTargetGroups"
-              - "waf-regional:GetRule"
-              - "waf-regional:GetRuleGroup"
-              - "waf-regional:ListRuleGroups"
-              - "waf-regional:ListRules"
-              - "waf:GetRule"
-              - "waf:GetRuleGroup"
-              - "waf:ListRuleGroups"
-              - "waf:ListRules"
-              - "wafv2:GetIPSet"
-              - "wafv2:GetRegexPatternSet"
-              - "wafv2:GetRuleGroup"
-              - "wellarchitected:GetLens"
-              - "wellarchitected:GetProfile"
-              - "wellarchitected:GetReviewTemplate"
-              - "wellarchitected:GetWorkload"
-              - "wellarchitected:ListLenses"
-              - "wellarchitected:ListProfiles"
-              - "wellarchitected:ListReviewTemplates"
-              - "wellarchitected:ListWorkloads"
-              - "wisdom:ListAssistantAssociations"
-              - "wisdom:ListAssistants"
-              - "wisdom:ListContents"
-              - "wisdom:ListKnowledgeBases"
-              - "wisdom:ListQuickResponses"
-              - "workmail:DescribeOrganization"
-              - "workmail:ListOrganizations"
-              - "workspaces-web:GetBrowserSettings"
-              - "workspaces-web:GetDataProtectionSettings"
-              - "workspaces-web:GetIdentityProvider"
-              - "workspaces-web:GetIpAccessSettings"
-              - "workspaces-web:GetNetworkSettings"
-              - "workspaces-web:GetTrustStore"
-              - "workspaces-web:GetUserAccessLoggingSettings"
-              - "workspaces-web:GetUserSettings"
-              - "workspaces-web:ListBrowserSettings"
-              - "workspaces-web:ListDataProtectionSettings"
-              - "workspaces-web:ListIdentityProviders"
-              - "workspaces-web:ListIpAccessSettings"
-              - "workspaces-web:ListNetworkSettings"
-              - "workspaces-web:ListPortals"
-              - "workspaces-web:ListTrustStores"
-              - "workspaces-web:ListUserAccessLoggingSettings"
-              - "workspaces-web:ListUserSettings"
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
