@@ -14,4 +14,4 @@
 /aws_storage_management* @DataDog/storage-management
 
 # Lambda Durable Function event forwarder template
-/aws_durable_function_event_forwarder/ @DataDog/serverless-aws @DataDog/serverless-onboarding-enablement
+/aws_durable_function_event_forwarder/ @DataDog/serverless-aws
