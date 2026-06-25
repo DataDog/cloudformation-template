@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   Captures AWS Lambda Durable Function execution status change events from
-  EventBridge, transforms them into Datadog log documents, and forwards them
-  to the Datadog HTTP intake via Amazon Data Firehose.
+  EventBridge and forwards them to the Datadog HTTP intake via Amazon Data
+  Firehose.
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -176,6 +176,33 @@ Rules:
         AssertDescription: >-
           One of DdApiKey, DdApiKeySecretArn, or DdApiKeySsmParameterName
           must be set.
+  # Enforce that exactly one key source is provided. Without this, setting
+  # more than one is silently resolved by the AccessKey !If chain
+  # (plaintext > secret > ssm), so the extra values would be ignored without
+  # warning. Each assertion rejects one pair being set simultaneously.
+  ApiKeyExclusive:
+    Assertions:
+      - Assert: !Not
+          - !And
+            - !Not [!Equals [!Ref DdApiKey, ""]]
+            - !Not [!Equals [!Ref DdApiKeySecretArn, ""]]
+        AssertDescription: >-
+          Provide only one Datadog API key source: DdApiKey and
+          DdApiKeySecretArn cannot both be set.
+      - Assert: !Not
+          - !And
+            - !Not [!Equals [!Ref DdApiKey, ""]]
+            - !Not [!Equals [!Ref DdApiKeySsmParameterName, ""]]
+        AssertDescription: >-
+          Provide only one Datadog API key source: DdApiKey and
+          DdApiKeySsmParameterName cannot both be set.
+      - Assert: !Not
+          - !And
+            - !Not [!Equals [!Ref DdApiKeySecretArn, ""]]
+            - !Not [!Equals [!Ref DdApiKeySsmParameterName, ""]]
+        AssertDescription: >-
+          Provide only one Datadog API key source: DdApiKeySecretArn and
+          DdApiKeySsmParameterName cannot both be set.
 
 Resources:
   # ---------------------------------------------------------------------------
@@ -201,6 +228,13 @@ Resources:
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
+      # Failed records are kept only for inspection/replay, so expire them
+      # after 30 days to bound storage cost rather than retaining forever.
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireFailedRecords
+            Status: Enabled
+            ExpirationInDays: 30
 
   BackupBucketPolicy:
     Type: AWS::S3::BucketPolicy

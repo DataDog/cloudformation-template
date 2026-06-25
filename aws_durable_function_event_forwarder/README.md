@@ -23,7 +23,7 @@ EventBridge rule  ->  Firehose  ->  Datadog HTTP intake (raw EventBridge JSON)
   Datadog API key as the `X-Amz-Firehose-Access-Key` header. The stack
   does **not** attach any custom metadata to Firehose's outbound
   requests; tagging and reshaping are handled on the Datadog side.
-- Records the endpoint rejects are written to the S3 backup bucket
+- Records that the endpoint rejects are written to the S3 backup bucket
   (`S3BackupMode: FailedDataOnly`); under normal operation the bucket
   stays empty.
 
