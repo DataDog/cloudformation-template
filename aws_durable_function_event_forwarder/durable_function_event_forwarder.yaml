@@ -43,11 +43,6 @@ Metadata:
       FunctionArnFilter5: { default: Function ARN filter 5 (optional) }
       BufferIntervalSeconds: { default: Firehose buffer interval (seconds) }
 
-Mappings:
-  Constants:
-    DdDurableEventForwarder:
-      Version: "0.1.0"
-
 Parameters:
   # ---- Datadog API key (exactly one of the three is required) ----
   DdApiKey:
@@ -466,6 +461,3 @@ Outputs:
   EventRuleArn:
     Description: ARN of the EventBridge rule capturing durable execution events.
     Value: !GetAtt EventRule.Arn
-  ForwarderVersion:
-    Description: Version of this forwarder template.
-    Value: !FindInMap [Constants, DdDurableEventForwarder, Version]

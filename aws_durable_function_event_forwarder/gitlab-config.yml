@@ -2,17 +2,13 @@
 # template (aws_durable_function_event_forwarder/durable_function_event_forwarder.yaml).
 #
 # Kept as a separate file in this folder and pulled into the repo pipeline by a
-# `local` include in the root .gitlab-ci.yml, so the release job runs on a merge
-# to master whenever the template changes.
+# `local` include in the root .gitlab-ci.yml, so these jobs run without adding
+# release logic to the root config.
 #
-# The template's version is the single source of truth: it is embedded in the
-# template as `Mappings.Constants.DdDurableEventForwarder.Version` (and surfaced
-# as the `ForwarderVersion` output). We read that value and publish:
-#   s3://<bucket>/aws/lambda-durable-function-event-forwarder/<version>.yaml   (immutable)
-#   s3://<bucket>/aws/lambda-durable-function-event-forwarder/latest.yaml      (moving pointer)
-#
-# Publishing is idempotent: if <version>.yaml already exists, bump the version in
-# the template before merging — the job refuses to overwrite an existing version.
+# version.txt is the single source of truth. release.sh publishes an immutable
+# <version>.yaml plus a moving latest.yaml (which the public install docs
+# reference) and refuses to overwrite an already-published version — bump
+# version.txt to release a new one.
 
 variables:
   DURABLE_FORWARDER_DIR: aws_durable_function_event_forwarder
@@ -20,42 +16,64 @@ variables:
   DURABLE_FORWARDER_BUCKET: datadog-cloudformation-template
   DURABLE_FORWARDER_PREFIX: aws/lambda-durable-function-event-forwarder
 
+# PR-time guard: if the template changed, version.txt must be bumped, and the new
+# version must not already be published. (The root validate_versions job doesn't
+# cover this dir, so the check lives here.)
+validate durable function event forwarder version:
+  stage: validate
+  image: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.4.29
+  tags: ["arch:amd64"]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH != "master"'
+  before_script:
+    - yum install -y git
+  script:
+    - |
+      git fetch origin master:master
+      CHANGED=$(git diff --name-only master...HEAD -- "$DURABLE_FORWARDER_DIR")
+      echo "Changed files in ${DURABLE_FORWARDER_DIR}:"
+      echo "$CHANGED"
+
+      yaml_changed=false
+      version_changed=false
+      echo "$CHANGED" | grep -q "^${DURABLE_FORWARDER_DIR}/${DURABLE_FORWARDER_TEMPLATE}$" && yaml_changed=true
+      echo "$CHANGED" | grep -q "^${DURABLE_FORWARDER_DIR}/version.txt$" && version_changed=true
+
+      if [ "$yaml_changed" = false ]; then
+        echo "Template unchanged - nothing to validate."
+        exit 0
+      fi
+
+      if [ "$version_changed" = false ]; then
+        echo "ERROR: ${DURABLE_FORWARDER_TEMPLATE} changed but version.txt was not bumped."
+        exit 1
+      fi
+
+      VERSION=$(head -n 1 "${DURABLE_FORWARDER_DIR}/version.txt")
+      if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "ERROR: version.txt must contain a semver like v1.2.3 (got '$VERSION')"
+        exit 1
+      fi
+
+      if aws s3api head-object --bucket "$DURABLE_FORWARDER_BUCKET" \
+          --key "${DURABLE_FORWARDER_PREFIX}/${VERSION}.yaml" >/dev/null 2>&1; then
+        echo "ERROR: ${VERSION} is already published. Bump version.txt."
+        exit 1
+      fi
+      echo "OK: ${VERSION} is a new, unpublished version."
+
+# Publish on merge to master when version.txt is bumped, gated behind a manual
+# click so a human approves the prod publish.
 publish durable function event forwarder:
   stage: release
   image: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.4.29
   tags: ["arch:amd64"]
   rules:
-    # Auto-release on merge to master when the template changes, gated behind a
-    # manual click so a human approves the prod publish.
     - if: '$CI_COMMIT_BRANCH == "master"'
       changes:
-        - aws_durable_function_event_forwarder/durable_function_event_forwarder.yaml
+        - aws_durable_function_event_forwarder/version.txt
       when: manual
   script:
     - cd "$DURABLE_FORWARDER_DIR"
-    # Read the version embedded in the template (single source of truth).
-    - |
-      VERSION=$(awk '/DdDurableEventForwarder:/{f=1} f&&/Version:/{gsub(/["[:space:]]/,"",$2); print $2; exit}' "$DURABLE_FORWARDER_TEMPLATE")
-      if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        echo "ERROR: could not parse a semver version from $DURABLE_FORWARDER_TEMPLATE (got '$VERSION')"
-        echo "Expected Mappings.Constants.DdDurableEventForwarder.Version to be like \"1.0.0\""
-        exit 1
-      fi
-      echo "Template version: $VERSION"
-    - VERSIONED_KEY="${DURABLE_FORWARDER_PREFIX}/${VERSION}.yaml"
-    - LATEST_KEY="${DURABLE_FORWARDER_PREFIX}/latest.yaml"
-    # Refuse to overwrite an already-published immutable version.
-    - |
-      if aws s3api head-object --bucket "$DURABLE_FORWARDER_BUCKET" --key "$VERSIONED_KEY" >/dev/null 2>&1; then
-        echo "ERROR: s3://${DURABLE_FORWARDER_BUCKET}/${VERSIONED_KEY} already exists."
-        echo "Bump Mappings.Constants.DdDurableEventForwarder.Version in the template and merge again."
-        exit 1
-      fi
-    - echo "Validating template..."
-    - aws cloudformation validate-template --template-body "file://${DURABLE_FORWARDER_TEMPLATE}"
-    - echo "Publishing ${VERSION} to s3://${DURABLE_FORWARDER_BUCKET}/${DURABLE_FORWARDER_PREFIX}/ ..."
-    - aws s3 cp "$DURABLE_FORWARDER_TEMPLATE" "s3://${DURABLE_FORWARDER_BUCKET}/${VERSIONED_KEY}" --content-type text/yaml
-    - aws s3 cp "$DURABLE_FORWARDER_TEMPLATE" "s3://${DURABLE_FORWARDER_BUCKET}/${LATEST_KEY}" --content-type text/yaml
-    - echo "Done. Published:"
-    - echo "  https://${DURABLE_FORWARDER_BUCKET}.s3.amazonaws.com/${VERSIONED_KEY}"
-    - echo "  https://${DURABLE_FORWARDER_BUCKET}.s3.amazonaws.com/${LATEST_KEY}"
+    - ./release.sh "$DURABLE_FORWARDER_BUCKET" --yes
