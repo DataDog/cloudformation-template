@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Usage: ./release.sh <S3_Bucket> [--private] [--yes]
+# Usage: ./release.sh <S3_Bucket> [--yes]
 
 set -e
 
@@ -8,23 +8,18 @@ TEMPLATE=durable_function_event_forwarder.yaml
 PREFIX=aws/lambda-durable-function-event-forwarder
 
 # Parse optional flags and the bucket argument
-PRIVATE_TEMPLATE=false
 AUTO_YES=false
 BUCKET=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --private)
-            PRIVATE_TEMPLATE=true
-            shift
-            ;;
         --yes)
             AUTO_YES=true
             shift
             ;;
         --*)
             echo "Unknown option: $1"
-            echo "Usage: ./release.sh <S3_Bucket> [--private] [--yes]"
+            echo "Usage: ./release.sh <S3_Bucket> [--yes]"
             exit 1
             ;;
         *)
