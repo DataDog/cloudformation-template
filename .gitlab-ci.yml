@@ -2,6 +2,11 @@ stages:
   - validate
   - release
 
+# The Lambda Durable Function event forwarder release job is defined in its own
+# folder and pulled in via a local include.
+include:
+  - local: aws_durable_function_event_forwarder/gitlab-config.yml
+
 variables:
   AWS_DEFAULT_REGION: us-east-1
 
