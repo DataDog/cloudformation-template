@@ -1,15 +1,21 @@
 # Datadog AWS Cloud Cost Setup
 
-[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-cloud-cost&templateURL=https://datadog-cloudformation-template.s3.amazonaws.com/aws_cloud_cost/v0.0.1/main.yaml)
+## Templates
+
+- **`main.yaml`** — legacy Cost and Usage Report (CUR), via `AWS::CUR::ReportDefinition`.
+- **`cur2-main.yaml`** — CUR 2.0 / BCM Data Exports, via `AWS::BCMDataExports::Export`.
 
 ## AWS Resources
 
-This template creates the following AWS resources required for setting up Cloud Cost Management in Datadog.
+Both templates create the following AWS resources required for setting up Cloud Cost Management in Datadog.
 
 - An S3 Bucket (if not using an existing one)
   - With Bucket policies
-- Cost and Usage Report using the COST_AND_USAGE_REPORT table configurations (if not using an existing one)
-- IAM policy needed to access the bucket and the CUR
+- A cost report (if not using an existing one)
+  - `main.yaml`: a Cost and Usage Report
+  - `cur2-main.yaml`: a CUR 2.0 export (BCM Data Export)
+- IAM policy needed to access the bucket and the cost report
+  - `cur2-main.yaml` additionally grants `bcm-data-exports:GetExport` and `bcm-data-exports:ListExports`
   - Attaches the policy to the main Datadog integration role
 
 ## Publishing the template
