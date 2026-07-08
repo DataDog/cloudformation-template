@@ -39,7 +39,7 @@ class DatadogAPIError(Exception):
     pass
 
 
-def fetch_permissions_from_datadog(api_url):
+def fetch_attributes_from_datadog(api_url):
     headers = {
         "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
     }
@@ -53,7 +53,11 @@ def fetch_permissions_from_datadog(api_url):
         error_message = error_body.get('errors', ['Unknown error'])[0]
         raise DatadogAPIError(f"Datadog API error: {error_message}") from e
 
-    return json.loads(response.read())["data"]["attributes"]["permissions"]
+    return json.loads(response.read())["data"]["attributes"]
+
+
+def fetch_permissions_from_datadog(api_url):
+    return fetch_attributes_from_datadog(api_url)["permissions"]
 
 
 def parse_resource_types(raw):
@@ -70,6 +74,31 @@ def build_instrumentation_permissions_url(datadog_site, resource_types):
         [("resource_type", t) for t in resource_types] + [("chunked", "true")]
     )
     return f"https://api.{datadog_site}{INSTRUMENTATION_PERMISSIONS_API_PATH}?{query}"
+
+
+def render_placeholders(value, account_id, partition):
+    if isinstance(value, str):
+        return value.replace("${AccountId}", account_id).replace("${Partition}", partition)
+    if isinstance(value, list):
+        return [render_placeholders(v, account_id, partition) for v in value]
+    if isinstance(value, dict):
+        return {k: render_placeholders(v, account_id, partition) for k, v in value.items()}
+    return value
+
+
+def legacy_chunk_to_statement(chunk):
+    return {"Effect": "Allow", "Action": list(chunk), "Resource": "*"}
+
+
+def resolve_instrumentation_statement_chunks(attributes, account_id, partition):
+    # Prefer structured policy_statements when the API provides them; permissions is the legacy,
+    # pre-chunked fallback. Chunk boundaries and standard-permission filtering land in later work.
+    policy_statements = attributes.get("policy_statements")
+    if policy_statements is not None:
+        rendered = [render_placeholders(s, account_id, partition) for s in policy_statements]
+        return [rendered]
+
+    return [[legacy_chunk_to_statement(chunk)] for chunk in attributes.get("permissions", [])]
 
 
 def _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name):
@@ -139,14 +168,17 @@ def attach_standard_permissions(iam_client, role_name):
 
 
 def _create_and_attach_policy(iam_client, role_name, policy_name, actions):
+    _create_and_attach_statement_policy(
+        iam_client, role_name, policy_name, [{"Effect": "Allow", "Action": actions, "Resource": "*"}]
+    )
+
+
+def _create_and_attach_statement_policy(iam_client, role_name, policy_name, statements):
     policy_json = json.dumps(
-        {
-            "Version": "2012-10-17",
-            "Statement": [{"Effect": "Allow", "Action": actions, "Resource": "*"}],
-        },
+        {"Version": "2012-10-17", "Statement": statements},
         separators=(',', ':'),
     )
-    LOGGER.info(f"Creating policy {policy_name} with {len(actions)} permissions ({len(policy_json)} characters)")
+    LOGGER.info(f"Creating policy {policy_name} with {len(statements)} statements ({len(policy_json)} characters)")
     policy = iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
     iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy['Policy']['Arn'])
 
@@ -179,7 +211,8 @@ def attach_instrumentation_permissions(iam_client, role_name, account_id, partit
     try:
         url = build_instrumentation_permissions_url(datadog_site, resource_types)
         LOGGER.info(f"Fetching instrumentation permissions for {resource_types} from {url}")
-        permission_chunks = fetch_permissions_from_datadog(url)
+        attributes = fetch_attributes_from_datadog(url)
+        chunks = resolve_instrumentation_statement_chunks(attributes, account_id, partition)
     except Exception as e:
         if fail_on_error:
             raise
@@ -190,10 +223,10 @@ def attach_instrumentation_permissions(iam_client, role_name, account_id, partit
         return
 
     cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
-    for i, chunk in enumerate(permission_chunks):
+    for i, chunk in enumerate(chunks):
         policy_name = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{i+1}"
         try:
-            _create_and_attach_policy(iam_client, role_name, policy_name, chunk)
+            _create_and_attach_statement_policy(iam_client, role_name, policy_name, chunk)
         except Exception as e:
             if fail_on_error:
                 raise

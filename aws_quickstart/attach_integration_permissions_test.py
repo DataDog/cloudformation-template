@@ -22,6 +22,9 @@ from attach_integration_permissions import (
     cleanup_legacy_base_policies,
     handle_create_update,
     handle_delete,
+    render_placeholders,
+    legacy_chunk_to_statement,
+    resolve_instrumentation_statement_chunks,
     POLICY_NAME_STANDARD,
     BASE_POLICY_PREFIX_INSTRUMENTATION,
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
@@ -391,6 +394,65 @@ class TestUpgradeSafePolicyNames(unittest.TestCase):
             self._names(BASE_POLICY_PREFIX_INSTRUMENTATION) & self._names(self.LEGACY_PREFIX_INSTRUMENTATION),
             set(),
         )
+
+
+class TestRenderPlaceholders(unittest.TestCase):
+    def test_renders_in_string(self):
+        self.assertEqual(
+            render_placeholders("arn:${Partition}:iam::${AccountId}:role/x", "123456789012", "aws"),
+            "arn:aws:iam::123456789012:role/x",
+        )
+
+    def test_renders_recursively_in_list_and_dict(self):
+        value = {
+            "Resource": ["arn:${Partition}:iam::${AccountId}:role/x", "arn:${Partition}:s3:::bucket"],
+            "Condition": {"StringEquals": {"iam:PassedToService": ["ec2.${Partition}.example"]}},
+        }
+        rendered = render_placeholders(value, "123456789012", "aws-cn")
+        self.assertEqual(
+            rendered["Resource"],
+            ["arn:aws-cn:iam::123456789012:role/x", "arn:aws-cn:s3:::bucket"],
+        )
+        self.assertEqual(
+            rendered["Condition"]["StringEquals"]["iam:PassedToService"],
+            ["ec2.aws-cn.example"],
+        )
+
+    def test_leaves_non_placeholder_values_unchanged(self):
+        self.assertEqual(render_placeholders("Allow", "123456789012", "aws"), "Allow")
+        self.assertEqual(render_placeholders(42, "123456789012", "aws"), 42)
+
+
+class TestResolveInstrumentationStatementChunks(unittest.TestCase):
+    def test_legacy_fallback_preserves_chunk_boundaries(self):
+        attributes = {"permissions": [["ec2:DescribeInstances"], ["iam:GetRole", "iam:PassRole"]]}
+        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws")
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual(chunks[0], [legacy_chunk_to_statement(["ec2:DescribeInstances"])])
+        self.assertEqual(chunks[1], [legacy_chunk_to_statement(["iam:GetRole", "iam:PassRole"])])
+
+    def test_empty_policy_statements_list_is_not_treated_as_absent(self):
+        # An explicitly present but empty policy_statements must not fall back to the legacy
+        # permissions chunks — presence, not truthiness, decides which path is authoritative.
+        attributes = {"permissions": [["ec2:DescribeInstances"]], "policy_statements": []}
+        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws")
+        self.assertEqual(chunks, [[]])
+
+    def test_prefers_structured_statements_over_legacy(self):
+        attributes = {
+            "permissions": [["ec2:DescribeInstances"]],
+            "policy_statements": [
+                {
+                    "Effect": "Allow",
+                    "Action": ["iam:PassRole"],
+                    "Resource": ["arn:${Partition}:iam::${AccountId}:role/datadog-ssm-*"],
+                }
+            ],
+        }
+        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws")
+        statements = [s for chunk in chunks for s in chunk]
+        self.assertEqual(len(statements), 1)
+        self.assertEqual(statements[0]["Resource"], ["arn:aws:iam::123456789012:role/datadog-ssm-*"])
 
 
 if __name__ == "__main__":
