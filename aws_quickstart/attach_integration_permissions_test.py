@@ -25,6 +25,7 @@ from attach_integration_permissions import (
     render_placeholders,
     legacy_chunk_to_statement,
     resolve_instrumentation_statement_chunks,
+    filter_instrumentation_statements,
     POLICY_NAME_STANDARD,
     BASE_POLICY_PREFIX_INSTRUMENTATION,
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
@@ -214,6 +215,45 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
                 ["aws:ec2:instance"], (), fail_on_error=True,
             )
 
+    def _mock_statements_response(self, statements):
+        body = json.dumps({"data": {"attributes": {"policy_statements": statements}}}).encode()
+        resp = Mock()
+        resp.read.return_value = body
+        return resp
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_default_standard_statements_means_no_filtering(self, mock_urlopen):
+        # attach_instrumentation_permissions must not silently fetch/apply live standard
+        # permissions for filtering unless the caller explicitly supplies standard_statements —
+        # the add-on path (ManageBasePermissions=false) can't verify what's actually on the role.
+        mock_urlopen.return_value = self._mock_statements_response(
+            [{"Effect": "Allow", "Action": ["iam:PassRole"], "Resource": "*"}]
+        )
+
+        attach_instrumentation_permissions(
+            self.iam, self.role_name, self.account_id, self.partition, self.site,
+            ["aws:ec2:instance"], (), fail_on_error=True,
+        )
+
+        self.iam.create_policy.assert_called_once()
+        policy_document = json.loads(self.iam.create_policy.call_args.kwargs["PolicyDocument"])
+        self.assertEqual(policy_document["Statement"][0]["Action"], ["iam:PassRole"])
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_caller_supplied_standard_statements_are_used_for_filtering(self, mock_urlopen):
+        mock_urlopen.return_value = self._mock_statements_response(
+            [{"Effect": "Allow", "Action": ["iam:PassRole"], "Resource": "*"}]
+        )
+        standard_statements = [{"Action": ["iam:PassRole"], "Resource": "*"}]
+
+        attach_instrumentation_permissions(
+            self.iam, self.role_name, self.account_id, self.partition, self.site,
+            ["aws:ec2:instance"], (), standard_statements=standard_statements, fail_on_error=True,
+        )
+
+        # The only action was fully covered by standard_statements, so nothing is left to attach.
+        self.iam.create_policy.assert_not_called()
+
 
 class TestCleanup(unittest.TestCase):
     def setUp(self):
@@ -297,6 +337,11 @@ class TestManageBasePermissions(unittest.TestCase):
         mock_rc.assert_called_once()
         mock_instr.assert_called_once()
         mock_legacy.assert_called_once()
+        # The role-creation path must filter against the exact permissions it just attached.
+        self.assertEqual(
+            mock_instr.call_args.kwargs["standard_statements"],
+            [{"Action": mock_standard.return_value, "Resource": "*"}],
+        )
 
     @patch("attach_integration_permissions.cleanup_legacy_base_policies")
     @patch("attach_integration_permissions.boto3.client")
@@ -315,6 +360,8 @@ class TestManageBasePermissions(unittest.TestCase):
         mock_instr.assert_called_once()
         # Add-on mode must not touch the role stack's standard/resource-collection policies.
         mock_legacy.assert_not_called()
+        # It also can't verify the role's actual standard permissions, so it must not filter.
+        self.assertEqual(mock_instr.call_args.kwargs["standard_statements"], [])
 
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.cleanup_instrumentation_policies")
@@ -426,7 +473,7 @@ class TestRenderPlaceholders(unittest.TestCase):
 class TestResolveInstrumentationStatementChunks(unittest.TestCase):
     def test_legacy_fallback_preserves_chunk_boundaries(self):
         attributes = {"permissions": [["ec2:DescribeInstances"], ["iam:GetRole", "iam:PassRole"]]}
-        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws")
+        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
         self.assertEqual(len(chunks), 2)
         self.assertEqual(chunks[0], [legacy_chunk_to_statement(["ec2:DescribeInstances"])])
         self.assertEqual(chunks[1], [legacy_chunk_to_statement(["iam:GetRole", "iam:PassRole"])])
@@ -435,8 +482,8 @@ class TestResolveInstrumentationStatementChunks(unittest.TestCase):
         # An explicitly present but empty policy_statements must not fall back to the legacy
         # permissions chunks — presence, not truthiness, decides which path is authoritative.
         attributes = {"permissions": [["ec2:DescribeInstances"]], "policy_statements": []}
-        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws")
-        self.assertEqual(chunks, [[]])
+        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+        self.assertEqual(chunks, [])
 
     def test_prefers_structured_statements_over_legacy(self):
         attributes = {
@@ -449,10 +496,88 @@ class TestResolveInstrumentationStatementChunks(unittest.TestCase):
                 }
             ],
         }
-        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws")
+        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
         statements = [s for chunk in chunks for s in chunk]
         self.assertEqual(len(statements), 1)
         self.assertEqual(statements[0]["Resource"], ["arn:aws:iam::123456789012:role/datadog-ssm-*"])
+
+    def test_filters_against_standard_statements(self):
+        attributes = {"policy_statements": [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]}
+        standard = [{"Action": ["ec2:DescribeInstances"], "Resource": "*"}]
+        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", standard)
+        self.assertEqual(chunks, [])
+
+
+class TestFilterInstrumentationStatements(unittest.TestCase):
+    def test_removes_action_when_standard_is_equivalent_or_broader(self):
+        statements = [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]
+        standard = [{"Action": ["ec2:DescribeInstances"], "Resource": "*"}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), [])
+
+    def test_list_form_wildcard_resource_is_treated_as_global(self):
+        # A standard statement can express "*" either as a bare string or as a single-element
+        # list; both must be treated as covering any scoped instrumentation resource.
+        statements = [
+            {"Effect": "Allow", "Action": ["iam:PassRole"], "Resource": ["arn:aws:iam::123:role/datadog-ssm-*"]}
+        ]
+        standard = [{"Action": ["iam:PassRole"], "Resource": ["*"]}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), [])
+
+    def test_keeps_action_when_resource_differs(self):
+        statements = [
+            {"Effect": "Allow", "Action": ["iam:PassRole"], "Resource": ["arn:aws:iam::123:role/datadog-ssm-*"]}
+        ]
+        standard = [{"Action": ["iam:PassRole"], "Resource": ["arn:aws:iam::123:role/other-role"]}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), statements)
+
+    def test_keeps_action_when_condition_differs(self):
+        statements = [
+            {
+                "Effect": "Allow",
+                "Action": ["iam:PassRole"],
+                "Resource": "*",
+                "Condition": {"StringEquals": {"iam:PassedToService": ["ec2.amazonaws.com"]}},
+            }
+        ]
+        standard = [
+            {
+                "Action": ["iam:PassRole"],
+                "Resource": "*",
+                "Condition": {"StringEquals": {"iam:PassedToService": ["ecs.amazonaws.com"]}},
+            }
+        ]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), statements)
+
+    def test_keeps_scoped_statement_whose_action_is_not_in_standard(self):
+        statements = [
+            {
+                "Effect": "Allow",
+                "Action": ["iam:PassRole"],
+                "Resource": ["arn:aws:iam::123:role/datadog-ssm-*"],
+                "Condition": {"StringEquals": {"iam:PassedToService": ["ec2.amazonaws.com"]}},
+            }
+        ]
+        standard = [{"Action": ["ec2:DescribeInstances"], "Resource": "*"}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), statements)
+
+    def test_drops_statement_when_every_action_is_covered(self):
+        statements = [
+            {"Effect": "Allow", "Action": ["ec2:DescribeInstances", "ec2:DescribeTags"], "Resource": "*"}
+        ]
+        standard = [{"Action": ["ec2:DescribeInstances", "ec2:DescribeTags"], "Resource": "*"}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), [])
+
+    def test_absent_standard_condition_covers_conditioned_instrumentation(self):
+        statements = [
+            {
+                "Effect": "Allow",
+                "Action": ["iam:PassRole"],
+                "Resource": "*",
+                "Condition": {"StringEquals": {"iam:PassedToService": ["ec2.amazonaws.com"]}},
+            }
+        ]
+        standard = [{"Action": ["iam:PassRole"], "Resource": "*"}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), [])
 
 
 if __name__ == "__main__":
