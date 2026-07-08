@@ -33,9 +33,17 @@ LEGACY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection
 STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
 RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
 INSTRUMENTATION_PERMISSIONS_API_PATH = "/api/unstable/instrumenter/aws/iam_permissions"
+# AWS hard limit on a customer managed policy document (non-whitespace characters).
+MAX_MANAGED_POLICY_SIZE = 6144
+# AWS default managed-policies-per-role quota; matches the cleanup loops' max_policies bound.
+MAX_ATTACHED_MANAGED_POLICIES = 10
 
 
 class DatadogAPIError(Exception):
+    pass
+
+
+class InstrumentationPolicyLimitError(Exception):
     pass
 
 
@@ -90,16 +98,18 @@ def legacy_chunk_to_statement(chunk):
     return {"Effect": "Allow", "Action": list(chunk), "Resource": "*"}
 
 
-def resolve_instrumentation_statement_chunks(attributes, account_id, partition, standard_statements):
-    # Prefer structured policy_statements when the API provides them; permissions is pre-chunked
-    # server-side for the legacy fallback — filter each chunk but preserve its boundaries rather
-    # than re-chunking, since dd-source already sized it to fit. Chunking the (unchunked)
-    # structured statements by size lands in later work.
+def resolve_instrumentation_statement_chunks(
+    attributes, account_id, partition, standard_statements, max_size=MAX_MANAGED_POLICY_SIZE
+):
+    # Prefer structured policy_statements when the API provides them; policy_statements is
+    # always unchunked, so QuickStart renders, filters, and chunks it by size (Task 5).
+    # permissions is pre-chunked server-side for the legacy fallback — filter each chunk but
+    # preserve its boundaries rather than re-chunking, since dd-source already sized it to fit.
     policy_statements = attributes.get("policy_statements")
     if policy_statements is not None:
         rendered = [render_placeholders(s, account_id, partition) for s in policy_statements]
         filtered = filter_instrumentation_statements(rendered, standard_statements)
-        return [filtered] if filtered else []
+        return chunk_statements(filtered, max_size=max_size)
 
     legacy_statements = [legacy_chunk_to_statement(chunk) for chunk in attributes.get("permissions", [])]
     filtered = filter_instrumentation_statements(legacy_statements, standard_statements)
@@ -156,6 +166,79 @@ def filter_instrumentation_statements(statements, standard_statements):
     return filtered
 
 
+def _policy_document_size(statements):
+    return len(json.dumps({"Version": "2012-10-17", "Statement": statements}, separators=(',', ':')))
+
+
+def chunk_statements(statements, max_size=MAX_MANAGED_POLICY_SIZE):
+    # Chunk by measured minified-document size, never splitting a statement's Action away from
+    # its Resource/Condition. If a single statement alone exceeds max_size it still gets its own
+    # (oversize) chunk; validate_statement_chunks is what catches that before anything is deleted.
+    chunks = []
+    current = []
+    for statement in statements:
+        candidate = current + [statement]
+        if current and _policy_document_size(candidate) > max_size:
+            chunks.append(current)
+            current = [statement]
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def validate_statement_chunks(
+    chunks,
+    resource_types,
+    existing_attached_count=0,
+    max_size=MAX_MANAGED_POLICY_SIZE,
+    max_policies=MAX_ATTACHED_MANAGED_POLICIES,
+):
+    # Local size checks are preflight estimates, not a substitute for AWS's own validation on
+    # create_policy; this only exists to fail loudly, before touching any existing policy, rather
+    # than partially attaching a replacement set that AWS would reject partway through.
+    # existing_attached_count is the role's other (non-instrumentation) managed-policy attachments
+    # — those aren't being replaced, so they still count against the per-role attachment quota
+    # alongside the new instrumentation chunks.
+    total = existing_attached_count + len(chunks)
+    if total > max_policies:
+        raise InstrumentationPolicyLimitError(
+            f"Instrumentation permissions for resource types {resource_types} would attach "
+            f"{len(chunks)} policies on top of {existing_attached_count} already attached to the "
+            f"role, totaling {total} and exceeding the {max_policies}-policy attachment limit."
+        )
+    for i, chunk in enumerate(chunks):
+        size = _policy_document_size(chunk)
+        if size > max_size:
+            raise InstrumentationPolicyLimitError(
+                f"Instrumentation permissions for resource types {resource_types} produced "
+                f"policy chunk {i + 1}/{len(chunks)} of {size} characters, exceeding the "
+                f"{max_size}-character managed-policy size limit."
+            )
+
+
+def _chunked_policy_names(role_name, prefix, max_policies=MAX_ATTACHED_MANAGED_POLICIES):
+    return [f"{prefix}-{role_name}-{i+1}" for i in range(max_policies)]
+
+
+def _count_non_instrumentation_attached_policies(iam_client, role_name):
+    # Exact-name match against what cleanup_instrumentation_policies actually deletes, not a
+    # substring check — a stale/unrelated policy whose name merely contains the instrumentation
+    # prefix isn't touched by cleanup and must still count against the attachment quota.
+    instrumentation_names = set(_chunked_policy_names(role_name, BASE_POLICY_PREFIX_INSTRUMENTATION))
+    count = 0
+    kwargs = {"RoleName": role_name}
+    while True:
+        response = iam_client.list_attached_role_policies(**kwargs)
+        for policy in response.get("AttachedPolicies", []):
+            if policy.get("PolicyName", "") not in instrumentation_names:
+                count += 1
+        if not response.get("IsTruncated"):
+            return count
+        kwargs["Marker"] = response["Marker"]
+
+
 def _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name):
     # Detach + delete are both no-ops if the entity is already gone, so callers can blindly
     # iterate the policy-name space without first checking what actually exists.
@@ -177,8 +260,7 @@ def _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name):
 
 
 def _cleanup_chunked_policies(iam_client, role_name, account_id, partition, prefix, max_policies=10):
-    for i in range(max_policies):
-        policy_name = f"{prefix}-{role_name}-{i+1}"
+    for policy_name in _chunked_policy_names(role_name, prefix, max_policies):
         policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
         _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name)
 
@@ -280,11 +362,16 @@ def attach_instrumentation_permissions(
         LOGGER.info(f"Fetching instrumentation permissions for {resource_types} from {url}")
         attributes = fetch_attributes_from_datadog(url)
         chunks = resolve_instrumentation_statement_chunks(attributes, account_id, partition, standard_statements)
+        existing_attached_count = _count_non_instrumentation_attached_policies(iam_client, role_name)
+        # Validate the full candidate replacement set before cleanup_instrumentation_policies
+        # below deletes anything currently attached — a set that can't fit must fail here,
+        # leaving the previously-attached policies untouched.
+        validate_statement_chunks(chunks, resource_types, existing_attached_count)
     except Exception as e:
         if fail_on_error:
             raise
         LOGGER.warning(
-            f"Failed to fetch instrumentation permissions for {resource_types}: {e}. "
+            f"Failed to prepare instrumentation permissions for {resource_types}: {e}. "
             "Leaving any previously-attached instrumentation policies in place."
         )
         return

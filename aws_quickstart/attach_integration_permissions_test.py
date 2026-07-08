@@ -26,6 +26,12 @@ from attach_integration_permissions import (
     legacy_chunk_to_statement,
     resolve_instrumentation_statement_chunks,
     filter_instrumentation_statements,
+    chunk_statements,
+    validate_statement_chunks,
+    _count_non_instrumentation_attached_policies,
+    InstrumentationPolicyLimitError,
+    MAX_MANAGED_POLICY_SIZE,
+    MAX_ATTACHED_MANAGED_POLICIES,
     POLICY_NAME_STANDARD,
     BASE_POLICY_PREFIX_INSTRUMENTATION,
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
@@ -41,6 +47,7 @@ def make_iam_mock(cleanup_side_effects=True):
     if cleanup_side_effects:
         iam.detach_role_policy.side_effect = iam.exceptions.NoSuchEntityException
         iam.delete_policy.side_effect = iam.exceptions.NoSuchEntityException
+    iam.list_attached_role_policies.return_value = {"AttachedPolicies": [], "IsTruncated": False}
     return iam
 
 
@@ -253,6 +260,94 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
 
         # The only action was fully covered by standard_statements, so nothing is left to attach.
         self.iam.create_policy.assert_not_called()
+
+
+class TestAttachInstrumentationPermissionsPreflight(unittest.TestCase):
+    def setUp(self):
+        self.iam = make_iam_mock()
+        self.iam.create_policy.return_value = {"Policy": {"Arn": "arn:aws:iam::123:policy/X"}}
+        self.role_name = "DatadogIntegrationRole"
+        self.account_id = "123456789012"
+        self.partition = "aws"
+        self.site = "datadoghq.com"
+
+    def _mock_statements_response(self, statements):
+        body = json.dumps({"data": {"attributes": {"policy_statements": statements}}}).encode()
+        resp = Mock()
+        resp.read.return_value = body
+        return resp
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_oversize_candidate_set_preserves_existing_policies(self, mock_urlopen):
+        # A single statement whose Action list alone exceeds the managed-policy size limit can
+        # never be validly chunked; the preflight check must fail before any existing
+        # instrumentation policy is detached, so the previous (working) set stays attached.
+        huge_action_list = [f"service{i}:Action{i}" for i in range(2000)]
+        mock_urlopen.return_value = self._mock_statements_response(
+            [{"Effect": "Allow", "Action": huge_action_list, "Resource": "*"}]
+        )
+
+        attach_instrumentation_permissions(
+            self.iam, self.role_name, self.account_id, self.partition, self.site,
+            ["aws:ec2:instance"], (),
+        )
+
+        self.iam.create_policy.assert_not_called()
+        self.iam.detach_role_policy.assert_not_called()
+        self.iam.delete_policy.assert_not_called()
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_fail_on_error_raises_on_preflight_failure(self, mock_urlopen):
+        huge_action_list = [f"service{i}:Action{i}" for i in range(2000)]
+        mock_urlopen.return_value = self._mock_statements_response(
+            [{"Effect": "Allow", "Action": huge_action_list, "Resource": "*"}]
+        )
+
+        with self.assertRaises(InstrumentationPolicyLimitError):
+            attach_instrumentation_permissions(
+                self.iam, self.role_name, self.account_id, self.partition, self.site,
+                ["aws:ec2:instance"], (), fail_on_error=True,
+            )
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_existing_non_instrumentation_policies_count_against_the_quota(self, mock_urlopen):
+        mock_urlopen.return_value = self._mock_statements_response(
+            [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]
+        )
+        self.iam.list_attached_role_policies.return_value = {
+            "AttachedPolicies": [
+                {"PolicyName": f"SomeOtherPolicy{i}"} for i in range(MAX_ATTACHED_MANAGED_POLICIES)
+            ],
+            "IsTruncated": False,
+        }
+
+        with self.assertRaises(InstrumentationPolicyLimitError):
+            attach_instrumentation_permissions(
+                self.iam, self.role_name, self.account_id, self.partition, self.site,
+                ["aws:ec2:instance"], (), fail_on_error=True,
+            )
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_existing_instrumentation_policies_do_not_count_against_the_quota(self, mock_urlopen):
+        # The instrumentation policies about to be replaced by cleanup_instrumentation_policies
+        # must not count against the quota for the replacement set.
+        mock_urlopen.return_value = self._mock_statements_response(
+            [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]
+        )
+        self.iam.list_attached_role_policies.return_value = {
+            "AttachedPolicies": [
+                {"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-{i+1}"}
+                for i in range(MAX_ATTACHED_MANAGED_POLICIES)
+            ],
+            "IsTruncated": False,
+        }
+
+        attach_instrumentation_permissions(
+            self.iam, self.role_name, self.account_id, self.partition, self.site,
+            ["aws:ec2:instance"], (), fail_on_error=True,
+        )
+
+        self.iam.create_policy.assert_called_once()
 
 
 class TestCleanup(unittest.TestCase):
@@ -507,6 +602,21 @@ class TestResolveInstrumentationStatementChunks(unittest.TestCase):
         chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", standard)
         self.assertEqual(chunks, [])
 
+    def test_structured_statements_are_size_chunked(self):
+        # Unlike the legacy permissions path (pre-chunked server-side), policy_statements is
+        # always unchunked and must be split locally to respect the managed-policy size limit.
+        statements = [
+            {"Effect": "Allow", "Action": [f"service{i}:Action{i}"], "Resource": "*"} for i in range(50)
+        ]
+        attributes = {"policy_statements": statements}
+        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [], max_size=200)
+        self.assertGreater(len(chunks), 1)
+        flattened = [s for chunk in chunks for s in chunk]
+        self.assertEqual(len(flattened), 50)
+        for chunk in chunks:
+            size = len(json.dumps({"Version": "2012-10-17", "Statement": chunk}, separators=(',', ':')))
+            self.assertLessEqual(size, 200)
+
 
 class TestFilterInstrumentationStatements(unittest.TestCase):
     def test_removes_action_when_standard_is_equivalent_or_broader(self):
@@ -578,6 +688,90 @@ class TestFilterInstrumentationStatements(unittest.TestCase):
         ]
         standard = [{"Action": ["iam:PassRole"], "Resource": "*"}]
         self.assertEqual(filter_instrumentation_statements(statements, standard), [])
+
+
+class TestChunkAndValidateStatements(unittest.TestCase):
+    def test_chunk_statements_never_exceeds_max_size(self):
+        statements = [
+            {"Effect": "Allow", "Action": [f"service{i}:Action{i}"], "Resource": "*"} for i in range(30)
+        ]
+        chunks = chunk_statements(statements, max_size=200)
+        for chunk in chunks:
+            size = len(json.dumps({"Version": "2012-10-17", "Statement": chunk}, separators=(',', ':')))
+            self.assertLessEqual(size, 200)
+        self.assertEqual(sum(len(c) for c in chunks), len(statements))
+
+    def test_chunk_statements_empty_input_returns_no_chunks(self):
+        self.assertEqual(chunk_statements([]), [])
+
+    def test_chunk_statements_oversize_single_statement_gets_its_own_chunk(self):
+        huge = {"Effect": "Allow", "Action": [f"service{i}:Action{i}" for i in range(500)], "Resource": "*"}
+        chunks = chunk_statements([huge], max_size=200)
+        self.assertEqual(chunks, [[huge]])
+
+    def test_validate_statement_chunks_passes_within_limits(self):
+        chunks = [[{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]]
+        validate_statement_chunks(chunks, ["aws:ec2:instance"], existing_attached_count=0)
+
+    def test_validate_statement_chunks_raises_on_oversize_chunk(self):
+        huge = [{"Effect": "Allow", "Action": [f"service{i}:Action{i}" for i in range(500)], "Resource": "*"}]
+        with self.assertRaises(InstrumentationPolicyLimitError):
+            validate_statement_chunks([huge], ["aws:ec2:instance"], existing_attached_count=0, max_size=200)
+
+    def test_validate_statement_chunks_raises_when_over_policy_attachment_limit(self):
+        chunks = [[{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}] for _ in range(5)]
+        with self.assertRaises(InstrumentationPolicyLimitError):
+            validate_statement_chunks(chunks, ["aws:ec2:instance"], existing_attached_count=8, max_policies=10)
+
+    def test_validate_statement_chunks_accounts_for_existing_attached_count(self):
+        chunks = [[{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]]
+        validate_statement_chunks(chunks, ["aws:ec2:instance"], existing_attached_count=9, max_policies=10)
+
+
+class TestCountNonInstrumentationAttachedPolicies(unittest.TestCase):
+    def setUp(self):
+        self.iam = make_iam_mock()
+        self.role_name = "DatadogIntegrationRole"
+
+    def test_counts_only_non_instrumentation_policies(self):
+        self.iam.list_attached_role_policies.return_value = {
+            "AttachedPolicies": [
+                {"PolicyName": POLICY_NAME_STANDARD},
+                {"PolicyName": f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{self.role_name}-1"},
+                {"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-1"},
+                {"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-2"},
+            ],
+            "IsTruncated": False,
+        }
+        self.assertEqual(_count_non_instrumentation_attached_policies(self.iam, self.role_name), 2)
+
+    def test_paginates_through_truncated_results(self):
+        self.iam.list_attached_role_policies.side_effect = [
+            {
+                "AttachedPolicies": [{"PolicyName": "SomePolicy1"}],
+                "IsTruncated": True,
+                "Marker": "page2",
+            },
+            {
+                "AttachedPolicies": [
+                    {"PolicyName": "SomePolicy2"},
+                    {"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-1"},
+                ],
+                "IsTruncated": False,
+            },
+        ]
+        self.assertEqual(_count_non_instrumentation_attached_policies(self.iam, self.role_name), 2)
+        second_call_kwargs = self.iam.list_attached_role_policies.call_args_list[1].kwargs
+        self.assertEqual(second_call_kwargs.get("Marker"), "page2")
+
+    def test_unrelated_policy_containing_instrumentation_prefix_still_counts(self):
+        # Exact-name match, not substring — a stale policy that merely contains the
+        # instrumentation prefix isn't touched by cleanup, so it must still count.
+        self.iam.list_attached_role_policies.return_value = {
+            "AttachedPolicies": [{"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-extra-unrelated"}],
+            "IsTruncated": False,
+        }
+        self.assertEqual(_count_non_instrumentation_attached_policies(self.iam, self.role_name), 1)
 
 
 if __name__ == "__main__":
