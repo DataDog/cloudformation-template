@@ -234,13 +234,13 @@ Resources:
               return standard_condition == instrumentation_condition
 
 
-          def _action_covered_by_standard(action, resource, condition, standard_statements):
-              for standard_statement in standard_statements:
-                  if action not in standard_statement.get("Action", []):
+          def _action_covered_by_standard(action, resource, condition, standard_index):
+              for action_set, standard_resource, standard_condition in standard_index:
+                  if action not in action_set:
                       continue
-                  if not _resource_covers(standard_statement.get("Resource", "*"), resource):
+                  if not _resource_covers(standard_resource, resource):
                       continue
-                  if not _condition_covers(standard_statement.get("Condition"), condition):
+                  if not _condition_covers(standard_condition, condition):
                       continue
                   return True
               return False
@@ -251,6 +251,11 @@ Resources:
               # grants an equivalent-or-broader permission across Action, Resource, and Condition.
               # Action-name-only filtering would silently drop scoped statements just because the same
               # action name also appears, unconditioned, in the standard policy.
+              # Action lists are converted to sets once here so each instrumentation action's membership
+              # check is O(1) instead of a fresh linear scan per action, per standard statement.
+              standard_index = [
+                  (set(s.get("Action", [])), s.get("Resource", "*"), s.get("Condition")) for s in standard_statements
+              ]
               filtered = []
               for statement in statements:
                   resource = statement.get("Resource", "*")
@@ -258,7 +263,7 @@ Resources:
                   kept_actions = [
                       action
                       for action in statement.get("Action", [])
-                      if not _action_covered_by_standard(action, resource, condition, standard_statements)
+                      if not _action_covered_by_standard(action, resource, condition, standard_index)
                   ]
                   if kept_actions:
                       filtered.append({**statement, "Action": kept_actions})
@@ -273,15 +278,23 @@ Resources:
               # Chunk by measured minified-document size, never splitting a statement's Action away from
               # its Resource/Condition. If a single statement alone exceeds max_size it still gets its own
               # (oversize) chunk; validate_statement_chunks is what catches that before anything is deleted.
+              # Tracks the running document size incrementally (base wrapper + each statement's own
+              # serialized size + one comma per additional array element) instead of re-serializing the
+              # whole accumulated chunk on every statement, which would be O(n^2) in the chunk size.
+              base_size = _policy_document_size([])
               chunks = []
               current = []
+              current_size = base_size
               for statement in statements:
-                  candidate = current + [statement]
-                  if current and _policy_document_size(candidate) > max_size:
+                  statement_size = len(json.dumps(statement, separators=(',', ':')))
+                  candidate_size = current_size + statement_size + (1 if current else 0)
+                  if current and candidate_size > max_size:
                       chunks.append(current)
                       current = [statement]
+                      current_size = base_size + statement_size
                   else:
-                      current = candidate
+                      current.append(statement)
+                      current_size = candidate_size
               if current:
                   chunks.append(current)
               return chunks
@@ -327,15 +340,12 @@ Resources:
               # prefix isn't touched by cleanup and must still count against the attachment quota.
               instrumentation_names = set(_chunked_policy_names(role_name, BASE_POLICY_PREFIX_INSTRUMENTATION))
               count = 0
-              kwargs = {"RoleName": role_name}
-              while True:
-                  response = iam_client.list_attached_role_policies(**kwargs)
-                  for policy in response.get("AttachedPolicies", []):
+              paginator = iam_client.get_paginator("list_attached_role_policies")
+              for page in paginator.paginate(RoleName=role_name):
+                  for policy in page.get("AttachedPolicies", []):
                       if policy.get("PolicyName", "") not in instrumentation_names:
                           count += 1
-                  if not response.get("IsTruncated"):
-                      return count
-                  kwargs["Marker"] = response["Marker"]
+              return count
 
 
           def _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name):
@@ -404,12 +414,6 @@ Resources:
               return permissions
 
 
-          def _create_and_attach_policy(iam_client, role_name, policy_name, actions):
-              _create_and_attach_statement_policy(
-                  iam_client, role_name, policy_name, [{"Effect": "Allow", "Action": actions, "Resource": "*"}]
-              )
-
-
           def _create_and_attach_statement_policy(iam_client, role_name, policy_name, statements):
               policy_json = json.dumps(
                   {"Version": "2012-10-17", "Statement": statements},
@@ -423,11 +427,11 @@ Resources:
           def attach_resource_collection_permissions(iam_client, role_name):
               permission_chunks = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
               for i, chunk in enumerate(permission_chunks):
-                  _create_and_attach_policy(
+                  _create_and_attach_statement_policy(
                       iam_client,
                       role_name,
                       f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{role_name}-{i+1}",
-                      chunk,
+                      [{"Effect": "Allow", "Action": chunk, "Resource": "*"}],
                   )
 
 

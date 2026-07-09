@@ -47,8 +47,13 @@ def make_iam_mock(cleanup_side_effects=True):
     if cleanup_side_effects:
         iam.detach_role_policy.side_effect = iam.exceptions.NoSuchEntityException
         iam.delete_policy.side_effect = iam.exceptions.NoSuchEntityException
-    iam.list_attached_role_policies.return_value = {"AttachedPolicies": [], "IsTruncated": False}
+    set_attached_policies(iam, [])
     return iam
+
+
+def set_attached_policies(iam, attached_policies, extra_pages=()):
+    pages = [{"AttachedPolicies": attached_policies}, *extra_pages]
+    iam.get_paginator.return_value.paginate.return_value = pages
 
 
 def detached_arns(iam):
@@ -314,12 +319,9 @@ class TestAttachInstrumentationPermissionsPreflight(unittest.TestCase):
         mock_urlopen.return_value = self._mock_statements_response(
             [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]
         )
-        self.iam.list_attached_role_policies.return_value = {
-            "AttachedPolicies": [
-                {"PolicyName": f"SomeOtherPolicy{i}"} for i in range(MAX_ATTACHED_MANAGED_POLICIES)
-            ],
-            "IsTruncated": False,
-        }
+        set_attached_policies(
+            self.iam, [{"PolicyName": f"SomeOtherPolicy{i}"} for i in range(MAX_ATTACHED_MANAGED_POLICIES)]
+        )
 
         with self.assertRaises(InstrumentationPolicyLimitError):
             attach_instrumentation_permissions(
@@ -334,13 +336,13 @@ class TestAttachInstrumentationPermissionsPreflight(unittest.TestCase):
         mock_urlopen.return_value = self._mock_statements_response(
             [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]
         )
-        self.iam.list_attached_role_policies.return_value = {
-            "AttachedPolicies": [
+        set_attached_policies(
+            self.iam,
+            [
                 {"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-{i+1}"}
                 for i in range(MAX_ATTACHED_MANAGED_POLICIES)
             ],
-            "IsTruncated": False,
-        }
+        )
 
         attach_instrumentation_permissions(
             self.iam, self.role_name, self.account_id, self.partition, self.site,
@@ -734,43 +736,38 @@ class TestCountNonInstrumentationAttachedPolicies(unittest.TestCase):
         self.role_name = "DatadogIntegrationRole"
 
     def test_counts_only_non_instrumentation_policies(self):
-        self.iam.list_attached_role_policies.return_value = {
-            "AttachedPolicies": [
+        set_attached_policies(
+            self.iam,
+            [
                 {"PolicyName": POLICY_NAME_STANDARD},
                 {"PolicyName": f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{self.role_name}-1"},
                 {"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-1"},
                 {"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-2"},
             ],
-            "IsTruncated": False,
-        }
+        )
         self.assertEqual(_count_non_instrumentation_attached_policies(self.iam, self.role_name), 2)
 
     def test_paginates_through_truncated_results(self):
-        self.iam.list_attached_role_policies.side_effect = [
-            {
-                "AttachedPolicies": [{"PolicyName": "SomePolicy1"}],
-                "IsTruncated": True,
-                "Marker": "page2",
-            },
-            {
-                "AttachedPolicies": [
-                    {"PolicyName": "SomePolicy2"},
-                    {"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-1"},
-                ],
-                "IsTruncated": False,
-            },
-        ]
+        set_attached_policies(
+            self.iam,
+            [{"PolicyName": "SomePolicy1"}],
+            extra_pages=[
+                {
+                    "AttachedPolicies": [
+                        {"PolicyName": "SomePolicy2"},
+                        {"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-1"},
+                    ],
+                },
+            ],
+        )
         self.assertEqual(_count_non_instrumentation_attached_policies(self.iam, self.role_name), 2)
-        second_call_kwargs = self.iam.list_attached_role_policies.call_args_list[1].kwargs
-        self.assertEqual(second_call_kwargs.get("Marker"), "page2")
+        self.iam.get_paginator.assert_called_once_with("list_attached_role_policies")
+        self.iam.get_paginator.return_value.paginate.assert_called_once_with(RoleName=self.role_name)
 
     def test_unrelated_policy_containing_instrumentation_prefix_still_counts(self):
         # Exact-name match, not substring — a stale policy that merely contains the
         # instrumentation prefix isn't touched by cleanup, so it must still count.
-        self.iam.list_attached_role_policies.return_value = {
-            "AttachedPolicies": [{"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-extra-unrelated"}],
-            "IsTruncated": False,
-        }
+        set_attached_policies(self.iam, [{"PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-extra-unrelated"}])
         self.assertEqual(_count_non_instrumentation_attached_policies(self.iam, self.role_name), 1)
 
 
