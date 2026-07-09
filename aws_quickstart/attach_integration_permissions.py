@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from urllib.request import Request
 import urllib.error
 import urllib.parse
@@ -98,20 +99,77 @@ def legacy_chunk_to_statement(chunk):
     return {"Effect": "Allow", "Action": list(chunk), "Resource": "*"}
 
 
+def _is_nonblank_string_or_list(value):
+    # .strip() only tests for blankness — it never rewrites the value, so a legitimately-formatted
+    # field passes through untouched.
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return bool(value) and all(isinstance(v, str) and v.strip() for v in value)
+    return False
+
+
+def _validate_action_field(action, context):
+    # A statement/chunk with a missing, null, or empty Action silently disappears in
+    # filter_instrumentation_statements (kept_actions ends up empty), which can collapse the
+    # entire candidate set to [] and trigger the same wipe-previously-attached-policies failure
+    # mode as a missing top-level field — just one level deeper.
+    if not _is_nonblank_string_or_list(action):
+        raise DatadogAPIError(f"Datadog API returned a statement with an invalid Action field: {action!r} ({context})")
+
+
+def _validate_policy_statement(statement, context):
+    # A statement missing Effect/Resource, or with a non-"Allow" Effect, passes prep and
+    # reaches cleanup_instrumentation_policies before create_policy rejects it as malformed —
+    # the same wipe-previously-attached-policies failure mode as an invalid Action.
+    if not isinstance(statement, dict):
+        raise DatadogAPIError(f"Datadog API returned a non-dict statement: {statement!r} ({context})")
+    if statement.get("Effect") != "Allow":
+        raise DatadogAPIError(
+            f"Datadog API returned a statement with an invalid Effect field: {statement.get('Effect')!r} ({context})"
+        )
+    _validate_action_field(statement.get("Action"), context)
+    resource = statement.get("Resource")
+    if not _is_nonblank_string_or_list(resource):
+        raise DatadogAPIError(f"Datadog API returned a statement with an invalid Resource field: {resource!r} ({context})")
+    condition = statement.get("Condition")
+    if condition is not None and not isinstance(condition, dict):
+        raise DatadogAPIError(f"Datadog API returned a statement with an invalid Condition field: {condition!r} ({context})")
+
+
 def resolve_instrumentation_statement_chunks(
     attributes, account_id, partition, standard_statements, max_size=MAX_MANAGED_POLICY_SIZE
 ):
     # Prefer structured policy_statements when the API provides them; policy_statements is
-    # always unchunked, so QuickStart renders, filters, and chunks it by size (Task 5).
+    # always unchunked, so QuickStart renders, filters, and chunks it by size.
     # permissions is pre-chunked server-side for the legacy fallback — filter each chunk but
     # preserve its boundaries rather than re-chunking, since dd-source already sized it to fit.
     policy_statements = attributes.get("policy_statements")
     if policy_statements is not None:
+        if not isinstance(policy_statements, list):
+            raise DatadogAPIError(
+                f"Datadog API returned non-list policy_statements: {type(policy_statements).__name__}"
+            )
+        for statement in policy_statements:
+            _validate_policy_statement(statement, "policy_statements")
         rendered = [render_placeholders(s, account_id, partition) for s in policy_statements]
         filtered = filter_instrumentation_statements(rendered, standard_statements)
         return chunk_statements(filtered, max_size=max_size)
 
-    legacy_statements = [legacy_chunk_to_statement(chunk) for chunk in attributes.get("permissions", [])]
+    # policy_statements missing or null falls back to the legacy permissions field, but that
+    # field must actually be present and a list — schema drift that drops both fields must raise
+    # here rather than silently resolving to an empty candidate set, which attach_instrumentation_permissions
+    # would treat as a valid "nothing to attach" and use to wipe previously-attached policies.
+    if "permissions" not in attributes:
+        raise DatadogAPIError("Datadog API response is missing both policy_statements and permissions")
+    legacy_permissions = attributes["permissions"]
+    if not isinstance(legacy_permissions, list):
+        raise DatadogAPIError(
+            f"Datadog API returned non-list permissions: {type(legacy_permissions).__name__}"
+        )
+    for chunk in legacy_permissions:
+        _validate_action_field(chunk if isinstance(chunk, list) else None, "permissions")
+    legacy_statements = [legacy_chunk_to_statement(chunk) for chunk in legacy_permissions]
     filtered = filter_instrumentation_statements(legacy_statements, standard_statements)
     return [[statement] for statement in filtered]
 
@@ -135,9 +193,25 @@ def _condition_covers(standard_condition, instrumentation_condition):
     return standard_condition == instrumentation_condition
 
 
+def _as_action_list(action):
+    # IAM's Action field may be a single string or a list; a bare string must not be iterated
+    # character-by-character.
+    if action is None:
+        return []
+    return action if isinstance(action, list) else [action]
+
+
+def _iam_action_matches(action, pattern):
+    # IAM action wildcards only recognize "*" and "?"; fnmatch also grants bracket
+    # character-class syntax that IAM does not, which could over-match an action pattern
+    # containing literal brackets.
+    regex = "".join(".*" if ch == "*" else "." if ch == "?" else re.escape(ch) for ch in pattern)
+    return re.fullmatch(regex, action) is not None
+
+
 def _action_covered_by_standard(action, resource, condition, standard_index):
-    for action_set, standard_resource, standard_condition in standard_index:
-        if action not in action_set:
+    for action_patterns, standard_resource, standard_condition in standard_index:
+        if not any(_iam_action_matches(action.lower(), pattern.lower()) for pattern in action_patterns):
             continue
         if not _resource_covers(standard_resource, resource):
             continue
@@ -152,10 +226,8 @@ def filter_instrumentation_statements(statements, standard_statements):
     # grants an equivalent-or-broader permission across Action, Resource, and Condition.
     # Action-name-only filtering would silently drop scoped statements just because the same
     # action name also appears, unconditioned, in the standard policy.
-    # Action lists are converted to sets once here so each instrumentation action's membership
-    # check is O(1) instead of a fresh linear scan per action, per standard statement.
     standard_index = [
-        (set(s.get("Action", [])), s.get("Resource", "*"), s.get("Condition")) for s in standard_statements
+        (_as_action_list(s.get("Action", [])), s.get("Resource", "*"), s.get("Condition")) for s in standard_statements
     ]
     filtered = []
     for statement in statements:
@@ -163,7 +235,7 @@ def filter_instrumentation_statements(statements, standard_statements):
         condition = statement.get("Condition")
         kept_actions = [
             action
-            for action in statement.get("Action", [])
+            for action in _as_action_list(statement.get("Action", []))
             if not _action_covered_by_standard(action, resource, condition, standard_index)
         ]
         if kept_actions:
@@ -171,17 +243,18 @@ def filter_instrumentation_statements(statements, standard_statements):
     return filtered
 
 
+def _policy_document_json(statements):
+    return json.dumps({"Version": "2012-10-17", "Statement": statements}, separators=(',', ':'))
+
+
 def _policy_document_size(statements):
-    return len(json.dumps({"Version": "2012-10-17", "Statement": statements}, separators=(',', ':')))
+    return len(_policy_document_json(statements))
 
 
 def chunk_statements(statements, max_size=MAX_MANAGED_POLICY_SIZE):
     # Chunk by measured minified-document size, never splitting a statement's Action away from
     # its Resource/Condition. If a single statement alone exceeds max_size it still gets its own
     # (oversize) chunk; validate_statement_chunks is what catches that before anything is deleted.
-    # Tracks the running document size incrementally (base wrapper + each statement's own
-    # serialized size + one comma per additional array element) instead of re-serializing the
-    # whole accumulated chunk on every statement, which would be O(n^2) in the chunk size.
     base_size = _policy_document_size([])
     chunks = []
     current = []
@@ -237,8 +310,7 @@ def _chunked_policy_names(role_name, prefix, max_policies=MAX_ATTACHED_MANAGED_P
 
 def _count_non_instrumentation_attached_policies(iam_client, role_name):
     # Exact-name match against what cleanup_instrumentation_policies actually deletes, not a
-    # substring check — a stale/unrelated policy whose name merely contains the instrumentation
-    # prefix isn't touched by cleanup and must still count against the attachment quota.
+    # substring check.
     instrumentation_names = set(_chunked_policy_names(role_name, BASE_POLICY_PREFIX_INSTRUMENTATION))
     count = 0
     paginator = iam_client.get_paginator("list_attached_role_policies")
@@ -303,23 +375,16 @@ def cleanup_legacy_base_policies(iam_client, role_name, account_id, partition, m
 
 def attach_standard_permissions(iam_client, role_name):
     permissions = fetch_permissions_from_datadog(STANDARD_PERMISSIONS_API_URL)
-    policy_document = {
-        "Version": "2012-10-17",
-        "Statement": [{"Effect": "Allow", "Action": permissions, "Resource": "*"}],
-    }
     iam_client.put_role_policy(
         RoleName=role_name,
         PolicyName=POLICY_NAME_STANDARD,
-        PolicyDocument=json.dumps(policy_document, separators=(',', ':')),
+        PolicyDocument=_policy_document_json([{"Effect": "Allow", "Action": permissions, "Resource": "*"}]),
     )
     return permissions
 
 
 def _create_and_attach_statement_policy(iam_client, role_name, policy_name, statements):
-    policy_json = json.dumps(
-        {"Version": "2012-10-17", "Statement": statements},
-        separators=(',', ':'),
-    )
+    policy_json = _policy_document_json(statements)
     LOGGER.info(f"Creating policy {policy_name} with {len(statements)} statements ({len(policy_json)} characters)")
     policy = iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
     iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy['Policy']['Arn'])
@@ -347,13 +412,11 @@ def attach_instrumentation_permissions(
     # Fetch before cleanup so that a transient API failure on an Update leaves the
     # previously-attached policies in place instead of silently revoking them.
     #
-    # standard_statements defaults to empty (no filtering): filtering is only safe when the caller
-    # knows what's actually attached to this role. The role-creation path passes the exact
-    # permissions it just attached via attach_standard_permissions in this same invocation; the
-    # add-on path (ManageBasePermissions=false) doesn't manage or verify the role's standard
-    # permissions, so it can't assume the *current* Datadog standard permission list reflects
-    # what's really on the role — filtering against that would risk dropping instrumentation
-    # actions the role doesn't actually have covered.
+    # standard_statements defaults to empty (no filtering): filtering is only safe when the
+    # caller knows what's actually attached. The role-creation path passes what it just attached
+    # via attach_standard_permissions in this same invocation; the add-on path
+    # (ManageBasePermissions=false) can't verify the role's real standard permissions, so it must
+    # skip filtering.
     if not resource_types:
         # Only clean up if the previous Update had instrumentation enabled — avoids running
         # delete calls on stacks that never opted in to instrumentation in the first place.

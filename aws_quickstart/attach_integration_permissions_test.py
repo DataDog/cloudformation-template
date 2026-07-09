@@ -29,6 +29,7 @@ from attach_integration_permissions import (
     chunk_statements,
     validate_statement_chunks,
     _count_non_instrumentation_attached_policies,
+    DatadogAPIError,
     InstrumentationPolicyLimitError,
     MAX_MANAGED_POLICY_SIZE,
     MAX_ATTACHED_MANAGED_POLICIES,
@@ -619,6 +620,138 @@ class TestResolveInstrumentationStatementChunks(unittest.TestCase):
             size = len(json.dumps({"Version": "2012-10-17", "Statement": chunk}, separators=(',', ':')))
             self.assertLessEqual(size, 200)
 
+    def test_missing_both_fields_raises_instead_of_resolving_empty(self):
+        # Regression: schema drift that drops both policy_statements and permissions must not
+        # silently resolve to an empty candidate set — that would look like a valid "nothing to
+        # attach" result and cause the caller to wipe previously-attached instrumentation policies.
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks({}, "123456789012", "aws", [])
+
+    def test_null_policy_statements_falls_back_to_legacy(self):
+        attributes = {"policy_statements": None, "permissions": [["ec2:DescribeInstances"]]}
+        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+        self.assertEqual(chunks, [[legacy_chunk_to_statement(["ec2:DescribeInstances"])]])
+
+    def test_null_policy_statements_with_missing_permissions_raises(self):
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks({"policy_statements": None}, "123456789012", "aws", [])
+
+    def test_wrong_type_policy_statements_raises(self):
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(
+                {"policy_statements": "not-a-list"}, "123456789012", "aws", []
+            )
+
+    def test_wrong_type_permissions_raises(self):
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks({"permissions": "not-a-list"}, "123456789012", "aws", [])
+
+    def test_wrong_type_permissions_chunk_raises(self):
+        # permissions must be a list of chunks (each a list of action strings); a top-level list
+        # of bare strings would otherwise be silently iterated character-by-character downstream.
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(
+                {"permissions": ["ec2:DescribeInstances"]}, "123456789012", "aws", []
+            )
+
+    def test_policy_statement_missing_action_raises(self):
+        # A present statement with no Action would otherwise be silently dropped by
+        # filter_instrumentation_statements, collapsing the whole candidate set to [] and
+        # triggering the same wipe-previously-attached-policies failure mode as a missing
+        # top-level field.
+        attributes = {"policy_statements": [{"Effect": "Allow", "Resource": "*"}]}
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+
+    def test_policy_statement_empty_action_list_raises(self):
+        attributes = {"policy_statements": [{"Effect": "Allow", "Action": [], "Resource": "*"}]}
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+
+    def test_policy_statement_non_string_action_element_raises(self):
+        attributes = {"policy_statements": [{"Effect": "Allow", "Action": [123], "Resource": "*"}]}
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+
+    def test_legacy_chunk_with_empty_list_raises(self):
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks({"permissions": [[]]}, "123456789012", "aws", [])
+
+    def test_legacy_chunk_with_non_string_element_raises(self):
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks({"permissions": [[123]]}, "123456789012", "aws", [])
+
+    def test_policy_statement_non_dict_raises(self):
+        attributes = {"policy_statements": ["not-a-dict"]}
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+
+    def test_policy_statement_missing_effect_raises(self):
+        # A statement missing Effect/Resource would otherwise pass prep, reach cleanup, and
+        # only fail once create_policy rejects it as malformed — wiping previously-attached
+        # policies with nothing successfully re-attached in their place.
+        attributes = {"policy_statements": [{"Action": ["ec2:DescribeInstances"], "Resource": "*"}]}
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+
+    def test_policy_statement_deny_effect_raises(self):
+        attributes = {
+            "policy_statements": [{"Effect": "Deny", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]
+        }
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+
+    def test_policy_statement_missing_resource_raises(self):
+        attributes = {"policy_statements": [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"]}]}
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+
+    def test_policy_statement_non_dict_condition_raises(self):
+        attributes = {
+            "policy_statements": [
+                {"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*", "Condition": "not-a-dict"}
+            ]
+        }
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+
+    def test_policy_statement_whitespace_only_action_raises(self):
+        attributes = {"policy_statements": [{"Effect": "Allow", "Action": "   ", "Resource": "*"}]}
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+
+    def test_policy_statement_whitespace_only_action_element_raises(self):
+        attributes = {
+            "policy_statements": [
+                {"Effect": "Allow", "Action": ["ec2:DescribeInstances", "   "], "Resource": "*"}
+            ]
+        }
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+
+    def test_policy_statement_whitespace_only_resource_raises(self):
+        attributes = {"policy_statements": [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "  "}]}
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+
+    def test_legacy_chunk_with_whitespace_only_element_raises(self):
+        with self.assertRaises(DatadogAPIError):
+            resolve_instrumentation_statement_chunks({"permissions": [["   "]]}, "123456789012", "aws", [])
+
+    def test_strip_check_does_not_mutate_action_or_resource_values(self):
+        # .strip() is used only to detect blank strings; it must never rewrite the stored Action
+        # or Resource value, or a legitimately-formatted (if oddly spaced) statement would be
+        # silently altered on its way through.
+        attributes = {
+            "policy_statements": [
+                {"Effect": "Allow", "Action": [" ec2:DescribeInstances "], "Resource": " * "}
+            ]
+        }
+        chunks = resolve_instrumentation_statement_chunks(attributes, "123456789012", "aws", [])
+        self.assertEqual(
+            chunks, [[{"Effect": "Allow", "Action": [" ec2:DescribeInstances "], "Resource": " * "}]]
+        )
+
 
 class TestFilterInstrumentationStatements(unittest.TestCase):
     def test_removes_action_when_standard_is_equivalent_or_broader(self):
@@ -690,6 +823,53 @@ class TestFilterInstrumentationStatements(unittest.TestCase):
         ]
         standard = [{"Action": ["iam:PassRole"], "Resource": "*"}]
         self.assertEqual(filter_instrumentation_statements(statements, standard), [])
+
+    def test_standard_wildcard_action_covers_concrete_instrumentation_action(self):
+        # The standard role policy commonly grants patterns like "ec2:Describe*"; a concrete
+        # instrumentation action matching that pattern must be treated as already covered,
+        # rather than kept as redundant and pushed into the size/quota preflight.
+        statements = [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]
+        standard = [{"Action": ["ec2:Describe*"], "Resource": "*"}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), [])
+
+    def test_standard_wildcard_action_match_is_case_insensitive(self):
+        statements = [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]
+        standard = [{"Action": ["EC2:describe*"], "Resource": "*"}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), [])
+
+    def test_standard_wildcard_action_does_not_match_unrelated_service(self):
+        statements = [{"Effect": "Allow", "Action": ["eks:DescribeCluster"], "Resource": "*"}]
+        standard = [{"Action": ["ec2:Describe*"], "Resource": "*"}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), statements)
+
+    def test_standard_action_as_bare_string_is_not_iterated_as_characters(self):
+        # IAM's Action field may be a single string rather than a list; treating it as an
+        # iterable of characters would falsely "match" via fnmatch against single-char patterns.
+        statements = [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}]
+        standard = [{"Action": "ec2:Describe*", "Resource": "*"}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), [])
+
+    def test_instrumentation_action_as_bare_string_is_not_iterated_as_characters(self):
+        # The instrumentation statement's own Action field may also be a bare string; it must be
+        # normalized to a single-element list, not iterated as characters.
+        statements = [{"Effect": "Allow", "Action": "ec2:DescribeInstances", "Resource": "*"}]
+        standard = [{"Action": ["ec2:DescribeInstances"], "Resource": "*"}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), [])
+
+    def test_instrumentation_action_as_bare_string_is_kept_when_uncovered(self):
+        statements = [{"Effect": "Allow", "Action": "ec2:DescribeInstances", "Resource": "*"}]
+        standard = [{"Action": ["iam:PassRole"], "Resource": "*"}]
+        self.assertEqual(
+            filter_instrumentation_statements(statements, standard),
+            [{"Effect": "Allow", "Action": ["ec2:DescribeInstances"], "Resource": "*"}],
+        )
+
+    def test_standard_action_bracket_characters_are_matched_literally(self):
+        # IAM action wildcards only recognize "*" and "?"; fnmatch's bracket character-class
+        # syntax must not be honored, or a literal "[" in an action pattern would over-match.
+        statements = [{"Effect": "Allow", "Action": ["ec2:Describe[Instances]"], "Resource": "*"}]
+        standard = [{"Action": ["ec2:Describe[a]"], "Resource": "*"}]
+        self.assertEqual(filter_instrumentation_statements(statements, standard), statements)
 
 
 class TestChunkAndValidateStatements(unittest.TestCase):
