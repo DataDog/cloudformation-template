@@ -50,9 +50,6 @@ if aws s3api head-object --bucket "$BUCKET" --key "$VERSIONED_KEY" >/dev/null 2>
     exit 1
 fi
 
-echo "Validating ${TEMPLATE}..."
-aws cloudformation validate-template --template-body "file://${TEMPLATE}" > /dev/null
-
 echo "About to publish ${VERSION} to s3://${BUCKET}/${PREFIX}/ (${VERSION}.yaml + latest.yaml)"
 if [ "$AUTO_YES" = false ]; then
     read -p "Continue (y/n)?" CONT
