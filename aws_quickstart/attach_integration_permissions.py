@@ -33,13 +33,14 @@ LEGACY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection
 STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
 RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
 INSTRUMENTATION_PERMISSIONS_API_PATH = "/api/unstable/instrumenter/aws/iam_permissions"
+MANAGED_POLICY_CHAR_LIMIT = 6144
 
 
 class DatadogAPIError(Exception):
     pass
 
 
-def fetch_permissions_from_datadog(api_url):
+def fetch_permissions_attributes_from_datadog(api_url):
     headers = {
         "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
     }
@@ -53,7 +54,36 @@ def fetch_permissions_from_datadog(api_url):
         error_message = error_body.get('errors', ['Unknown error'])[0]
         raise DatadogAPIError(f"Datadog API error: {error_message}") from e
 
-    return json.loads(response.read())["data"]["attributes"]["permissions"]
+    return json.loads(response.read())["data"]["attributes"]
+
+
+def fetch_permissions_from_datadog(api_url):
+    return fetch_permissions_attributes_from_datadog(api_url)["permissions"]
+
+
+def fetch_instrumentation_policy_documents(api_url):
+    attributes = fetch_permissions_attributes_from_datadog(api_url)
+    policy_documents = attributes.get("policy_documents")
+    if policy_documents is not None:
+        if not policy_documents:
+            raise DatadogAPIError("Datadog API returned no instrumentation policy documents")
+        for document in policy_documents:
+            _serialize_policy_document(document)
+        return policy_documents
+
+    permission_chunks = attributes.get("permissions")
+    if not permission_chunks:
+        raise DatadogAPIError("Datadog API returned neither policy_documents nor permissions")
+    if isinstance(permission_chunks[0], str):
+        permission_chunks = [permission_chunks]
+    LOGGER.warning("Datadog API does not expose policy_documents yet; using legacy broad permissions")
+    return [
+        {
+            "Version": "2012-10-17",
+            "Statement": [{"Effect": "Allow", "Action": chunk, "Resource": "*"}],
+        }
+        for chunk in permission_chunks
+    ]
 
 
 def parse_resource_types(raw):
@@ -65,9 +95,14 @@ def parse_resource_types(raw):
     return [t.strip() for t in items if t and t.strip()]
 
 
-def build_instrumentation_permissions_url(datadog_site, resource_types):
+def build_instrumentation_permissions_url(datadog_site, resource_types, account_id, partition):
     query = urllib.parse.urlencode(
-        [("resource_type", t) for t in resource_types] + [("chunked", "true")]
+        [("resource_type", t) for t in resource_types]
+        + [
+            ("account_id", account_id),
+            ("partition", partition),
+            ("chunked", "true"),
+        ]
     )
     return f"https://api.{datadog_site}{INSTRUMENTATION_PERMISSIONS_API_PATH}?{query}"
 
@@ -75,12 +110,14 @@ def build_instrumentation_permissions_url(datadog_site, resource_types):
 def _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name):
     # Detach + delete are both no-ops if the entity is already gone, so callers can blindly
     # iterate the policy-name space without first checking what actually exists.
+    errors = []
     try:
         iam_client.detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
     except iam_client.exceptions.NoSuchEntityException:
         pass
     except Exception as e:
         LOGGER.error(f"Error detaching policy {policy_name}: {str(e)}")
+        errors.append(f"detach {policy_name}: {e}")
 
     try:
         iam_client.delete_policy(PolicyArn=policy_arn)
@@ -88,8 +125,11 @@ def _detach_and_delete_policy(iam_client, role_name, policy_arn, policy_name):
         pass
     except iam_client.exceptions.DeleteConflictException:
         LOGGER.warning(f"Policy {policy_name} still attached, skipping delete")
+        errors.append(f"delete {policy_name}: policy is still attached")
     except Exception as e:
         LOGGER.error(f"Error deleting policy {policy_name}: {str(e)}")
+        errors.append(f"delete {policy_name}: {e}")
+    return errors
 
 
 def _cleanup_chunked_policies(iam_client, role_name, account_id, partition, prefix, max_policies=10):
@@ -138,17 +178,36 @@ def attach_standard_permissions(iam_client, role_name):
     )
 
 
-def _create_and_attach_policy(iam_client, role_name, policy_name, actions):
-    policy_json = json.dumps(
-        {
-            "Version": "2012-10-17",
-            "Statement": [{"Effect": "Allow", "Action": actions, "Resource": "*"}],
-        },
-        separators=(',', ':'),
-    )
-    LOGGER.info(f"Creating policy {policy_name} with {len(actions)} permissions ({len(policy_json)} characters)")
+def _serialize_policy_document(policy_document):
+    if not isinstance(policy_document, dict):
+        raise DatadogAPIError("instrumentation policy document must be an object")
+    if policy_document.get("Version") != "2012-10-17":
+        raise DatadogAPIError("instrumentation policy document has an unsupported version")
+    if not isinstance(policy_document.get("Statement"), list) or not policy_document["Statement"]:
+        raise DatadogAPIError("instrumentation policy document must contain statements")
+
+    policy_json = json.dumps(policy_document, separators=(',', ':'))
+    if len(policy_json) > MANAGED_POLICY_CHAR_LIMIT:
+        raise DatadogAPIError(
+            f"instrumentation policy document exceeds {MANAGED_POLICY_CHAR_LIMIT} characters"
+        )
+    return policy_json
+
+
+def _create_policy(iam_client, policy_name, policy_document):
+    policy_json = _serialize_policy_document(policy_document)
+    LOGGER.info(f"Creating policy {policy_name} ({len(policy_json)} characters)")
     policy = iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
-    iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy['Policy']['Arn'])
+    return policy['Policy']['Arn']
+
+
+def _create_and_attach_policy(iam_client, role_name, policy_name, actions):
+    policy_document = {
+        "Version": "2012-10-17",
+        "Statement": [{"Effect": "Allow", "Action": actions, "Resource": "*"}],
+    }
+    policy_arn = _create_policy(iam_client, policy_name, policy_document)
+    iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
 
 
 def attach_resource_collection_permissions(iam_client, role_name):
@@ -162,13 +221,240 @@ def attach_resource_collection_permissions(iam_client, role_name):
         )
 
 
+def _list_attached_role_policies(iam_client, role_name):
+    policies = []
+    marker = None
+    while True:
+        request = {"RoleName": role_name}
+        if marker:
+            request["Marker"] = marker
+        response = iam_client.list_attached_role_policies(**request)
+        policies.extend(response.get("AttachedPolicies", []))
+        if not response.get("IsTruncated"):
+            return policies
+        marker = response["Marker"]
+
+
+def _list_policy_versions(iam_client, policy_arn):
+    versions = []
+    marker = None
+    while True:
+        request = {"PolicyArn": policy_arn}
+        if marker:
+            request["Marker"] = marker
+        response = iam_client.list_policy_versions(**request)
+        versions.extend(response.get("Versions", []))
+        if not response.get("IsTruncated"):
+            return versions
+        marker = response["Marker"]
+
+
+def _policy_quotas(iam_client):
+    summary = iam_client.get_account_summary().get("SummaryMap", {})
+    attachment_quota = summary.get("AttachedPoliciesPerRoleQuota")
+    version_quota = summary.get("VersionsPerPolicyQuota")
+    if not isinstance(attachment_quota, int) or attachment_quota < 1:
+        raise RuntimeError("IAM account summary did not include AttachedPoliciesPerRoleQuota")
+    if not isinstance(version_quota, int) or version_quota < 2:
+        raise RuntimeError("IAM account summary did not include VersionsPerPolicyQuota")
+    return attachment_quota, version_quota
+
+
+def _instrumentation_policy_name(role_name, index):
+    return f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{index}"
+
+
+def _instrumentation_policy_index(policy_name, role_name):
+    prefix = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-"
+    if not policy_name.startswith(prefix):
+        return None
+    suffix = policy_name[len(prefix):]
+    if not suffix.isdigit() or int(suffix) < 1:
+        return None
+    return int(suffix)
+
+
+def _stage_policy_version(iam_client, policy_arn, policy_document, version_quota):
+    versions = _list_policy_versions(iam_client, policy_arn)
+    previous_default = next(
+        (version["VersionId"] for version in versions if version.get("IsDefaultVersion")),
+        None,
+    )
+    if previous_default is None:
+        raise RuntimeError(f"policy {policy_arn} has no default version")
+
+    non_default_versions = sorted(
+        (version for version in versions if not version.get("IsDefaultVersion")),
+        key=lambda version: int(version["VersionId"].removeprefix("v")),
+    )
+    while len(versions) >= version_quota:
+        if not non_default_versions:
+            raise RuntimeError(f"policy {policy_arn} has no removable non-default version")
+        version = non_default_versions.pop(0)
+        iam_client.delete_policy_version(
+            PolicyArn=policy_arn,
+            VersionId=version["VersionId"],
+        )
+        versions.remove(version)
+
+    response = iam_client.create_policy_version(
+        PolicyArn=policy_arn,
+        PolicyDocument=_serialize_policy_document(policy_document),
+        SetAsDefault=False,
+    )
+    return {
+        "PolicyArn": policy_arn,
+        "PreviousVersionId": previous_default,
+        "StagedVersionId": response["PolicyVersion"]["VersionId"],
+    }
+
+
+def _discard_staged_replacement(iam_client, role_name, staged_versions, created_policies):
+    cleanup_errors = []
+    for policy in reversed(created_policies):
+        if policy.get("AttachAttempted"):
+            try:
+                iam_client.detach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
+            except iam_client.exceptions.NoSuchEntityException:
+                pass
+            except Exception as e:
+                cleanup_errors.append(f"detach {policy['PolicyArn']}: {e}")
+        try:
+            iam_client.delete_policy(PolicyArn=policy["PolicyArn"])
+        except Exception as e:
+            cleanup_errors.append(f"delete {policy['PolicyArn']}: {e}")
+
+    for version in reversed(staged_versions):
+        if version.get("Activated"):
+            try:
+                iam_client.set_default_policy_version(
+                    PolicyArn=version["PolicyArn"],
+                    VersionId=version["PreviousVersionId"],
+                )
+            except Exception as e:
+                cleanup_errors.append(f"restore {version['PolicyArn']}: {e}")
+                continue
+        try:
+            iam_client.delete_policy_version(
+                PolicyArn=version["PolicyArn"],
+                VersionId=version["StagedVersionId"],
+            )
+        except Exception as e:
+            cleanup_errors.append(f"delete staged version for {version['PolicyArn']}: {e}")
+    return cleanup_errors
+
+
+def replace_instrumentation_policies(iam_client, role_name, account_id, partition, policy_documents):
+    attached_policies = _list_attached_role_policies(iam_client, role_name)
+    attachment_quota, version_quota = _policy_quotas(iam_client)
+    existing_policies = {}
+    for policy in attached_policies:
+        index = _instrumentation_policy_index(policy["PolicyName"], role_name)
+        if index is not None:
+            existing_policies[index] = policy
+
+    non_instrumentation_count = len(attached_policies) - len(existing_policies)
+    final_attachment_count = non_instrumentation_count + len(policy_documents)
+    if final_attachment_count > attachment_quota:
+        raise RuntimeError(
+            f"role {role_name} has room for only "
+            f"{attachment_quota - non_instrumentation_count} instrumentation policies, "
+            f"but Datadog returned {len(policy_documents)}"
+        )
+
+    LOGGER.info(
+        f"Replacing {len(existing_policies)} instrumentation policies with "
+        f"{len(policy_documents)} documents; final managed-policy usage "
+        f"{final_attachment_count}/{attachment_quota}"
+    )
+    ordered_existing_policies = [
+        policy for _, policy in sorted(existing_policies.items())
+    ]
+    used_policy_indices = set(existing_policies)
+    next_policy_index = 1
+    reused_policy_arns = set()
+    staged_versions = []
+    created_policies = []
+    try:
+        for document_index, policy_document in enumerate(policy_documents):
+            existing = (
+                ordered_existing_policies[document_index]
+                if document_index < len(ordered_existing_policies)
+                else None
+            )
+            if existing:
+                reused_policy_arns.add(existing["PolicyArn"])
+                staged_versions.append(
+                    _stage_policy_version(
+                        iam_client,
+                        existing["PolicyArn"],
+                        policy_document,
+                        version_quota,
+                    )
+                )
+                continue
+
+            while next_policy_index in used_policy_indices:
+                next_policy_index += 1
+            policy_name = _instrumentation_policy_name(role_name, next_policy_index)
+            used_policy_indices.add(next_policy_index)
+            policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
+            try:
+                iam_client.delete_policy(PolicyArn=policy_arn)
+            except iam_client.exceptions.NoSuchEntityException:
+                pass
+            created_policies.append({
+                "PolicyArn": _create_policy(iam_client, policy_name, policy_document),
+                "AttachAttempted": False,
+            })
+
+        for version in staged_versions:
+            iam_client.set_default_policy_version(
+                PolicyArn=version["PolicyArn"],
+                VersionId=version["StagedVersionId"],
+            )
+            version["Activated"] = True
+        for policy in created_policies:
+            policy["AttachAttempted"] = True
+            iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
+    except Exception as e:
+        cleanup_errors = _discard_staged_replacement(
+            iam_client,
+            role_name,
+            staged_versions,
+            created_policies,
+        )
+        if cleanup_errors:
+            raise RuntimeError(
+                f"failed to replace instrumentation policies: {e}; "
+                f"rollback errors: {'; '.join(cleanup_errors)}"
+            ) from e
+        raise
+
+    cleanup_errors = []
+    for policy in existing_policies.values():
+        if policy["PolicyArn"] in reused_policy_arns:
+            continue
+        cleanup_errors.extend(_detach_and_delete_policy(
+            iam_client,
+            role_name,
+            policy["PolicyArn"],
+            policy["PolicyName"],
+        ))
+    if cleanup_errors:
+        raise RuntimeError(
+            f"new instrumentation policies are active, but old policy cleanup failed: "
+            f"{'; '.join(cleanup_errors)}"
+        )
+
+
 def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types, previous_resource_types, fail_on_error=False):
     # Best-effort by default: instrumentation permissions are additive convenience on top of the
     # integration, so any failure is logged and swallowed rather than blocking install. The
     # post-setup add-on passes fail_on_error=True because attaching these policies is the stack's
     # whole purpose, so a silent SUCCESS that attached nothing would be worse than a visible failure.
-    # Fetch before cleanup so that a transient API failure on an Update leaves the
-    # previously-attached policies in place instead of silently revoking them.
+    # Fetch and stage replacements before activation so failures can restore the
+    # previously-attached policy versions.
     if not resource_types:
         # Only clean up if the previous Update had instrumentation enabled — avoids running
         # delete calls on stacks that never opted in to instrumentation in the first place.
@@ -177,27 +463,29 @@ def attach_instrumentation_permissions(iam_client, role_name, account_id, partit
         return
 
     try:
-        url = build_instrumentation_permissions_url(datadog_site, resource_types)
+        url = build_instrumentation_permissions_url(
+            datadog_site,
+            resource_types,
+            account_id,
+            partition,
+        )
         LOGGER.info(f"Fetching instrumentation permissions for {resource_types} from {url}")
-        permission_chunks = fetch_permissions_from_datadog(url)
+        policy_documents = fetch_instrumentation_policy_documents(url)
+        replace_instrumentation_policies(
+            iam_client,
+            role_name,
+            account_id,
+            partition,
+            policy_documents,
+        )
     except Exception as e:
         if fail_on_error:
             raise
         LOGGER.warning(
-            f"Failed to fetch instrumentation permissions for {resource_types}: {e}. "
+            f"Failed to update instrumentation permissions for {resource_types}: {e}. "
             "Leaving any previously-attached instrumentation policies in place."
         )
         return
-
-    cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
-    for i, chunk in enumerate(permission_chunks):
-        policy_name = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{i+1}"
-        try:
-            _create_and_attach_policy(iam_client, role_name, policy_name, chunk)
-        except Exception as e:
-            if fail_on_error:
-                raise
-            LOGGER.warning(f"Failed to create/attach instrumentation policy {policy_name}: {e}. Continuing.")
 
 
 def handle_delete(event, context):
