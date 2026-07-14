@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch, Mock, MagicMock, call
+from unittest.mock import patch, Mock, MagicMock
 from urllib.error import HTTPError
 from urllib.parse import urlparse, parse_qsl
 from io import BytesIO
@@ -28,6 +28,7 @@ from attach_integration_permissions import (
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
     LEGACY_POLICY_NAME_STANDARD,
     LEGACY_PREFIX_RESOURCE_COLLECTION,
+    MAX_POLICY_DOCUMENTS,
 )
 
 
@@ -47,6 +48,10 @@ class TestEmbeddedLambdaSource(unittest.TestCase):
         )
         self.assertEqual(embedded, source)
 
+    def test_custom_resource_has_policy_attachment_schema_version(self):
+        template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
+        self.assertIn('      PolicyAttachmentSchemaVersion: "2"', template_path.read_text())
+
 
 def make_iam_mock(cleanup_side_effects=True):
     iam = MagicMock()
@@ -59,7 +64,7 @@ def make_iam_mock(cleanup_side_effects=True):
 
 
 def detached_arns(iam):
-    return [c.kwargs["PolicyArn"] for c in iam.detach_role_policy.call_args_list]
+    return [request.kwargs["PolicyArn"] for request in iam.detach_role_policy.call_args_list]
 
 
 class TestParseResourceTypes(unittest.TestCase):
@@ -79,7 +84,6 @@ class TestParseResourceTypes(unittest.TestCase):
         )
 
     def test_list_input(self):
-        # CFN may forward a CommaDelimitedList as a JSON array
         self.assertEqual(
             parse_resource_types(["aws:ec2:instance", " aws:ecs:cluster "]),
             ["aws:ec2:instance", "aws:ecs:cluster"],
@@ -105,7 +109,7 @@ class TestBuildInstrumentationURL(unittest.TestCase):
         self.assertEqual(parsed.netloc, "api.datadoghq.eu")
         self.assertEqual(parsed.path, "/api/unstable/instrumenter/aws/iam_permissions")
 
-    def test_repeated_resource_type_and_chunked(self):
+    def test_query_parameters(self):
         url = build_instrumentation_permissions_url(
             "datadoghq.com",
             ["aws:ec2:instance", "aws:ecs:cluster", "aws:eks:cluster"],
@@ -113,7 +117,7 @@ class TestBuildInstrumentationURL(unittest.TestCase):
             "aws-us-gov",
         )
         pairs = self._query_pairs(url)
-        resource_types = [v for k, v in pairs if k == "resource_type"]
+        resource_types = [value for key, value in pairs if key == "resource_type"]
         self.assertEqual(
             resource_types,
             ["aws:ec2:instance", "aws:ecs:cluster", "aws:eks:cluster"],
@@ -125,14 +129,11 @@ class TestBuildInstrumentationURL(unittest.TestCase):
 
 class TestAttachInstrumentationPermissions(unittest.TestCase):
     def setUp(self):
-        self.iam = make_iam_mock(cleanup_side_effects=False)
+        self.iam = make_iam_mock()
         self.iam.create_policy.return_value = {"Policy": {"Arn": "arn:aws:iam::123:policy/X"}}
         self.iam.list_attached_role_policies.return_value = {"AttachedPolicies": []}
         self.iam.get_account_summary.return_value = {
-            "SummaryMap": {
-                "AttachedPoliciesPerRoleQuota": 10,
-                "VersionsPerPolicyQuota": 5,
-            }
+            "SummaryMap": {"AttachedPoliciesPerRoleQuota": 10}
         }
         self.role_name = "DatadogIntegrationRole"
         self.account_id = "123456789012"
@@ -207,13 +208,11 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.assertEqual(self.iam.create_policy.call_count, 2)
         self.assertEqual(self.iam.attach_role_policy.call_count, 2)
         self.assertEqual(self._created_policy_documents(), documents)
-
-        names = [
-            request.kwargs["PolicyName"]
-            for request in self.iam.create_policy.call_args_list
-        ]
         self.assertEqual(
-            names,
+            [
+                request.kwargs["PolicyName"]
+                for request in self.iam.create_policy.call_args_list
+            ],
             [
                 f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-1",
                 f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-2",
@@ -227,24 +226,7 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.assertIn(("partition", self.partition), query)
 
     @patch("attach_integration_permissions.urllib.request.urlopen")
-    def test_legacy_response_is_wrapped_as_broad_policy_documents(self, mock_urlopen):
-        mock_urlopen.return_value = self._mock_response(
-            permissions=[["ec2:Describe*"], ["ssm:SendCommand"]]
-        )
-
-        self._attach(["aws:ec2:instance"])
-
-        self.assertEqual(
-            [
-                document["Statement"][0]["Action"]
-                for document in self._created_policy_documents()
-            ],
-            [["ec2:Describe*"], ["ssm:SendCommand"]],
-        )
-
-    @patch("attach_integration_permissions.urllib.request.urlopen")
     def test_fetch_failure_preserves_existing_policies(self, mock_urlopen):
-        # A transient update failure must not revoke previously attached policies.
         mock_urlopen.side_effect = HTTPError(
             "u", 500, "boom", {}, BytesIO(b'{"errors":["upstream down"]}')
         )
@@ -257,20 +239,46 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.iam.delete_policy.assert_not_called()
 
     @patch("attach_integration_permissions.urllib.request.urlopen")
-    def test_create_failure_rolls_back_without_attaching_partial_documents(self, mock_urlopen):
+    def test_missing_policy_documents_preserves_existing_policies(self, mock_urlopen):
         mock_urlopen.return_value = self._mock_response(
-            permissions=[["chunk1:Action"], ["chunk2:Action"]]
+            permissions=[["ec2:DescribeInstances"]]
         )
+
+        self._attach(["aws:ec2:instance"])
+
+        self.iam.create_policy.assert_not_called()
+        self.iam.detach_role_policy.assert_not_called()
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_rejects_more_than_ten_policy_documents(self, mock_urlopen):
+        document = {"Version": "2012-10-17", "Statement": []}
+        mock_urlopen.return_value = self._mock_response(
+            policy_documents=[document] * (MAX_POLICY_DOCUMENTS + 1)
+        )
+
+        with self.assertRaisesRegex(Exception, "at most 10"):
+            self._attach(["aws:ec2:instance"], fail_on_error=True)
+
+        self.iam.create_policy.assert_not_called()
+        self.iam.detach_role_policy.assert_not_called()
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_per_document_failure_is_swallowed_and_others_continue(self, mock_urlopen):
+        documents = [
+            {"Version": "2012-10-17", "Statement": [{"Action": [f"chunk{i}:Action"]}]}
+            for i in range(3)
+        ]
+        mock_urlopen.return_value = self._mock_response(policy_documents=documents)
         self.iam.create_policy.side_effect = [
             {"Policy": {"Arn": "arn:aws:iam::123:policy/A"}},
             Exception("EntityAlreadyExists"),
+            {"Policy": {"Arn": "arn:aws:iam::123:policy/C"}},
         ]
 
         self._attach(["aws:ec2:instance"])
 
-        self.assertEqual(self.iam.create_policy.call_count, 2)
-        self.iam.attach_role_policy.assert_not_called()
-        self.iam.delete_policy.assert_any_call(PolicyArn="arn:aws:iam::123:policy/A")
+        self.assertEqual(self.iam.create_policy.call_count, 3)
+        self.assertEqual(self.iam.attach_role_policy.call_count, 2)
 
     @patch("attach_integration_permissions.urllib.request.urlopen")
     def test_fail_on_error_raises_on_fetch_failure(self, mock_urlopen):
@@ -282,17 +290,20 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
 
     @patch("attach_integration_permissions.urllib.request.urlopen")
     def test_fail_on_error_raises_on_attach_failure(self, mock_urlopen):
-        mock_urlopen.return_value = self._mock_response(permissions=[["chunk1:Action"]])
-        self.iam.attach_role_policy.side_effect = Exception("AccessDenied")
+        mock_urlopen.return_value = self._mock_response(
+            policy_documents=[{"Version": "2012-10-17", "Statement": []}]
+        )
+        self.iam.create_policy.side_effect = Exception("AccessDenied")
         with self.assertRaises(Exception):
             self._attach(["aws:ec2:instance"], fail_on_error=True)
-        self.iam.delete_policy.assert_any_call(PolicyArn="arn:aws:iam::123:policy/X")
 
     @patch("attach_integration_permissions.urllib.request.urlopen")
     def test_quota_failure_happens_before_policy_mutation(self, mock_urlopen):
-        mock_urlopen.return_value = self._mock_response(
-            permissions=[["chunk1:Action"], ["chunk2:Action"]]
-        )
+        documents = [
+            {"Version": "2012-10-17", "Statement": [{"Action": [f"chunk{i}:Action"]}]}
+            for i in range(2)
+        ]
+        mock_urlopen.return_value = self._mock_response(policy_documents=documents)
         self.iam.list_attached_role_policies.return_value = {
             "AttachedPolicies": [
                 {
@@ -307,83 +318,37 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
             self._attach(["aws:ec2:instance"], fail_on_error=True)
 
         self.iam.create_policy.assert_not_called()
-        self.iam.create_policy_version.assert_not_called()
         self.iam.attach_role_policy.assert_not_called()
         self.iam.detach_role_policy.assert_not_called()
 
     @patch("attach_integration_permissions.urllib.request.urlopen")
-    def test_existing_policy_is_staged_as_a_new_version(self, mock_urlopen):
-        mock_urlopen.return_value = self._mock_response(permissions=[["new:Action"]])
-        policy_arn = (
-            f"arn:aws:iam::{self.account_id}:policy/"
-            f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-1"
-        )
+    def test_quota_preflight_excludes_policies_that_cleanup_replaces(self, mock_urlopen):
+        documents = [
+            {"Version": "2012-10-17", "Statement": [{"Action": [f"chunk{i}:Action"]}]}
+            for i in range(2)
+        ]
+        mock_urlopen.return_value = self._mock_response(policy_documents=documents)
+        existing_name = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-1"
         self.iam.list_attached_role_policies.return_value = {
-            "AttachedPolicies": [{
-                "PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-1",
-                "PolicyArn": policy_arn,
-            }]
-        }
-        self.iam.list_policy_versions.return_value = {
-            "Versions": [{"VersionId": "v1", "IsDefaultVersion": True}]
-        }
-        self.iam.create_policy_version.return_value = {
-            "PolicyVersion": {"VersionId": "v2"}
+            "AttachedPolicies": [
+                {
+                    "PolicyName": f"CustomerPolicy{index}",
+                    "PolicyArn": f"arn:aws:iam::123:policy/CustomerPolicy{index}",
+                }
+                for index in range(8)
+            ]
+            + [
+                {
+                    "PolicyName": existing_name,
+                    "PolicyArn": f"arn:aws:iam::123:policy/{existing_name}",
+                }
+            ]
         }
 
-        self._attach(["aws:ec2:instance"])
+        self._attach(["aws:ec2:instance"], fail_on_error=True)
 
-        self.iam.create_policy.assert_not_called()
-        self.iam.create_policy_version.assert_called_once()
-        self.iam.set_default_policy_version.assert_called_once_with(
-            PolicyArn=policy_arn,
-            VersionId="v2",
-        )
-        self.iam.detach_role_policy.assert_not_called()
-
-    @patch("attach_integration_permissions.urllib.request.urlopen")
-    def test_attach_failure_restores_previous_policy_version(self, mock_urlopen):
-        mock_urlopen.return_value = self._mock_response(
-            permissions=[["updated:Action"], ["new:Action"]]
-        )
-        existing_arn = (
-            f"arn:aws:iam::{self.account_id}:policy/"
-            f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-1"
-        )
-        self.iam.list_attached_role_policies.return_value = {
-            "AttachedPolicies": [{
-                "PolicyName": f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{self.role_name}-1",
-                "PolicyArn": existing_arn,
-            }]
-        }
-        self.iam.list_policy_versions.return_value = {
-            "Versions": [{"VersionId": "v1", "IsDefaultVersion": True}]
-        }
-        self.iam.create_policy_version.return_value = {
-            "PolicyVersion": {"VersionId": "v2"}
-        }
-        self.iam.create_policy.return_value = {
-            "Policy": {"Arn": "arn:aws:iam::123:policy/New"}
-        }
-        self.iam.attach_role_policy.side_effect = Exception("LimitExceeded")
-
-        self._attach(["aws:ec2:instance"])
-
-        self.assertEqual(
-            self.iam.set_default_policy_version.call_args_list,
-            [
-                call(PolicyArn=existing_arn, VersionId="v2"),
-                call(PolicyArn=existing_arn, VersionId="v1"),
-            ],
-        )
-        self.iam.delete_policy_version.assert_called_with(
-            PolicyArn=existing_arn,
-            VersionId="v2",
-        )
-        self.iam.detach_role_policy.assert_called_once_with(
-            RoleName=self.role_name,
-            PolicyArn="arn:aws:iam::123:policy/New",
-        )
+        self.assertEqual(self.iam.create_policy.call_count, 2)
+        self.assertEqual(self.iam.attach_role_policy.call_count, 2)
 
 
 class TestCleanup(unittest.TestCase):
@@ -406,7 +371,6 @@ class TestCleanup(unittest.TestCase):
 
 
 class TestCleanupLegacyBasePolicies(unittest.TestCase):
-    # Removing legacy base policies first prevents both generations consuming the role quota.
     def setUp(self):
         self.iam = make_iam_mock()
 
@@ -418,20 +382,18 @@ class TestCleanupLegacyBasePolicies(unittest.TestCase):
     def test_cleans_legacy_resource_collection_and_standard(self):
         cleanup_legacy_base_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=3)
         arns = detached_arns(self.iam)
-        self.assertTrue(any(LEGACY_PREFIX_RESOURCE_COLLECTION + "-MyRole" in a for a in arns))
+        self.assertTrue(any(LEGACY_PREFIX_RESOURCE_COLLECTION + "-MyRole" in arn for arn in arns))
         self.iam.delete_role_policy.assert_called_once_with(
             RoleName="MyRole", PolicyName=LEGACY_POLICY_NAME_STANDARD
         )
 
     def test_does_not_touch_instrumentation(self):
-        # Base cleanup only handles standard/resource-collection; instrumentation is managed separately.
         cleanup_legacy_base_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=3)
         arns = detached_arns(self.iam)
-        self.assertTrue(all("instrumentation" not in a for a in arns))
+        self.assertTrue(all("instrumentation" not in arn for arn in arns))
 
 
 class TestManageBasePermissions(unittest.TestCase):
-    # The add-on disables base management so it cannot modify role-stack-owned policies.
     def setUp(self):
         self.iam = make_iam_mock(cleanup_side_effects=False)
 
@@ -512,7 +474,8 @@ class TestManageBasePermissions(unittest.TestCase):
     def test_create_threads_fail_on_instrumentation_error(self, mock_instr, mock_client):
         mock_client.return_value = self.iam
         handle_create_update(
-            self._props(ManageBasePermissions="false", FailOnInstrumentationError="true"), None
+            self._props(ManageBasePermissions="false", FailOnInstrumentationError="true"),
+            None,
         )
         self.assertTrue(mock_instr.call_args.kwargs["fail_on_error"])
 
@@ -525,13 +488,13 @@ class TestManageBasePermissions(unittest.TestCase):
         mock_client.return_value = self.iam
         mock_instr.side_effect = Exception("AccessDenied")
         handle_create_update(
-            self._props(ManageBasePermissions="false", FailOnInstrumentationError="true"), None
+            self._props(ManageBasePermissions="false", FailOnInstrumentationError="true"),
+            None,
         )
         self.assertEqual(mock_cfn.send.call_args.args[2], mock_cfn.FAILED)
 
 
 class TestUpgradeSafePolicyNames(unittest.TestCase):
-    # V2 names must be disjoint from names the <= v4.13 Delete handler removes.
     role = "DatadogIntegrationRole"
     LEGACY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions"
 
