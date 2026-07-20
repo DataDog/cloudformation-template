@@ -33,13 +33,14 @@ LEGACY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection
 STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/standard"
 RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
 INSTRUMENTATION_PERMISSIONS_API_PATH = "/api/unstable/instrumenter/aws/iam_permissions"
+MAX_POLICY_DOCUMENTS = 10
 
 
 class DatadogAPIError(Exception):
     pass
 
 
-def fetch_permissions_from_datadog(api_url):
+def fetch_permissions_attributes_from_datadog(api_url):
     headers = {
         "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
     }
@@ -53,7 +54,23 @@ def fetch_permissions_from_datadog(api_url):
         error_message = error_body.get('errors', ['Unknown error'])[0]
         raise DatadogAPIError(f"Datadog API error: {error_message}") from e
 
-    return json.loads(response.read())["data"]["attributes"]["permissions"]
+    return json.loads(response.read())["data"]["attributes"]
+
+
+def fetch_permissions_from_datadog(api_url):
+    return fetch_permissions_attributes_from_datadog(api_url)["permissions"]
+
+
+def fetch_instrumentation_policy_documents(api_url):
+    policy_documents = fetch_permissions_attributes_from_datadog(api_url)["policy_documents"]
+    if not policy_documents:
+        raise DatadogAPIError("Datadog API returned no instrumentation policy documents")
+    if len(policy_documents) > MAX_POLICY_DOCUMENTS:
+        raise DatadogAPIError(
+            f"Datadog API returned {len(policy_documents)} instrumentation policy documents; "
+            f"at most {MAX_POLICY_DOCUMENTS} are supported"
+        )
+    return policy_documents
 
 
 def parse_resource_types(raw):
@@ -65,9 +82,14 @@ def parse_resource_types(raw):
     return [t.strip() for t in items if t and t.strip()]
 
 
-def build_instrumentation_permissions_url(datadog_site, resource_types):
+def build_instrumentation_permissions_url(datadog_site, resource_types, account_id, partition):
     query = urllib.parse.urlencode(
-        [("resource_type", t) for t in resource_types] + [("chunked", "true")]
+        [("resource_type", t) for t in resource_types]
+        + [
+            ("account_id", account_id),
+            ("partition", partition),
+            ("chunked", "true"),
+        ]
     )
     return f"https://api.{datadog_site}{INSTRUMENTATION_PERMISSIONS_API_PATH}?{query}"
 
@@ -151,6 +173,13 @@ def _create_and_attach_policy(iam_client, role_name, policy_name, actions):
     iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy['Policy']['Arn'])
 
 
+def _create_and_attach_policy_document(iam_client, role_name, policy_name, policy_document):
+    policy_json = json.dumps(policy_document, separators=(',', ':'))
+    LOGGER.info(f"Creating policy {policy_name} ({len(policy_json)} characters)")
+    policy = iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
+    iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy['Policy']['Arn'])
+
+
 def attach_resource_collection_permissions(iam_client, role_name):
     permission_chunks = fetch_permissions_from_datadog(RESOURCE_COLLECTION_PERMISSIONS_API_URL)
     for i, chunk in enumerate(permission_chunks):
@@ -162,38 +191,88 @@ def attach_resource_collection_permissions(iam_client, role_name):
         )
 
 
+def _list_attached_role_policies(iam_client, role_name):
+    policies = []
+    marker = None
+    while True:
+        request = {"RoleName": role_name}
+        if marker:
+            request["Marker"] = marker
+        response = iam_client.list_attached_role_policies(**request)
+        policies.extend(response.get("AttachedPolicies", []))
+        if not response.get("IsTruncated"):
+            return policies
+        marker = response["Marker"]
+
+
+def _is_instrumentation_policy(policy_name, role_name):
+    prefix = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-"
+    if not policy_name.startswith(prefix):
+        return False
+    suffix = policy_name[len(prefix):]
+    return suffix.isdigit() and 1 <= int(suffix) <= MAX_POLICY_DOCUMENTS
+
+
+def _validate_instrumentation_policy_capacity(iam_client, role_name, policy_document_count):
+    attached_policies = _list_attached_role_policies(iam_client, role_name)
+    existing_instrumentation_count = sum(
+        _is_instrumentation_policy(policy["PolicyName"], role_name)
+        for policy in attached_policies
+    )
+    non_instrumentation_count = len(attached_policies) - existing_instrumentation_count
+    attachment_quota = iam_client.get_account_summary().get("SummaryMap", {}).get(
+        "AttachedPoliciesPerRoleQuota"
+    )
+    if not isinstance(attachment_quota, int) or attachment_quota < 1:
+        raise RuntimeError("IAM account summary did not include AttachedPoliciesPerRoleQuota")
+    if non_instrumentation_count + policy_document_count > attachment_quota:
+        raise RuntimeError(
+            f"role {role_name} has room for only "
+            f"{attachment_quota - non_instrumentation_count} instrumentation policies, "
+            f"but Datadog returned {policy_document_count}"
+        )
+
+
 def attach_instrumentation_permissions(iam_client, role_name, account_id, partition, datadog_site, resource_types, previous_resource_types, fail_on_error=False):
-    # Best-effort by default: instrumentation permissions are additive convenience on top of the
-    # integration, so any failure is logged and swallowed rather than blocking install. The
-    # post-setup add-on passes fail_on_error=True because attaching these policies is the stack's
-    # whole purpose, so a silent SUCCESS that attached nothing would be worse than a visible failure.
-    # Fetch before cleanup so that a transient API failure on an Update leaves the
-    # previously-attached policies in place instead of silently revoking them.
+    # Fetch and validate capacity before cleanup so a transient failure leaves existing policies.
     if not resource_types:
-        # Only clean up if the previous Update had instrumentation enabled — avoids running
-        # delete calls on stacks that never opted in to instrumentation in the first place.
         if previous_resource_types:
             cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
         return
 
     try:
-        url = build_instrumentation_permissions_url(datadog_site, resource_types)
+        url = build_instrumentation_permissions_url(
+            datadog_site,
+            resource_types,
+            account_id,
+            partition,
+        )
         LOGGER.info(f"Fetching instrumentation permissions for {resource_types} from {url}")
-        permission_chunks = fetch_permissions_from_datadog(url)
+        policy_documents = fetch_instrumentation_policy_documents(url)
+        _validate_instrumentation_policy_capacity(
+            iam_client,
+            role_name,
+            len(policy_documents),
+        )
     except Exception as e:
         if fail_on_error:
             raise
         LOGGER.warning(
-            f"Failed to fetch instrumentation permissions for {resource_types}: {e}. "
+            f"Failed to prepare instrumentation permissions for {resource_types}: {e}. "
             "Leaving any previously-attached instrumentation policies in place."
         )
         return
 
     cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
-    for i, chunk in enumerate(permission_chunks):
+    for i, policy_document in enumerate(policy_documents):
         policy_name = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{i+1}"
         try:
-            _create_and_attach_policy(iam_client, role_name, policy_name, chunk)
+            _create_and_attach_policy_document(
+                iam_client,
+                role_name,
+                policy_name,
+                policy_document,
+            )
         except Exception as e:
             if fail_on_error:
                 raise
