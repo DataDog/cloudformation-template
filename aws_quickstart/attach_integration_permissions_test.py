@@ -32,21 +32,29 @@ from attach_integration_permissions import (
 )
 
 
-class TestEmbeddedLambdaSource(unittest.TestCase):
-    def test_cloudformation_inline_lambda_matches_tested_source(self):
-        source_path = Path(__file__).with_name("attach_integration_permissions.py")
+class TestLambdaSourceEmbedding(unittest.TestCase):
+    def test_cloudformation_template_uses_source_placeholder(self):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
-        source = source_path.read_text().rstrip("\n")
         template = template_path.read_text()
-        start_marker = "      Code:\n        ZipFile: |\n"
-        end_marker = "  DatadogAttachIntegrationPermissionsFunctionTrigger:\n"
-        start = template.index(start_marker) + len(start_marker)
-        end = template.index(end_marker, start)
-        embedded = "\n".join(
-            line[10:] if line else ""
-            for line in template[start:end].rstrip("\n").splitlines()
+
+        self.assertIn(
+            "      Code:\n        ZipFile: |\n          <ZIPFILE_PLACEHOLDER>\n",
+            template,
         )
-        self.assertEqual(embedded, source)
+        self.assertEqual(template.count("<ZIPFILE_PLACEHOLDER>"), 1)
+
+    def test_release_embeds_tested_source(self):
+        release_path = Path(__file__).with_name("release.sh")
+        release = release_path.read_text()
+
+        self.assertIn(
+            'cp datadog_agentless_api_call.py attach_integration_permissions.py "${TEMP_DIR}/"',
+            release,
+        )
+        self.assertIn(
+            "embed_python_source datadog_integration_permissions.yaml attach_integration_permissions.py",
+            release,
+        )
 
     def test_custom_resource_has_policy_attachment_schema_version(self):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")

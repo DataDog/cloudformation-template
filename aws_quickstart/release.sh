@@ -41,6 +41,18 @@ upload_versions_json() {
     echo "Uploaded versions.json to S3!"
 }
 
+embed_python_source() {
+    local template="$1"
+    local source="$2"
+
+    perl -i -pe '
+        BEGIN { $p = do { local $/; <STDIN> } }
+        /^(\s+)<ZIPFILE_PLACEHOLDER>/ && (
+            $_ = join("\n", map { $1 . $_ } split(/\n/, $p)) . "\n"
+        )
+    ' "$template" < "$source"
+}
+
 # Parse flags and optional bucket argument
 GOV=false
 PRIVATE_TEMPLATE=false
@@ -122,7 +134,7 @@ trap "rm -rf ${TEMP_DIR}" EXIT
 
 # Copy all YAML files to temp directory
 cp *.yaml "${TEMP_DIR}/"
-cp datadog_agentless_api_call.py "${TEMP_DIR}/"
+cp datadog_agentless_api_call.py attach_integration_permissions.py "${TEMP_DIR}/"
 
 # Change to temp directory for processing
 cd "${TEMP_DIR}"
@@ -149,21 +161,14 @@ for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main
     fi
 done
 
+embed_python_source datadog_integration_permissions.yaml attach_integration_permissions.py
+
 # Process Agentless Scanning templates
 for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml datadog_agentless_delegate_role_stackset.yaml; do
     # Note: unlike above, here we remove the 'v' prefix from the version
     perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION#v}/g" "$template"
 
-    # Replace ZIPFILE_PLACEHOLDER with the contents of the Python file
-    perl -i -pe '
-        # Read the Python script from stdin
-        BEGIN { $p = do { local $/; <STDIN> } }
-        # Find the placeholder and capture its indentation
-        /^(\s+)<ZIPFILE_PLACEHOLDER>/ && (
-            # Replace with the Python script, preserving the indentation
-            $_ = join("\n", map { $1 . $_ } split(/\n/, $p)) . "\n"
-        )
-    ' "$template" < datadog_agentless_api_call.py
+    embed_python_source "$template" datadog_agentless_api_call.py
 done
 
 # Upload from temp directory
