@@ -1,0 +1,399 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: IAM role for Datadog AWS Integration (qs-1sfrgofa1)
+Parameters:
+  ExternalId:
+    Description: >-
+      External ID for the Datadog role (generate at
+      https://app.datadoghq.com/account/settings#integrations/amazon-web-services)
+    Type: String
+  IAMRoleName:
+    Description: >-
+      Customize the name of the IAM role for the Datadog AWS Integration.
+      PLEASE NOTE THAT TO ADEQUATELY MONITOR YOUR ENVIRONMENT,
+      THIS CLOUDFORMATION TEMPLATE WILL CREATE AN IDENTITY AND ACCESS MANAGEMENT (IAM)
+      ROLE THAT WILL DELEGATE DATADOG’S AWS ACCOUNT ACCESS TO YOUR AWS ACCOUNT
+      WITH THE FOLLOWING PERMISSIONS
+      (https://docs.datadoghq.com/integrations/amazon_web_services/?tab=roledelegation#datadog-aws-iam-policy)
+    Type: String
+    Default: DatadogIntegrationRole
+  CloudSecurityPostureManagement:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: >-
+      Set this value to 'true' to add permissions for Datadog's Cloud Security Posture Management product
+      to monitor your AWS cloud resource configurations.
+  DatadogSite:
+    Type: String
+    Default: datadoghq.com
+    Description: Define your Datadog Site to send data to.
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - ap1.datadoghq.com
+      - ap2.datadoghq.com
+      - datad0g.com
+      - ddog-gov.com
+Conditions:
+  ShouldInstallCSPMPolicy:
+    Fn::Equals:
+      - !Ref CloudSecurityPostureManagement
+      - 'true'
+  IsAP1:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - ap1.datadoghq.com
+  IsAP2:
+    Fn::Equals:
+      - !Ref DatadogSite
+      - ap2.datadoghq.com
+Resources:
+  DatadogIntegrationRole:
+    Type: 'AWS::IAM::Role'
+    Metadata:
+      cfn-lint:
+        config:
+          # cfn-lint does not yet support "Fn::Transform"
+          # This policy needs broad read permissions to allow Datadog to collect metrics and metadata
+          # We hard code in the Datadog account id as well.
+          ignore_checks:
+            - E3002
+            - E3003
+            - EIAMPolicyActionWildcard
+            - EIAMPolicyWildcardResource
+            - EIAMAccountIDInPrincipal
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: This policy needs broad read permissions to allow Datadog to collect metrics and metadata. The Datadog account ID is hard coded.
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub ["arn:${AWS::Partition}:iam::${DatadogAccountID}:root", DatadogAccountID: !If [IsAP1, 417141415827, !If [IsAP2, 412381753143, 464622532012]]]
+            Action:
+              - 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      Path: /
+      RoleName: !Ref IAMRoleName
+      ManagedPolicyArns: !If [ ShouldInstallCSPMPolicy, [ !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit" ], !Ref AWS::NoValue ]
+      Policies:
+        - PolicyName: DatadogAWSIntegrationPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${IAMRoleName}'
+                Action:
+                  - 'iam:List*'
+                  - 'iam:Get*'
+              - Effect: Allow
+                Resource: '*'
+                Action:
+                  - 'account:GetAccountInformation'
+                  - 'amplify:ListApps'
+                  - 'amplify:ListArtifacts'
+                  - 'amplify:ListBackendEnvironments'
+                  - 'amplify:ListBranches'
+                  - 'amplify:ListDomainAssociations'
+                  - 'amplify:ListJobs'
+                  - 'amplify:ListWebhooks'
+                  - 'apigateway:GET'
+                  - 'aoss:BatchGetCollection'
+                  - 'aoss:ListCollections'
+                  - 'appstream:DescribeAppBlockBuilders'
+                  - 'appstream:DescribeAppBlocks'
+                  - 'appstream:DescribeApplications'
+                  - 'appstream:DescribeFleets'
+                  - 'appstream:DescribeImageBuilders'
+                  - 'appstream:DescribeImages'
+                  - 'appstream:DescribeStacks'
+                  - 'autoscaling:Describe*'
+                  - 'backup:List*'
+                  - 'batch:DescribeJobQueues'
+                  - 'batch:DescribeSchedulingPolicies'
+                  - 'batch:ListSchedulingPolicies'
+                  - 'bcm-data-exports:GetExport'
+                  - 'bcm-data-exports:ListExports'
+                  - 'bedrock:GetAgent'
+                  - 'bedrock:GetAgentAlias'
+                  - 'bedrock:GetFlow'
+                  - 'bedrock:GetFlowAlias'
+                  - 'bedrock:GetGuardrail'
+                  - 'bedrock:GetImportedModel'
+                  - 'bedrock:GetInferenceProfile'
+                  - 'bedrock:GetMarketplaceModelEndpoint'
+                  - 'bedrock:ListAgentAliases'
+                  - 'bedrock:ListAgents'
+                  - 'bedrock:ListFlowAliases'
+                  - 'bedrock:ListFlows'
+                  - 'bedrock:ListGuardrails'
+                  - 'bedrock:ListImportedModels'
+                  - 'bedrock:ListInferenceProfiles'
+                  - 'bedrock:ListMarketplaceModelEndpoints'
+                  - 'bedrock:ListPromptRouters'
+                  - 'bedrock:ListProvisionedModelThroughputs'
+                  - 'budgets:ViewBudget'
+                  - 'cassandra:Select'
+                  - 'cloudfront:GetDistributionConfig'
+                  - 'cloudfront:ListDistributions'
+                  - 'cloudtrail:DescribeTrails'
+                  - 'cloudtrail:GetTrailStatus'
+                  - 'cloudtrail:LookupEvents'
+                  - 'cloudwatch:Describe*'
+                  - 'cloudwatch:Get*'
+                  - 'cloudwatch:List*'
+                  - 'codeartifact:DescribeDomain'
+                  - 'codeartifact:DescribePackageGroup'
+                  - 'codeartifact:DescribeRepository'
+                  - 'codeartifact:ListDomains'
+                  - 'codeartifact:ListPackageGroups'
+                  - 'codeartifact:ListPackages'
+                  - 'codedeploy:BatchGet*'
+                  - 'codedeploy:List*'
+                  - 'codepipeline:ListWebhooks'
+                  - 'cur:DescribeReportDefinitions'
+                  - 'deadline:GetBudget'
+                  - 'deadline:GetLicenseEndpoint'
+                  - 'deadline:GetQueue'
+                  - 'deadline:ListBudgets'
+                  - 'deadline:ListFarms'
+                  - 'deadline:ListFleets'
+                  - 'deadline:ListLicenseEndpoints'
+                  - 'deadline:ListMonitors'
+                  - 'deadline:ListQueues'
+                  - 'deadline:ListWorkers'
+                  - 'directconnect:Describe*'
+                  - 'dynamodb:Describe*'
+                  - 'dynamodb:List*'
+                  - 'ec2:Describe*'
+                  - 'ec2:GetAllowedImagesSettings'
+                  - 'ec2:GetEbsDefaultKmsKeyId'
+                  - 'ec2:GetInstanceMetadataDefaults'
+                  - 'ec2:GetSerialConsoleAccessStatus'
+                  - 'ec2:GetSnapshotBlockPublicAccessState'
+                  - 'ec2:GetTransitGatewayPrefixListReferences'
+                  - 'ec2:SearchTransitGatewayRoutes'
+                  - 'ecs:Describe*'
+                  - 'ecs:List*'
+                  - 'elasticache:Describe*'
+                  - 'elasticache:List*'
+                  - 'elasticfilesystem:DescribeAccessPoints'
+                  - 'elasticfilesystem:DescribeFileSystems'
+                  - 'elasticfilesystem:DescribeTags'
+                  - 'elasticloadbalancing:Describe*'
+                  - 'elasticmapreduce:Describe*'
+                  - 'elasticmapreduce:List*'
+                  - 'emr-containers:ListManagedEndpoints'
+                  - 'emr-containers:ListSecurityConfigurations'
+                  - 'emr-containers:ListVirtualClusters'
+                  - 'es:DescribeElasticsearchDomains'
+                  - 'es:ListDomainNames'
+                  - 'es:ListTags'
+                  - 'events:CreateEventBus'
+                  - 'fsx:DescribeFileSystems'
+                  - 'fsx:ListTagsForResource'
+                  - 'glacier:GetVaultNotifications'
+                  - 'glue:ListRegistries'
+                  - 'grafana:DescribeWorkspace'
+                  - 'greengrass:GetComponent'
+                  - 'greengrass:GetConnectivityInfo'
+                  - 'greengrass:GetCoreDevice'
+                  - 'greengrass:GetDeployment'
+                  - 'health:DescribeAffectedEntities'
+                  - 'health:DescribeEventDetails'
+                  - 'health:DescribeEvents'
+                  - 'identitystore:DescribeGroup'
+                  - 'identitystore:DescribeGroupMembership'
+                  - 'identitystore:DescribeUser'
+                  - 'identitystore:ListGroupMemberships'
+                  - 'identitystore:ListGroups'
+                  - 'identitystore:ListUsers'
+                  - 'imagebuilder:GetContainerRecipe'
+                  - 'imagebuilder:GetDistributionConfiguration'
+                  - 'imagebuilder:GetImageRecipe'
+                  - 'imagebuilder:GetInfrastructureConfiguration'
+                  - 'imagebuilder:GetLifecyclePolicy'
+                  - 'imagebuilder:GetWorkflow'
+                  - 'imagebuilder:ListComponents'
+                  - 'imagebuilder:ListContainerRecipes'
+                  - 'imagebuilder:ListDistributionConfigurations'
+                  - 'imagebuilder:ListImagePipelines'
+                  - 'imagebuilder:ListImageRecipes'
+                  - 'imagebuilder:ListImages'
+                  - 'imagebuilder:ListInfrastructureConfigurations'
+                  - 'imagebuilder:ListLifecyclePolicies'
+                  - 'imagebuilder:ListWorkflows'
+                  - 'kinesis:Describe*'
+                  - 'kinesis:List*'
+                  - 'lambda:GetPolicy'
+                  - 'lambda:List*'
+                  - 'lightsail:GetInstancePortStates'
+                  - 'logs:DeleteSubscriptionFilter'
+                  - 'logs:DescribeLogGroups'
+                  - 'logs:DescribeLogStreams'
+                  - 'logs:DescribeSubscriptionFilters'
+                  - 'logs:FilterLogEvents'
+                  - 'logs:PutSubscriptionFilter'
+                  - 'logs:TestMetricFilter'
+                  - 'macie2:GetAllowList'
+                  - 'macie2:GetCustomDataIdentifier'
+                  - 'macie2:ListAllowLists'
+                  - 'macie2:ListCustomDataIdentifiers'
+                  - 'macie2:ListMembers'
+                  - 'macie2:GetMacieSession'
+                  - 'managedblockchain:GetAccessor'
+                  - 'managedblockchain:GetMember'
+                  - 'managedblockchain:GetNetwork'
+                  - 'managedblockchain:GetNode'
+                  - 'managedblockchain:GetProposal'
+                  - 'managedblockchain:ListAccessors'
+                  - 'managedblockchain:ListInvitations'
+                  - 'managedblockchain:ListMembers'
+                  - 'managedblockchain:ListNodes'
+                  - 'managedblockchain:ListProposals'
+                  - 'memorydb:DescribeAcls'
+                  - 'memorydb:DescribeMultiRegionClusters'
+                  - 'memorydb:DescribeParameterGroups'
+                  - 'memorydb:DescribeReservedNodes'
+                  - 'memorydb:DescribeSnapshots'
+                  - 'memorydb:DescribeSubnetGroups'
+                  - 'memorydb:DescribeUsers'
+                  - 'mobiletargeting:GetApps'
+                  - 'mobiletargeting:GetCampaigns'
+                  - 'mobiletargeting:GetChannels'
+                  - 'mobiletargeting:GetEventStream'
+                  - 'mobiletargeting:GetRecommenderConfigurations'
+                  - 'mobiletargeting:GetSegments'
+                  - 'mobiletargeting:ListJourneys'
+                  - 'mobiletargeting:ListTemplates'
+                  - 'oam:ListAttachedLinks'
+                  - 'oam:ListSinks'
+                  - 'organizations:Describe*'
+                  - 'organizations:List*'
+                  - 'osis:GetPipeline'
+                  - 'osis:GetPipelineBlueprint'
+                  - 'osis:ListPipelineBlueprints'
+                  - 'osis:ListPipelines'
+                  - 'proton:GetComponent'
+                  - 'proton:GetDeployment'
+                  - 'proton:GetEnvironment'
+                  - 'proton:GetEnvironmentAccountConnection'
+                  - 'proton:GetEnvironmentTemplate'
+                  - 'proton:GetEnvironmentTemplateVersion'
+                  - 'proton:GetRepository'
+                  - 'proton:GetService'
+                  - 'proton:GetServiceInstance'
+                  - 'proton:GetServiceTemplate'
+                  - 'proton:GetServiceTemplateVersion'
+                  - 'proton:ListComponents'
+                  - 'proton:ListDeployments'
+                  - 'proton:ListEnvironmentAccountConnections'
+                  - 'proton:ListEnvironmentTemplateVersions'
+                  - 'proton:ListEnvironmentTemplates'
+                  - 'proton:ListEnvironments'
+                  - 'proton:ListRepositories'
+                  - 'proton:ListServiceInstances'
+                  - 'proton:ListServiceTemplateVersions'
+                  - 'proton:ListServiceTemplates'
+                  - 'proton:ListServices'
+                  - 'qldb:ListJournalKinesisStreamsForLedger'
+                  - 'rds:Describe*'
+                  - 'rds:List*'
+                  - 'redshift:DescribeClusters'
+                  - 'redshift:DescribeLoggingStatus'
+                  - 'redshift-serverless:ListEndpointAccess'
+                  - 'redshift-serverless:ListManagedWorkgroups'
+                  - 'redshift-serverless:ListNamespaces'
+                  - 'redshift-serverless:ListRecoveryPoints'
+                  - 'redshift-serverless:ListSnapshots'
+                  - 'route53:List*'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetBucketLogging'
+                  - 's3:GetBucketNotification'
+                  - 's3:GetBucketTagging'
+                  - 's3:ListAccessGrants'
+                  - 's3:ListAllMyBuckets'
+                  - 's3:PutBucketNotification'
+                  # 'or S3 Directory Buckets, the s3 calls are with the s3express prefi'
+                  # 'ttps://docs.aws.amazon.com/service-authorization/latest/reference/list_amazons3express.htm'
+                  - 's3express:GetBucketPolicy'
+                  - 's3express:GetEncryptionConfiguration'
+                  - 's3express:ListAllMyDirectoryBuckets'
+                  - 's3tables:GetTableBucketMaintenanceConfiguration'
+                  - 's3tables:ListTableBuckets'
+                  - 's3tables:ListTables'
+                  - 'savingsplans:DescribeSavingsPlanRates'
+                  - 'savingsplans:DescribeSavingsPlans'
+                  - 'ses:Get*'
+                  - 'ses:ListAddonInstances'
+                  - 'ses:ListAddonSubscriptions'
+                  - 'ses:ListAddressLists'
+                  - 'ses:ListArchives'
+                  - 'ses:ListContactLists'
+                  - 'ses:ListCustomVerificationEmailTemplates'
+                  - 'ses:ListMultiRegionEndpoints'
+                  - 'ses:ListIngressPoints'
+                  - 'ses:ListRelays'
+                  - 'ses:ListRuleSets'
+                  - 'ses:ListTemplates'
+                  - 'ses:ListTrafficPolicies'
+                  - 'secretsmanager:GetResourcePolicy'
+                  - 'sms-voice:DescribeConfigurationSets'
+                  - 'sms-voice:DescribeOptOutLists'
+                  - 'sms-voice:DescribePhoneNumbers'
+                  - 'sms-voice:DescribePools'
+                  - 'sms-voice:DescribeProtectConfigurations'
+                  - 'sms-voice:DescribeRegistrationAttachments'
+                  - 'sms-voice:DescribeRegistrations'
+                  - 'sms-voice:DescribeSenderIds'
+                  - 'sms-voice:DescribeVerifiedDestinationNumbers'
+                  - 'sns:GetSubscriptionAttributes'
+                  - 'sns:List*'
+                  - 'sns:Publish'
+                  - 'social-messaging:GetLinkedWhatsAppBusinessAccount'
+                  - 'social-messaging:ListLinkedWhatsAppBusinessAccounts'
+                  - 'sqs:ListQueues'
+                  - 'states:DescribeStateMachine'
+                  - 'states:ListStateMachines'
+                  - 'support:DescribeTrustedAdvisor*'
+                  - 'support:RefreshTrustedAdvisorCheck'
+                  - 'tag:GetResources'
+                  - 'tag:GetTagKeys'
+                  - 'tag:GetTagValues'
+                  - 'timestream:DescribeEndpoints'
+                  - 'timestream:ListTables'
+                  - 'waf-regional:GetRule'
+                  - 'waf-regional:GetRuleGroup'
+                  - 'waf-regional:ListRuleGroups'
+                  - 'waf-regional:ListRules'
+                  - 'waf:GetRuleGroup'
+                  - 'waf:GetRule'
+                  - 'waf:ListRuleGroups'
+                  - 'waf:ListRules'
+                  - 'wafv2:GetIPSet'
+                  - 'wafv2:GetLoggingConfiguration'
+                  - 'wafv2:GetRegexPatternSet'
+                  - 'wafv2:GetRuleGroup'
+                  - 'wafv2:ListLoggingConfigurations'
+                  - 'workmail:DescribeOrganization'
+                  - 'workmail:ListOrganizations'
+                  - 'xray:BatchGetTraces'
+                  - 'xray:GetTraceSummaries'
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks:
+        - W9002
+        - W9003
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Required
+      Parameters:
+        - ExternalId
+        - IAMRoleName

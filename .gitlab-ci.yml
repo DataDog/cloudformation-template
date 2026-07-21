@@ -101,6 +101,7 @@ validate_versions:
         "aws_attach_integration_permissions:datadog-cloudformation-template:aws_attach_integration_permissions"
         "aws_cloud_cost:datadog-cloudformation-template:aws_cloud_cost"
         "aws_llm:datadog-cloudformation-template-quickstart:aws_llm"
+        "aws_mp_saas_quickstart:datadog-cloudformation-template-quickstart:aws_mp_saas_quickstart"
         "aws_storage_management:datadog-cloudformation-template:aws_storage_management"
         "aws_storage_management_quickstart:datadog-cloudformation-template:aws_storage_management_quickstart"
         "aws_streams:datadog-cloudformation-stream-template:aws"
@@ -266,6 +267,19 @@ release_llm:
     - if: '$CI_COMMIT_BRANCH == "master"'
       changes:
         - aws_llm/version.txt
+      when: on_success
+
+release_mp_saas_quickstart:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template-quickstart
+  script:
+    - cd aws_mp_saas_quickstart
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_mp_saas_quickstart/version.txt
       when: on_success
 
 release_storage_management:

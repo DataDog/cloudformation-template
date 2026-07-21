@@ -1,0 +1,179 @@
+# version: <VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Integration (qs-1sfrgofam)
+Parameters:
+  SecretName:
+    Description: >-
+      The ARN of the secret containing your Datadog credentials if you just created a new Datadog account from AWS Marketplace.
+    Type: String
+    AllowedPattern: '(^arn:aws:secretsmanager:[^:]*:[^:]*:secret:[a-zA-Z0-9./+=@_!-]+|^$)'
+    ConstraintDescription: must be a valid secret ARN
+    Default: ""
+  DatadogApiKey:
+    Description: >-
+      Only provide a value here if the SecretName value is EMPTY
+      (find at https://app.datadoghq.com/organization-settings/api-keys).
+      This API Key enables you to send data to your Datadog account.
+    Type: String
+    NoEcho: true
+    Default: ""
+  DatadogAppKey:
+    Description: >-
+      Only provide a value here if the SecretName value is EMPTY
+      (find at https://app.datadoghq.com/organization-settings/application-keys).
+      The App Key enables you to link your AWS account with your Datadog account.
+    Type: String
+    NoEcho: true
+    Default: ""
+  DatadogSite:
+    Type: String
+    Default: datadoghq.com
+    Description: Define your Datadog Site to send data to.
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - ap1.datadoghq.com
+      - ap2.datadoghq.com
+      - ddog-gov.com
+  IAMRoleName:
+    Description: >-
+      Customize the name of the IAM role for the Datadog AWS Integration.
+      PLEASE NOTE THAT TO ADEQUATELY MONITOR YOUR ENVIRONMENT,
+      THIS CLOUDFORMATION TEMPLATE WILL CREATE AN IDENTITY AND ACCESS MANAGEMENT (IAM)
+      ROLE THAT WILL DELEGATE DATADOG’S AWS ACCOUNT ACCESS TO YOUR AWS ACCOUNT
+      WITH THE FOLLOWING PERMISSIONS
+      (https://docs.datadoghq.com/integrations/amazon_web_services/?tab=roledelegation#datadog-aws-iam-policy)
+    Type: String
+    Default: DatadogIntegrationRole
+  CloudSecurityPostureManagement:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >-
+      Set this value to "true" to enable Datadog’s Cloud Security Posture Management product.
+      It will add additional IAM permissions to your Datadog IAM role
+      (https://docs.datadoghq.com/security_platform/cspm/).
+Conditions:
+  SecretNameProvided:
+    !Not
+      - !Equals
+        - !Ref SecretName
+        - ""
+Rules:
+  MustSetKeysOrSecretArn:
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::And:
+              - Fn::Not:
+                - Fn::Equals:
+                  - Ref: DatadogApiKey
+                  - ""
+              - Fn::Not:
+                - Fn::Equals:
+                  - Ref: DatadogAppKey
+                  - ""
+            - Fn::Not:
+                - Fn::Equals:
+                    - Ref: SecretName
+                    - ""
+        AssertDescription: SecretName must be set or DatadogApiKey and DatadogAppKey must be set
+Resources:
+  # Retrieve secrets in provided secret ARN
+  SecretsRetrieval:
+    Type: AWS::CloudFormation::Stack
+    Condition: SecretNameProvided
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/<VERSION_PLACEHOLDER>/datadog_secrets_retrieval.yaml"
+      Parameters:
+        SecretName: !Ref SecretName
+        DatadogApiKey: !Ref DatadogApiKey
+        DatadogAppKey: !Ref DatadogAppKey
+        DatadogSite: !Ref DatadogSite
+  DatadogAPICall:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/<VERSION_PLACEHOLDER>/datadog_integration_api_call.yaml"
+      Parameters:
+        DatadogApiKey: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiKey, !Ref DatadogApiKey]
+        DatadogAppKey: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.AppKey, !Ref DatadogAppKey]
+        DatadogSite: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiUrl, !Ref DatadogSite]
+        RoleName: !Ref IAMRoleName
+        CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
+  DatadogIntegrationRoleStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/<VERSION_PLACEHOLDER>/datadog_integration_role.yaml"
+      Parameters:
+        ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
+        IAMRoleName: !Ref IAMRoleName
+        CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
+        DatadogSite: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiUrl, !Ref DatadogSite]
+  # The Lambda function to ship logs from S3 and CloudWatch, custom metrics and traces from Lambda functions to Datadog
+  # https://github.com/DataDog/datadog-serverless-functions/tree/master/aws/logs_monitoring
+  ForwarderStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/<VERSION_PLACEHOLDER>/datadog_forwarder.yaml"
+      Parameters:
+        DdApiKey: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiKey, !Ref DatadogApiKey]
+        DdSite: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiUrl, !Ref DatadogSite]
+        FunctionName: DatadogForwarder
+Outputs:
+  IAMRoleName:
+    Description: AWS IAM Role named to be used with the DataDog AWS Integration
+    Value: !Ref IAMRoleName
+  AccountId:
+    Description: AWS Account number
+    Value: !Ref "AWS::AccountId"
+  Region:
+    Description: AWS Region
+    Value: !Ref "AWS::Region"
+  DatadogForwarderArn:
+    Description: Datadog Forwarder Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+        - ForwarderStack
+        - Outputs.DatadogForwarderArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-DatadogForwarderArn
+  DdApiKeySecretArn:
+    Description: ARN of SecretsManager Secret with Datadog API Key
+    Value:
+      Fn::GetAtt:
+        - ForwarderStack
+        - Outputs.DdApiKeySecretArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-ApiKeySecretArn
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Datadog API Configuration (Required)
+      Parameters:
+        - SecretName
+        - DatadogApiKey
+        - DatadogAppKey
+        - DatadogSite
+    - Label:
+        default: Optional Configuration
+      Parameters:
+        - IAMRoleName
+        - CloudSecurityPostureManagement
+    ParameterLabels:
+      SecretName:
+        default: Datadog API Secret ARN
+      DatadogApiKey:
+        default: Datadog API Key
+      DatadogAppKey:
+        default: Datadog App Key
+      DatadogSite:
+        default: Datadog Site
+      IAMRoleName:
+        default: IAM Role Name
+      CloudSecurityPostureManagement:
+        default: Cloud Security Posture Management
