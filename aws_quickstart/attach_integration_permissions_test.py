@@ -60,6 +60,19 @@ class TestLambdaSourceEmbedding(unittest.TestCase):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
         self.assertIn('      PolicyAttachmentSchemaVersion: "2"', template_path.read_text())
 
+    def test_old_role_detach_is_limited_to_datadog_policies(self):
+        template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
+        template = template_path.read_text()
+
+        self.assertIn("                Action: iam:DetachRolePolicy", template)
+        self.assertIn(
+            "                Resource: !Sub "
+            "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*",
+            template,
+        )
+        self.assertIn("                    iam:PolicyARN:", template)
+        self.assertIn("                Action: iam:DeleteRolePolicy", template)
+
 
 def make_iam_mock(cleanup_side_effects=True):
     iam = MagicMock()
@@ -289,6 +302,58 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.assertEqual(self.iam.attach_role_policy.call_count, 2)
 
     @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_replacement_creation_failure_is_not_swallowed(self, mock_urlopen):
+        documents = [
+            {"Version": "2012-10-17", "Statement": [{"Action": [f"chunk{i}:Action"]}]}
+            for i in range(3)
+        ]
+        mock_urlopen.return_value = self._mock_response(policy_documents=documents)
+        self.iam.create_policy.side_effect = [
+            {"Policy": {"Arn": "arn:aws:iam::123:policy/A"}},
+            Exception("MalformedPolicyDocument"),
+            {"Policy": {"Arn": "arn:aws:iam::123:policy/C"}},
+        ]
+
+        with self.assertRaisesRegex(Exception, "MalformedPolicyDocument"):
+            self._attach(
+                ["aws:ec2:instance", "aws:eks:cluster"],
+                previous_resource_types=["aws:ec2:instance"],
+            )
+
+        self.assertEqual(self.iam.create_policy.call_count, 2)
+        self.assertEqual(self.iam.attach_role_policy.call_count, 1)
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_replacement_cleanup_failure_is_not_swallowed(self, mock_urlopen):
+        mock_urlopen.return_value = self._mock_response(
+            policy_documents=[{"Version": "2012-10-17", "Statement": []}]
+        )
+        self.iam.detach_role_policy.side_effect = Exception("AccessDenied")
+
+        with self.assertRaisesRegex(Exception, "AccessDenied"):
+            self._attach(
+                ["aws:eks:cluster"],
+                previous_resource_types=["aws:ec2:instance"],
+            )
+
+        self.iam.create_policy.assert_not_called()
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_replacement_preparation_failure_is_not_swallowed(self, mock_urlopen):
+        mock_urlopen.side_effect = HTTPError(
+            "u", 500, "boom", {}, BytesIO(b'{"errors":["upstream down"]}')
+        )
+
+        with self.assertRaises(Exception):
+            self._attach(
+                ["aws:eks:cluster"],
+                previous_resource_types=["aws:ec2:instance"],
+            )
+
+        self.iam.detach_role_policy.assert_not_called()
+        self.iam.create_policy.assert_not_called()
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
     def test_fail_on_error_raises_on_fetch_failure(self, mock_urlopen):
         mock_urlopen.side_effect = HTTPError(
             "u", 500, "boom", {}, BytesIO(b'{"errors":["upstream down"]}')
@@ -377,6 +442,19 @@ class TestCleanup(unittest.TestCase):
         self.assertEqual(len(detached), 2)
         self.assertTrue(all(BASE_POLICY_PREFIX_INSTRUMENTATION in arn for arn in detached))
 
+    def test_strict_base_cleanup_propagates_inline_policy_failure(self):
+        self.iam.delete_role_policy.side_effect = Exception("AccessDenied")
+
+        with self.assertRaisesRegex(Exception, "AccessDenied"):
+            cleanup_existing_policies(
+                self.iam,
+                "MyRole",
+                "123456789012",
+                "aws",
+                max_policies=2,
+                fail_on_error=True,
+            )
+
 
 class TestCleanupLegacyBasePolicies(unittest.TestCase):
     def setUp(self):
@@ -402,6 +480,9 @@ class TestCleanupLegacyBasePolicies(unittest.TestCase):
 
 
 class TestManageBasePermissions(unittest.TestCase):
+    stack_id = "arn:aws:cloudformation:us-east-1:123456789012:stack/test-stack/id"
+    logical_resource_id = "DatadogAttachIntegrationPermissionsFunctionTrigger"
+
     def setUp(self):
         self.iam = make_iam_mock(cleanup_side_effects=False)
 
@@ -413,9 +494,27 @@ class TestManageBasePermissions(unittest.TestCase):
             "ResourceCollectionPermissions": "true",
             "InstrumentationResourceTypes": "",
             "DatadogSite": "datadoghq.com",
+            "PolicyAttachmentSchemaVersion": "2",
         }
         props.update(overrides)
-        return {"RequestType": "Create", "ResourceProperties": props}
+        return {
+            "RequestType": "Create",
+            "StackId": self.stack_id,
+            "LogicalResourceId": self.logical_resource_id,
+            "ResourceProperties": props,
+        }
+
+    def _update(self, current=None, previous=None):
+        current_props = self._props(**(current or {}))["ResourceProperties"]
+        previous_props = self._props(**(previous or {}))["ResourceProperties"]
+        return {
+            "RequestType": "Update",
+            "StackId": self.stack_id,
+            "LogicalResourceId": self.logical_resource_id,
+            "PhysicalResourceId": "legacy-log-stream",
+            "ResourceProperties": current_props,
+            "OldResourceProperties": previous_props,
+        }
 
     @patch("attach_integration_permissions.cleanup_legacy_base_policies")
     @patch("attach_integration_permissions.boto3.client")
@@ -477,6 +576,21 @@ class TestManageBasePermissions(unittest.TestCase):
         mock_cleanup_base.assert_called_once()
         mock_cleanup_instr.assert_called_once()
 
+    @patch("attach_integration_permissions.cfnresponse")
+    @patch("attach_integration_permissions.boto3.client")
+    def test_delete_preserves_physical_resource_id(self, mock_client, mock_cfn):
+        mock_client.return_value = self.iam
+        event = self._props(ManageBasePermissions="false")
+        event["RequestType"] = "Delete"
+        event["PhysicalResourceId"] = "legacy-log-stream"
+
+        handle_delete(event, None)
+
+        self.assertEqual(
+            mock_cfn.send.call_args.kwargs["physicalResourceId"],
+            event["PhysicalResourceId"],
+        )
+
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.attach_instrumentation_permissions")
     def test_create_threads_fail_on_instrumentation_error(self, mock_instr, mock_client):
@@ -500,6 +614,243 @@ class TestManageBasePermissions(unittest.TestCase):
             None,
         )
         self.assertEqual(mock_cfn.send.call_args.args[2], mock_cfn.FAILED)
+
+    @patch("attach_integration_permissions.cfnresponse")
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    def test_create_uses_deterministic_physical_resource_id(
+        self, mock_instr, mock_client, mock_cfn
+    ):
+        mock_client.return_value = self.iam
+
+        handle_create_update(self._props(ManageBasePermissions="false"), None)
+
+        self.assertEqual(
+            mock_cfn.send.call_args.kwargs["physicalResourceId"],
+            f"{self.stack_id}/{self.logical_resource_id}",
+        )
+
+    @patch("attach_integration_permissions.cfnresponse")
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    def test_unrelated_update_preserves_physical_id_and_skips_instrumentation(
+        self, mock_instr, mock_client, mock_cfn
+    ):
+        mock_client.return_value = self.iam
+        event = self._update(
+            current={
+                "ManageBasePermissions": "false",
+                "ResourceCollectionPermissions": "false",
+            },
+            previous={
+                "ManageBasePermissions": "false",
+                "ResourceCollectionPermissions": "true",
+            },
+        )
+
+        handle_create_update(event, None)
+
+        mock_instr.assert_not_called()
+        self.assertEqual(
+            mock_cfn.send.call_args.kwargs["physicalResourceId"],
+            event["PhysicalResourceId"],
+        )
+
+    @patch("attach_integration_permissions.cleanup_instrumentation_policies")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    @patch("attach_integration_permissions.attach_resource_collection_permissions")
+    @patch("attach_integration_permissions.attach_standard_permissions")
+    @patch("attach_integration_permissions.cleanup_existing_policies")
+    @patch("attach_integration_permissions.cleanup_legacy_base_policies")
+    @patch("attach_integration_permissions.boto3.client")
+    def test_role_change_attaches_new_before_cleaning_previous_target(
+        self,
+        mock_client,
+        mock_legacy,
+        mock_existing,
+        mock_standard,
+        mock_rc,
+        mock_instr,
+        mock_cleanup_instr,
+    ):
+        mock_client.return_value = self.iam
+        events = []
+        mock_legacy.side_effect = lambda _, role, *args, **kwargs: events.append(
+            ("legacy", role, kwargs.get("fail_on_error", False))
+        )
+        mock_existing.side_effect = lambda _, role, *args, **kwargs: events.append(
+            ("existing", role, kwargs.get("fail_on_error", False))
+        )
+        mock_standard.side_effect = lambda _, role: events.append(("standard", role))
+        mock_rc.side_effect = lambda _, role: events.append(("resource-collection", role))
+        mock_instr.side_effect = lambda _, role, *args, **kwargs: events.append(
+            ("instrumentation", role)
+        )
+        mock_cleanup_instr.side_effect = lambda _, role, *args, **kwargs: events.append(
+            ("cleanup-instrumentation", role, kwargs.get("fail_on_error", False))
+        )
+        event = self._update(
+            current={
+                "DatadogIntegrationRole": "NewRole",
+                "ManageBasePermissions": "true",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
+            },
+            previous={
+                "DatadogIntegrationRole": "OldRole",
+                "ManageBasePermissions": "true",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
+            },
+        )
+
+        handle_create_update(event, None)
+
+        self.assertEqual(
+            events,
+            [
+                ("legacy", "NewRole", False),
+                ("existing", "NewRole", False),
+                ("standard", "NewRole"),
+                ("resource-collection", "NewRole"),
+                ("instrumentation", "NewRole"),
+                ("legacy", "OldRole", True),
+                ("existing", "OldRole", True),
+                ("cleanup-instrumentation", "OldRole", True),
+            ],
+        )
+
+    @patch("attach_integration_permissions.cleanup_instrumentation_policies")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    @patch("attach_integration_permissions.cleanup_existing_policies")
+    @patch("attach_integration_permissions.cleanup_legacy_base_policies")
+    @patch("attach_integration_permissions.boto3.client")
+    def test_addon_role_change_does_not_clean_previous_base_policies(
+        self,
+        mock_client,
+        mock_legacy,
+        mock_existing,
+        mock_instr,
+        mock_cleanup_instr,
+    ):
+        mock_client.return_value = self.iam
+        event = self._update(
+            current={
+                "DatadogIntegrationRole": "NewRole",
+                "ManageBasePermissions": "false",
+                "InstrumentationResourceTypes": "aws:eks:cluster",
+            },
+            previous={
+                "DatadogIntegrationRole": "OldRole",
+                "ManageBasePermissions": "false",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
+            },
+        )
+
+        handle_create_update(event, None)
+
+        mock_instr.assert_called_once()
+        mock_legacy.assert_not_called()
+        mock_existing.assert_not_called()
+        mock_cleanup_instr.assert_called_once_with(
+            self.iam,
+            "OldRole",
+            "123456789012",
+            "aws",
+            fail_on_error=True,
+        )
+
+    @patch("attach_integration_permissions.cfnresponse")
+    @patch("attach_integration_permissions.cleanup_instrumentation_policies")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    @patch("attach_integration_permissions.attach_resource_collection_permissions")
+    @patch("attach_integration_permissions.attach_standard_permissions")
+    @patch("attach_integration_permissions.cleanup_existing_policies")
+    @patch("attach_integration_permissions.cleanup_legacy_base_policies")
+    @patch("attach_integration_permissions.boto3.client")
+    def test_previous_target_cleanup_failure_fails_update_with_same_physical_id(
+        self,
+        mock_client,
+        mock_legacy,
+        mock_existing,
+        mock_standard,
+        mock_rc,
+        mock_instr,
+        mock_cleanup_instr,
+        mock_cfn,
+    ):
+        mock_client.return_value = self.iam
+
+        def cleanup_legacy(_, role, *args, **kwargs):
+            if role == "OldRole":
+                raise Exception("AccessDenied")
+
+        mock_legacy.side_effect = cleanup_legacy
+        event = self._update(
+            current={
+                "DatadogIntegrationRole": "NewRole",
+                "ManageBasePermissions": "true",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
+            },
+            previous={
+                "DatadogIntegrationRole": "OldRole",
+                "ManageBasePermissions": "true",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
+            },
+        )
+
+        handle_create_update(event, None)
+
+        mock_standard.assert_called_once()
+        mock_rc.assert_called_once()
+        mock_instr.assert_called_once()
+        mock_existing.assert_called_once()
+        mock_cleanup_instr.assert_not_called()
+        self.assertEqual(mock_cfn.send.call_args.args[2], mock_cfn.FAILED)
+        self.assertEqual(
+            mock_cfn.send.call_args.kwargs["physicalResourceId"],
+            event["PhysicalResourceId"],
+        )
+
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    def test_schema_update_refreshes_instrumentation(self, mock_instr, mock_client):
+        mock_client.return_value = self.iam
+        event = self._update(
+            current={
+                "ManageBasePermissions": "false",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
+                "PolicyAttachmentSchemaVersion": "3",
+            },
+            previous={
+                "ManageBasePermissions": "false",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
+                "PolicyAttachmentSchemaVersion": "2",
+            },
+        )
+
+        handle_create_update(event, None)
+
+        mock_instr.assert_called_once()
+
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    def test_resource_type_reordering_does_not_replace_policies(
+        self, mock_instr, mock_client
+    ):
+        mock_client.return_value = self.iam
+        event = self._update(
+            current={
+                "ManageBasePermissions": "false",
+                "InstrumentationResourceTypes": "aws:eks:cluster,aws:ec2:instance",
+            },
+            previous={
+                "ManageBasePermissions": "false",
+                "InstrumentationResourceTypes": "aws:ec2:instance,aws:eks:cluster",
+            },
+        )
+
+        handle_create_update(event, None)
+
+        mock_instr.assert_not_called()
 
 
 class TestUpgradeSafePolicyNames(unittest.TestCase):

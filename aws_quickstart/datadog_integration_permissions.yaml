@@ -72,9 +72,7 @@ Resources:
                 Action:
                   - iam:CreatePolicy
                   - iam:DeletePolicy
-                  - iam:DeleteRolePolicy
                   - iam:AttachRolePolicy
-                  - iam:DetachRolePolicy
                   - iam:ListAttachedRolePolicies
                   - iam:PutRolePolicy
                 Resource:
@@ -84,6 +82,19 @@ Resources:
                   - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*
                   - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*
                   - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
+              - Effect: Allow
+                Action: iam:DetachRolePolicy
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+                Condition:
+                  ArnLike:
+                    iam:PolicyARN:
+                      - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*
+                      - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*
+              - Effect: Allow
+                Action: iam:DeleteRolePolicy
+                # The previous role name is known only at runtime during a role replacement. The
+                # Lambda deletes only the fixed Datadog standard-policy names from this role.
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
               - Effect: Allow
                 Action: iam:GetAccountSummary
                 Resource: "*"
