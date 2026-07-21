@@ -237,6 +237,10 @@ def _ensure_permissions_boundary_policy(iam_client, boundary):
             iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
             return
         except iam_client.exceptions.EntityAlreadyExistsException:
+            iam_client.get_waiter("policy_exists").wait(
+                PolicyArn=policy_arn,
+                WaiterConfig={"Delay": 1, "MaxAttempts": 20},
+            )
             policy = _get_policy(iam_client, policy_arn)
             if policy is None:
                 raise RuntimeError(f"Policy {policy_name} exists but could not be read")

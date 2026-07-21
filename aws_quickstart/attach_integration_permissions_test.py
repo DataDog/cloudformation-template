@@ -641,6 +641,7 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
             {"Policy": {"DefaultVersionId": "v1"}},
         ]
         self.iam.create_policy.side_effect = self.iam.exceptions.EntityAlreadyExistsException()
+        waiter = self.iam.get_waiter.return_value
         self.iam.get_policy_version.return_value = {
             "PolicyVersion": {"Document": self.boundary["policy_document"]}
         }
@@ -648,6 +649,11 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         _ensure_permissions_boundary_policy(self.iam, self.boundary)
 
         self.iam.create_policy.assert_called_once()
+        self.iam.get_waiter.assert_called_once_with("policy_exists")
+        waiter.wait.assert_called_once_with(
+            PolicyArn=self.policy_arn,
+            WaiterConfig={"Delay": 1, "MaxAttempts": 20},
+        )
         self.iam.create_policy_version.assert_not_called()
 
     def test_delete_removes_unused_boundary_and_non_default_versions(self):
