@@ -1,57 +1,23 @@
 #!/bin/bash
 
-# Usage: ./release.sh [<S3_Bucket>] [--gov] [--private] [--yes]
+# Usage: ./release.sh <S3_Bucket> [--private] [--yes]
 
 set -e
 
-VERSIONS_JSON_PATH=".mp_saas_quickstart/versions.json"
+# Read the S3 bucket
+if [ -z "$1" ]; then
+    echo "Must specify a S3 bucket to publish the template"
+    exit 1
+else
+    BUCKET=$1
+fi
 
-generate_versions_json() {
-    echo "Generating ${VERSIONS_JSON_PATH} for version ${VERSION}..."
-
-    local version_number="${VERSION}"
-    local release_date=$(date +%Y-%m-%d)
-
-    mkdir -p "$(dirname "${VERSIONS_JSON_PATH}")"
-    rm -f "${VERSIONS_JSON_PATH}"
-
-    local versions_json
-    versions_json=$(jq -r -n \
-        --arg ver "${version_number}" \
-        --arg date "${release_date}" \
-        '
-        {
-            latest: {
-                version: $ver,
-                release_date: $date
-            }
-        }
-    ')
-
-    echo "${versions_json}" > "${VERSIONS_JSON_PATH}"
-    echo "Generated ${VERSIONS_JSON_PATH}"
-}
-
-upload_versions_json() {
-    echo "Uploading versions.json to s3://${VERSIONS_BUCKET}/mp_saas_quickstart/versions.json..."
-
-    aws s3 cp "${VERSIONS_JSON_PATH}" "s3://${VERSIONS_BUCKET}/mp_saas_quickstart/versions.json"
-
-    echo "Uploaded versions.json to S3!"
-}
-
-# Parse flags and optional bucket argument
-GOV=false
+# Parse optional flags
 PRIVATE_TEMPLATE=false
 AUTO_YES=false
-BUCKET=""
-
+shift
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --gov)
-            GOV=true
-            shift
-            ;;
         --private)
             PRIVATE_TEMPLATE=true
             shift
@@ -60,49 +26,18 @@ while [[ $# -gt 0 ]]; do
             AUTO_YES=true
             shift
             ;;
-        --*)
-            echo "Unknown option: $1"
-            echo "Usage: ./release.sh [<S3_Bucket>] [--gov] [--private] [--yes]"
-            exit 1
-            ;;
         *)
-            BUCKET=$1
-            shift
+            echo "Unknown option: $1"
+            echo "Usage: ./release.sh <S3_Bucket> [--private] [--yes]"
+            exit 1
             ;;
     esac
 done
 
-if [ "$GOV" = true ]; then
-    BUCKET="${BUCKET:-datadog-cloudformation-template-quickstart-us-gov}"
-    VERSIONS_BUCKET="datadog-opensource-asset-versions-us-gov"
-else
-    if [ -z "$BUCKET" ]; then
-        echo "Must specify a S3 bucket to publish the template"
-        exit 1
-    fi
-    VERSIONS_BUCKET="datadog-opensource-asset-versions"
-fi
-
-# Read the version
-VERSION=$(head -n 1 version.txt)
-
-# Confirm the bucket for the current release doesn't already exist so we don't overwrite it
-set +e
-EXIT_CODE=0
-response=$(aws s3api head-object \
-    --bucket "${BUCKET}" \
-    --key "aws_mp_saas_quickstart/${VERSION}/main.yaml" > /dev/null 2>&1)
-
-if [[ ${?} -eq 0 ]]; then
-    echo "S3 bucket path ${BUCKET}/aws_mp_saas_quickstart/${VERSION} already exists. Please up the version."
-    exit 1
-fi
-set -e
-
 # Confirm to proceed
 for i in *.yaml; do
     [ -f "$i" ] || break
-    echo "About to upload $i to s3://${BUCKET}/aws_mp_saas_quickstart/${VERSION}/$i"
+    echo "About to upload $i to s3://${BUCKET}/aws_mp_saas_quickstart/$i"
 done
 
 if [ "$AUTO_YES" = false ]; then
@@ -118,31 +53,15 @@ fi
 # Update bucket placeholder
 cp main.yaml main.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main.yaml
-perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main.yaml
-if [ "$GOV" = true ]; then
-    perl -pi -e 's/\.s3\.amazonaws\.com/.s3.us-gov-west-1.amazonaws.com/g' main.yaml
-fi
-
 trap 'mv main.yaml.bak main.yaml' EXIT
 
 # Upload
-aws s3 cp . s3://${BUCKET}/aws_mp_saas_quickstart/${VERSION} --recursive --exclude "*" --include "*.yaml"
-
-echo "Done uploading the template, and here is the CloudFormation quick launch URL"
-echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-integration&templateURL=https://${BUCKET}.s3.amazonaws.com/aws_mp_saas_quickstart/${VERSION}/main.yaml"
-
-# Generate and upload versions.json (only for public releases)
-if [ "$PRIVATE_TEMPLATE" = false ] ; then
-    echo "Generating and uploading versions.json for the new release..."
-
-    generate_versions_json
-    upload_versions_json
-
-    echo "Done generating and uploading versions.json!"
-    echo "Please verify the uploaded file:"
-    echo "\thttps://${VERSIONS_BUCKET}.s3.amazonaws.com/mp_saas_quickstart/versions.json"
+if [ "$PRIVATE_TEMPLATE" = true ] ; then
+    aws s3 cp . s3://${BUCKET}/aws_mp_saas_quickstart --recursive --exclude "*" --include "*.yaml"
 else
-    echo "Skipping versions.json upload for private release"
+    aws s3 cp . s3://${BUCKET}/aws_mp_saas_quickstart --recursive --exclude "*" --include "*.yaml"
 fi
+echo "Done uploading the template, and here is the CloudFormation quick launch URL"
+echo "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=datadog-aws-integration&templateURL=https://${BUCKET}.s3.amazonaws.com/aws_mp_saas_quickstart/main.yaml"
 
 echo "Done!"

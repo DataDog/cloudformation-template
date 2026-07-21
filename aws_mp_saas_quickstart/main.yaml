@@ -1,4 +1,3 @@
-# version: <VERSION_PLACEHOLDER>
 AWSTemplateFormatVersion: 2010-09-09
 Description: Datadog AWS Integration (qs-1sfrgofam)
 Parameters:
@@ -86,7 +85,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Condition: SecretNameProvided
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/<VERSION_PLACEHOLDER>/datadog_secrets_retrieval.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/datadog_secrets_retrieval.yaml"
       Parameters:
         SecretName: !Ref SecretName
         DatadogApiKey: !Ref DatadogApiKey
@@ -95,7 +94,7 @@ Resources:
   DatadogAPICall:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/<VERSION_PLACEHOLDER>/datadog_integration_api_call.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/datadog_integration_api_call.yaml"
       Parameters:
         DatadogApiKey: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiKey, !Ref DatadogApiKey]
         DatadogAppKey: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.AppKey, !Ref DatadogAppKey]
@@ -105,7 +104,7 @@ Resources:
   DatadogIntegrationRoleStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/<VERSION_PLACEHOLDER>/datadog_integration_role.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/datadog_integration_role.yaml"
       Parameters:
         ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
@@ -116,7 +115,7 @@ Resources:
   ForwarderStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/<VERSION_PLACEHOLDER>/datadog_forwarder.yaml"
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws_mp_saas_quickstart/datadog_forwarder.yaml"
       Parameters:
         DdApiKey: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiKey, !Ref DatadogApiKey]
         DdSite: !If [SecretNameProvided, !GetAtt SecretsRetrieval.Outputs.ApiUrl, !Ref DatadogSite]
