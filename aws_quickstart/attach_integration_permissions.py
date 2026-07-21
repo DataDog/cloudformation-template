@@ -45,6 +45,13 @@ INSTRUMENTATION_UPDATE_PROPERTIES = (
     "DatadogSite",
     "FailOnInstrumentationError",
 )
+MAX_POLICY_VERSIONS = 5
+BOUNDARY_POLICY_NAMES = (
+    "datadog-instrumenter-ec2-ssm-boundary",
+    "datadog-instrumenter-eks-lambda-boundary",
+    "datadog-instrumenter-eks-ascp-boundary",
+    "datadog-instrumenter-ecs-task-execution-boundary",
+)
 
 
 class DatadogAPIError(Exception):
@@ -72,8 +79,9 @@ def fetch_permissions_from_datadog(api_url):
     return fetch_permissions_attributes_from_datadog(api_url)["permissions"]
 
 
-def fetch_instrumentation_policy_documents(api_url):
-    policy_documents = fetch_permissions_attributes_from_datadog(api_url)["policy_documents"]
+def fetch_instrumentation_permissions(api_url, account_id, partition):
+    attributes = fetch_permissions_attributes_from_datadog(api_url)
+    policy_documents = attributes.get("policy_documents")
     if not policy_documents:
         raise DatadogAPIError("Datadog API returned no instrumentation policy documents")
     if len(policy_documents) > MAX_POLICY_DOCUMENTS:
@@ -81,7 +89,13 @@ def fetch_instrumentation_policy_documents(api_url):
             f"Datadog API returned {len(policy_documents)} instrumentation policy documents; "
             f"at most {MAX_POLICY_DOCUMENTS} are supported"
         )
-    return policy_documents
+
+    boundary_documents = _validate_permissions_boundary_policy_documents(
+        attributes.get("permissions_boundary_policy_documents"),
+        account_id,
+        partition,
+    )
+    return policy_documents, boundary_documents
 
 
 def parse_resource_types(raw):
@@ -144,6 +158,147 @@ def build_instrumentation_permissions_url(datadog_site, resource_types, account_
         ]
     )
     return f"https://api.{datadog_site}{INSTRUMENTATION_PERMISSIONS_API_PATH}?{query}"
+
+
+def _boundary_policy_arn(policy_name, account_id, partition):
+    return f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
+
+
+def _validate_permissions_boundary_policy_documents(boundary_documents, account_id, partition):
+    if not isinstance(boundary_documents, list):
+        raise DatadogAPIError("Datadog API returned no permissions boundary policy documents")
+
+    expected_names = set(BOUNDARY_POLICY_NAMES)
+    documents_by_name = {}
+    for boundary in boundary_documents:
+        if not isinstance(boundary, dict):
+            raise DatadogAPIError("Datadog API returned an invalid permissions boundary entry")
+
+        policy_name = boundary.get("policy_name")
+        if policy_name not in expected_names:
+            raise DatadogAPIError(f"Datadog API returned unexpected permissions boundary {policy_name!r}")
+        if policy_name in documents_by_name:
+            raise DatadogAPIError(f"Datadog API returned duplicate permissions boundary {policy_name!r}")
+
+        expected_arn = _boundary_policy_arn(policy_name, account_id, partition)
+        if boundary.get("policy_arn") != expected_arn:
+            raise DatadogAPIError(
+                f"Datadog API returned ARN {boundary.get('policy_arn')!r} for {policy_name}; "
+                f"expected {expected_arn!r}"
+            )
+        if not isinstance(boundary.get("policy_document"), dict):
+            raise DatadogAPIError(f"Datadog API returned no policy document for {policy_name}")
+        documents_by_name[policy_name] = boundary
+
+    missing_names = expected_names - documents_by_name.keys()
+    if missing_names:
+        raise DatadogAPIError(
+            "Datadog API omitted permissions boundaries: " + ", ".join(sorted(missing_names))
+        )
+
+    return [documents_by_name[name] for name in BOUNDARY_POLICY_NAMES]
+
+
+def _canonical_policy_document(policy_document):
+    if isinstance(policy_document, str):
+        policy_document = json.loads(urllib.parse.unquote(policy_document))
+    if not isinstance(policy_document, dict):
+        raise RuntimeError("IAM returned an invalid managed policy document")
+    return json.dumps(policy_document, sort_keys=True, separators=(",", ":"))
+
+
+def _get_policy(iam_client, policy_arn):
+    try:
+        return iam_client.get_policy(PolicyArn=policy_arn)["Policy"]
+    except iam_client.exceptions.NoSuchEntityException:
+        return None
+
+
+def _prune_oldest_policy_version_if_needed(iam_client, policy_arn):
+    versions = iam_client.list_policy_versions(PolicyArn=policy_arn).get("Versions", [])
+    if len(versions) < MAX_POLICY_VERSIONS:
+        return
+
+    non_default_versions = [version for version in versions if not version["IsDefaultVersion"]]
+    if not non_default_versions:
+        raise RuntimeError(f"Policy {policy_arn} reached the version limit with no removable version")
+    oldest = min(non_default_versions, key=lambda version: version["CreateDate"])
+    iam_client.delete_policy_version(PolicyArn=policy_arn, VersionId=oldest["VersionId"])
+
+
+def _ensure_permissions_boundary_policy(iam_client, boundary):
+    policy_name = boundary["policy_name"]
+    policy_arn = boundary["policy_arn"]
+    policy_json = _canonical_policy_document(boundary["policy_document"])
+    policy = _get_policy(iam_client, policy_arn)
+
+    if policy is None:
+        try:
+            iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
+            return
+        except iam_client.exceptions.EntityAlreadyExistsException:
+            policy = _get_policy(iam_client, policy_arn)
+            if policy is None:
+                raise RuntimeError(f"Policy {policy_name} exists but could not be read")
+
+    default_version_id = policy.get("DefaultVersionId")
+    if not default_version_id:
+        raise RuntimeError(f"Policy {policy_name} has no default version")
+    current_document = iam_client.get_policy_version(
+        PolicyArn=policy_arn,
+        VersionId=default_version_id,
+    )["PolicyVersion"]["Document"]
+    if _canonical_policy_document(current_document) == policy_json:
+        return
+
+    _prune_oldest_policy_version_if_needed(iam_client, policy_arn)
+    iam_client.create_policy_version(
+        PolicyArn=policy_arn,
+        PolicyDocument=policy_json,
+        SetAsDefault=True,
+    )
+
+
+def manage_permissions_boundaries(iam_client, boundary_documents):
+    for boundary in boundary_documents:
+        _ensure_permissions_boundary_policy(iam_client, boundary)
+
+
+def _permissions_boundary_is_in_use(iam_client, policy_arn):
+    entities = iam_client.list_entities_for_policy(
+        PolicyArn=policy_arn,
+        PolicyUsageFilter="PermissionsBoundary",
+        MaxItems=1,
+    )
+    return (
+        bool(entities.get("PolicyGroups"))
+        or bool(entities.get("PolicyUsers"))
+        or bool(entities.get("PolicyRoles"))
+        or bool(entities.get("IsTruncated"))
+    )
+
+
+def cleanup_permissions_boundaries(iam_client, account_id, partition):
+    for policy_name in BOUNDARY_POLICY_NAMES:
+        policy_arn = _boundary_policy_arn(policy_name, account_id, partition)
+        if _get_policy(iam_client, policy_arn) is None:
+            continue
+        try:
+            if _permissions_boundary_is_in_use(iam_client, policy_arn):
+                LOGGER.warning(f"Policy {policy_name} is still used as a permissions boundary; retaining it")
+                continue
+            versions = iam_client.list_policy_versions(PolicyArn=policy_arn).get("Versions", [])
+            for version in versions:
+                if not version["IsDefaultVersion"]:
+                    iam_client.delete_policy_version(
+                        PolicyArn=policy_arn,
+                        VersionId=version["VersionId"],
+                    )
+            iam_client.delete_policy(PolicyArn=policy_arn)
+        except iam_client.exceptions.NoSuchEntityException:
+            pass
+        except iam_client.exceptions.DeleteConflictException:
+            LOGGER.warning(f"Policy {policy_name} is still attached; retaining it")
 
 
 def _detach_and_delete_policy(
@@ -436,12 +591,17 @@ def attach_instrumentation_permissions(
             partition,
         )
         LOGGER.info(f"Fetching instrumentation permissions for {resource_types} from {url}")
-        policy_documents = fetch_instrumentation_policy_documents(url)
+        policy_documents, boundary_documents = fetch_instrumentation_permissions(
+            url,
+            account_id,
+            partition,
+        )
         _validate_instrumentation_policy_capacity(
             iam_client,
             role_name,
             len(policy_documents),
         )
+        manage_permissions_boundaries(iam_client, boundary_documents)
     except Exception as e:
         if mutation_must_succeed:
             raise
@@ -484,6 +644,7 @@ def handle_delete(event, context):
         if manage_base_permissions:
             cleanup_existing_policies(iam_client, role_name, account_id, partition)
         cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
+        cleanup_permissions_boundaries(iam_client, account_id, partition)
         _send_cfn_response(event, context, cfnresponse.SUCCESS, {})
     except Exception as e:
         LOGGER.error(f"Error deleting policy: {str(e)}")
