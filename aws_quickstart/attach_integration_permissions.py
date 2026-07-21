@@ -90,6 +90,10 @@ def parse_resource_types(raw):
     return [t.strip() for t in items if t and t.strip()]
 
 
+def _is_enabled(value):
+    return str(value).lower() == "true"
+
+
 def _normalized_instrumentation_property(name, value):
     if name == "InstrumentationResourceTypes":
         return tuple(sorted(set(parse_resource_types(value))))
@@ -284,9 +288,7 @@ def _cleanup_previous_target_policies(iam_client, props):
     role_name = props["DatadogIntegrationRole"]
     account_id = props["AccountId"]
     partition = props.get("Partition", "aws")
-    manage_base_permissions = (
-        str(props.get("ManageBasePermissions", "true")).lower() == "true"
-    )
+    manage_base_permissions = _is_enabled(props.get("ManageBasePermissions", "true"))
     if manage_base_permissions:
         cleanup_legacy_base_policies(
             iam_client,
@@ -471,7 +473,7 @@ def handle_delete(event, context):
     role_name = props['DatadogIntegrationRole']
     account_id = props['AccountId']
     partition = props.get('Partition', 'aws')
-    manage_base_permissions = str(props.get('ManageBasePermissions', 'true')).lower() == 'true'
+    manage_base_permissions = _is_enabled(props.get('ManageBasePermissions', 'true'))
     iam_client = boto3.client('iam')
     try:
         if manage_base_permissions:
@@ -489,9 +491,13 @@ def handle_create_update(event, context):
     role_name = props['DatadogIntegrationRole']
     account_id = props['AccountId']
     partition = props.get('Partition', 'aws')
-    manage_base_permissions = str(props.get('ManageBasePermissions', 'true')).lower() == 'true'
-    fail_on_instrumentation_error = str(props.get('FailOnInstrumentationError', 'false')).lower() == 'true'
-    should_install_security_audit_policy = str(props['ResourceCollectionPermissions']).lower() == 'true'
+    manage_base_permissions = _is_enabled(props.get('ManageBasePermissions', 'true'))
+    fail_on_instrumentation_error = _is_enabled(
+        props.get('FailOnInstrumentationError', 'false')
+    )
+    should_attach_resource_collection_permissions = _is_enabled(
+        props['ResourceCollectionPermissions']
+    )
     datadog_site = props.get('DatadogSite') or 'datadoghq.com'
     instrumentation_resource_types = parse_resource_types(props.get('InstrumentationResourceTypes'))
     previous_instrumentation_resource_types = parse_resource_types(
@@ -502,7 +508,8 @@ def handle_create_update(event, context):
         previous_props.get('AccountId', account_id),
         previous_props.get('Partition', partition),
     )
-    target_changed = previous_target != (role_name, account_id, partition)
+    current_target = (role_name, account_id, partition)
+    target_changed = previous_target != current_target
 
     try:
         iam_client = boto3.client('iam')
@@ -510,12 +517,17 @@ def handle_create_update(event, context):
             cleanup_legacy_base_policies(iam_client, role_name, account_id, partition)
             cleanup_existing_policies(iam_client, role_name, account_id, partition)
             attach_standard_permissions(iam_client, role_name)
-            if should_install_security_audit_policy:
+            if should_attach_resource_collection_permissions:
                 attach_resource_collection_permissions(iam_client, role_name)
         if _should_update_instrumentation_permissions(event):
             attach_instrumentation_permissions(
-                iam_client, role_name, account_id, partition,
-                datadog_site, instrumentation_resource_types, previous_instrumentation_resource_types,
+                iam_client,
+                role_name,
+                account_id,
+                partition,
+                datadog_site,
+                instrumentation_resource_types,
+                previous_instrumentation_resource_types,
                 fail_on_error=fail_on_instrumentation_error,
             )
         if target_changed:
