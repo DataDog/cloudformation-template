@@ -270,11 +270,9 @@ def _permissions_boundary_is_in_use(iam_client, policy_arn):
         PolicyUsageFilter="PermissionsBoundary",
         MaxItems=1,
     )
-    return (
-        bool(entities.get("PolicyGroups"))
-        or bool(entities.get("PolicyUsers"))
-        or bool(entities.get("PolicyRoles"))
-        or bool(entities.get("IsTruncated"))
+    return any(
+        entities.get(key)
+        for key in ("PolicyGroups", "PolicyUsers", "PolicyRoles", "IsTruncated")
     )
 
 
@@ -289,11 +287,12 @@ def cleanup_permissions_boundaries(iam_client, account_id, partition):
                 continue
             versions = iam_client.list_policy_versions(PolicyArn=policy_arn).get("Versions", [])
             for version in versions:
-                if not version["IsDefaultVersion"]:
-                    iam_client.delete_policy_version(
-                        PolicyArn=policy_arn,
-                        VersionId=version["VersionId"],
-                    )
+                if version["IsDefaultVersion"]:
+                    continue
+                iam_client.delete_policy_version(
+                    PolicyArn=policy_arn,
+                    VersionId=version["VersionId"],
+                )
             iam_client.delete_policy(PolicyArn=policy_arn)
         except iam_client.exceptions.NoSuchEntityException:
             pass
