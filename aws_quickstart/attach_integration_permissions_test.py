@@ -114,6 +114,7 @@ def make_iam_mock(cleanup_side_effects=True):
     iam.exceptions.NoSuchEntityException = type("NSE", (Exception,), {})
     iam.exceptions.DeleteConflictException = type("DCE", (Exception,), {})
     iam.exceptions.EntityAlreadyExistsException = type("EAE", (Exception,), {})
+    iam.exceptions.LimitExceededException = type("LEE", (Exception,), {})
     if cleanup_side_effects:
         iam.detach_role_policy.side_effect = iam.exceptions.NoSuchEntityException
         iam.delete_policy.side_effect = iam.exceptions.NoSuchEntityException
@@ -765,6 +766,58 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         )
         self.iam.create_policy_version.assert_not_called()
 
+    @patch("attach_integration_permissions.time.sleep")
+    def test_concurrent_version_create_rechecks_matching_default(self, mock_sleep):
+        self.iam.get_policy.side_effect = [
+            {"Policy": {"DefaultVersionId": "v1"}},
+            {"Policy": {"DefaultVersionId": "v2"}},
+        ]
+        self.iam.get_policy_version.side_effect = [
+            {"PolicyVersion": {"Document": {"Version": "2012-10-17", "Statement": []}}},
+            {"PolicyVersion": {"Document": self.boundary["policy_document"]}},
+        ]
+        self.iam.list_policy_versions.return_value = {
+            "Versions": [
+                {"VersionId": f"v{version}", "IsDefaultVersion": version == 1, "CreateDate": version}
+                for version in range(1, 5)
+            ]
+        }
+        self.iam.create_policy_version.side_effect = self.iam.exceptions.LimitExceededException()
+
+        _ensure_permissions_boundary_policy(self.iam, self.boundary)
+
+        self.assertEqual(self.iam.get_policy.call_count, 2)
+        self.iam.create_policy_version.assert_called_once()
+        mock_sleep.assert_called_once_with(1)
+
+    @patch("attach_integration_permissions.time.sleep")
+    def test_concurrent_version_prune_rechecks_matching_default(self, mock_sleep):
+        self.iam.get_policy.side_effect = [
+            {"Policy": {"DefaultVersionId": "v5"}},
+            {"Policy": {"DefaultVersionId": "v6"}},
+        ]
+        self.iam.get_policy_version.side_effect = [
+            {"PolicyVersion": {"Document": {"Version": "2012-10-17", "Statement": []}}},
+            {"PolicyVersion": {"Document": self.boundary["policy_document"]}},
+        ]
+        self.iam.list_policy_versions.return_value = {
+            "Versions": [
+                {"VersionId": f"v{version}", "IsDefaultVersion": version == 5, "CreateDate": version}
+                for version in range(1, 6)
+            ]
+        }
+        self.iam.delete_policy_version.side_effect = self.iam.exceptions.NoSuchEntityException()
+
+        _ensure_permissions_boundary_policy(self.iam, self.boundary)
+
+        self.assertEqual(self.iam.get_policy.call_count, 2)
+        self.iam.delete_policy_version.assert_called_once_with(
+            PolicyArn=self.policy_arn,
+            VersionId="v1",
+        )
+        self.iam.create_policy_version.assert_not_called()
+        mock_sleep.assert_called_once_with(1)
+
     def test_delete_removes_unused_boundary_and_non_default_versions(self):
         self._list_boundaries(self.boundary)
         self.iam.list_entities_for_policy.return_value = {
@@ -962,7 +1015,7 @@ class TestManageBasePermissions(unittest.TestCase):
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.cleanup_instrumentation_policies")
     @patch("attach_integration_permissions.cleanup_existing_policies")
-    def test_delete_manage_base_false_only_instrumentation(
+    def test_delete_manage_base_false_preserves_shared_boundaries(
         self, mock_cleanup_base, mock_cleanup_instr, mock_client, mock_cleanup_boundaries
     ):
         mock_client.return_value = self.iam
@@ -971,13 +1024,13 @@ class TestManageBasePermissions(unittest.TestCase):
         handle_delete(event, None)
         mock_cleanup_base.assert_not_called()
         mock_cleanup_instr.assert_called_once()
-        mock_cleanup_boundaries.assert_called_once()
+        mock_cleanup_boundaries.assert_not_called()
 
     @patch("attach_integration_permissions.cleanup_permissions_boundaries")
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.cleanup_instrumentation_policies")
     @patch("attach_integration_permissions.cleanup_existing_policies")
-    def test_delete_manage_base_true_cleans_both(
+    def test_delete_manage_base_true_preserves_shared_boundaries(
         self, mock_cleanup_base, mock_cleanup_instr, mock_client, mock_cleanup_boundaries
     ):
         mock_client.return_value = self.iam
@@ -986,7 +1039,7 @@ class TestManageBasePermissions(unittest.TestCase):
         handle_delete(event, None)
         mock_cleanup_base.assert_called_once()
         mock_cleanup_instr.assert_called_once()
-        mock_cleanup_boundaries.assert_called_once()
+        mock_cleanup_boundaries.assert_not_called()
 
     @patch("attach_integration_permissions.cfnresponse")
     @patch("attach_integration_permissions.boto3.client")

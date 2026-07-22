@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 from urllib.request import Request
 import urllib.error
 import urllib.parse
@@ -47,6 +48,8 @@ INSTRUMENTATION_UPDATE_PROPERTIES = (
     "FailOnInstrumentationError",
 )
 MAX_POLICY_VERSIONS = 5
+MAX_BOUNDARY_POLICY_RECONCILE_ATTEMPTS = 5
+BOUNDARY_POLICY_RECONCILE_BASE_DELAY_SECONDS = 1
 MAX_BOUNDARY_POLICIES = 10
 MAX_MANAGED_POLICY_CHARACTERS = 6144
 BOUNDARY_POLICY_PATH = "/datadog/instrumenter-boundaries/"
@@ -340,41 +343,51 @@ def _ensure_permissions_boundary_policy(iam_client, boundary):
     policy_name = boundary["policy_name"]
     policy_arn = boundary["policy_arn"]
     policy_json = _canonical_policy_document(boundary["policy_document"])
-    policy = _get_policy(iam_client, policy_arn)
 
-    if policy is None:
+    for attempt in range(MAX_BOUNDARY_POLICY_RECONCILE_ATTEMPTS):
+        policy = _get_policy(iam_client, policy_arn)
+        if policy is None:
+            try:
+                iam_client.create_policy(
+                    PolicyName=policy_name,
+                    Path=boundary["policy_path"],
+                    PolicyDocument=policy_json,
+                )
+                return
+            except iam_client.exceptions.EntityAlreadyExistsException:
+                iam_client.get_waiter("policy_exists").wait(
+                    PolicyArn=policy_arn,
+                    WaiterConfig={"Delay": 1, "MaxAttempts": 20},
+                )
+                continue
+
+        default_version_id = policy.get("DefaultVersionId")
+        if not default_version_id:
+            raise RuntimeError(f"Policy {policy_name} has no default version")
         try:
-            iam_client.create_policy(
-                PolicyName=policy_name,
-                Path=boundary["policy_path"],
+            current_document = iam_client.get_policy_version(
+                PolicyArn=policy_arn,
+                VersionId=default_version_id,
+            )["PolicyVersion"]["Document"]
+            if _canonical_policy_document(current_document) == policy_json:
+                return
+
+            _prune_oldest_policy_version_if_needed(iam_client, policy_arn)
+            iam_client.create_policy_version(
+                PolicyArn=policy_arn,
                 PolicyDocument=policy_json,
+                SetAsDefault=True,
             )
             return
-        except iam_client.exceptions.EntityAlreadyExistsException:
-            iam_client.get_waiter("policy_exists").wait(
-                PolicyArn=policy_arn,
-                WaiterConfig={"Delay": 1, "MaxAttempts": 20},
-            )
-            policy = _get_policy(iam_client, policy_arn)
-            if policy is None:
-                raise RuntimeError(f"Policy {policy_name} exists but could not be read")
+        except (
+            iam_client.exceptions.LimitExceededException,
+            iam_client.exceptions.NoSuchEntityException,
+        ):
+            if attempt == MAX_BOUNDARY_POLICY_RECONCILE_ATTEMPTS - 1:
+                raise
+            time.sleep(BOUNDARY_POLICY_RECONCILE_BASE_DELAY_SECONDS * 2**attempt)
 
-    default_version_id = policy.get("DefaultVersionId")
-    if not default_version_id:
-        raise RuntimeError(f"Policy {policy_name} has no default version")
-    current_document = iam_client.get_policy_version(
-        PolicyArn=policy_arn,
-        VersionId=default_version_id,
-    )["PolicyVersion"]["Document"]
-    if _canonical_policy_document(current_document) == policy_json:
-        return
-
-    _prune_oldest_policy_version_if_needed(iam_client, policy_arn)
-    iam_client.create_policy_version(
-        PolicyArn=policy_arn,
-        PolicyDocument=policy_json,
-        SetAsDefault=True,
-    )
+    raise RuntimeError(f"Policy {policy_name} could not be reconciled")
 
 
 def manage_permissions_boundaries(iam_client, boundary_documents):
@@ -768,7 +781,6 @@ def handle_delete(event, context):
         if manage_base_permissions:
             cleanup_existing_policies(iam_client, role_name, account_id, partition)
         cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
-        cleanup_permissions_boundaries(iam_client)
         _send_cfn_response(event, context, cfnresponse.SUCCESS, {})
     except Exception as e:
         LOGGER.error(f"Error deleting policy: {str(e)}")
