@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from urllib.request import Request
 import urllib.error
 import urllib.parse
@@ -46,12 +47,11 @@ INSTRUMENTATION_UPDATE_PROPERTIES = (
     "FailOnInstrumentationError",
 )
 MAX_POLICY_VERSIONS = 5
-BOUNDARY_POLICY_NAMES = (
-    "datadog-instrumenter-ec2-ssm-boundary",
-    "datadog-instrumenter-eks-lambda-boundary",
-    "datadog-instrumenter-eks-ascp-boundary",
-    "datadog-instrumenter-ecs-task-execution-boundary",
-)
+MAX_BOUNDARY_POLICIES = 10
+MAX_MANAGED_POLICY_CHARACTERS = 6144
+BOUNDARY_POLICY_PATH = "/datadog/instrumenter-boundaries/"
+IAM_POLICY_NAME_PATTERN = re.compile(r"[\w+=,.@-]{1,128}", re.ASCII)
+FORBIDDEN_BOUNDARY_ACTION_PREFIXES = ("iam:", "sts:", "organizations:")
 
 
 class DatadogAPIError(Exception):
@@ -161,24 +161,130 @@ def build_instrumentation_permissions_url(datadog_site, resource_types, account_
 
 
 def _boundary_policy_arn(policy_name, account_id, partition):
-    return f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
+    return f"arn:{partition}:iam::{account_id}:policy{BOUNDARY_POLICY_PATH}{policy_name}"
+
+
+def _validate_boundary_role_arn_patterns(patterns, policy_name, account_id, partition):
+    if not isinstance(patterns, list) or not patterns:
+        raise DatadogAPIError(f"Datadog API returned no role ARN patterns for {policy_name}")
+
+    role_arn_prefix = f"arn:{partition}:iam::{account_id}:role/"
+    for pattern in patterns:
+        if (
+            not isinstance(pattern, str)
+            or not pattern.startswith(role_arn_prefix)
+            or pattern == role_arn_prefix
+        ):
+            raise DatadogAPIError(
+                f"Datadog API returned role ARN pattern {pattern!r} outside account {account_id}"
+            )
+        if "?" in pattern or pattern.count("*") > 1 or ("*" in pattern and not pattern.endswith("*")):
+            raise DatadogAPIError(
+                f"Datadog API returned unsupported role ARN pattern {pattern!r}"
+            )
+
+
+def _validate_boundary_policy_document(policy_document, policy_name):
+    if not isinstance(policy_document, dict):
+        raise DatadogAPIError(f"Datadog API returned no policy document for {policy_name}")
+    if policy_document.get("Version") != "2012-10-17":
+        raise DatadogAPIError(
+            f"Datadog API returned an invalid policy document version for {policy_name}"
+        )
+
+    statements = policy_document.get("Statement")
+    if not isinstance(statements, list) or not statements:
+        raise DatadogAPIError(f"Datadog API returned no policy statements for {policy_name}")
+
+    for statement in statements:
+        if not isinstance(statement, dict) or statement.get("Effect") != "Allow":
+            raise DatadogAPIError(
+                f"Datadog API returned an unsupported policy statement for {policy_name}"
+            )
+        if "NotAction" in statement or "NotResource" in statement:
+            raise DatadogAPIError(
+                f"Datadog API returned an inverted policy statement for {policy_name}"
+            )
+
+        actions = statement.get("Action")
+        if isinstance(actions, str):
+            actions = [actions]
+        if not isinstance(actions, list) or not actions or not all(
+            isinstance(action, str) and action for action in actions
+        ):
+            raise DatadogAPIError(
+                f"Datadog API returned invalid policy actions for {policy_name}"
+            )
+        for action in actions:
+            lower_action = action.lower()
+            if action == "*" or lower_action.startswith(FORBIDDEN_BOUNDARY_ACTION_PREFIXES):
+                raise DatadogAPIError(
+                    f"Datadog API returned forbidden boundary action {action!r} for {policy_name}"
+                )
+
+        resources = statement.get("Resource")
+        if isinstance(resources, str):
+            resources = [resources]
+        if not isinstance(resources, list) or not resources or not all(
+            isinstance(resource, str) and resource for resource in resources
+        ):
+            raise DatadogAPIError(
+                f"Datadog API returned invalid policy resources for {policy_name}"
+            )
+
+    policy_json = json.dumps(policy_document, sort_keys=True, separators=(",", ":"))
+    if len(policy_json) > MAX_MANAGED_POLICY_CHARACTERS:
+        raise DatadogAPIError(
+            f"Datadog API returned an oversized policy document for {policy_name}"
+        )
+
+
+def _role_arn_patterns_overlap(left, right):
+    left_prefix = left.removesuffix("*")
+    right_prefix = right.removesuffix("*")
+    if left.endswith("*") and right.endswith("*"):
+        return left_prefix.startswith(right_prefix) or right_prefix.startswith(left_prefix)
+    if left.endswith("*"):
+        return right.startswith(left_prefix)
+    if right.endswith("*"):
+        return left.startswith(right_prefix)
+    return left == right
 
 
 def _validate_permissions_boundary_policy_documents(boundary_documents, account_id, partition):
-    if not isinstance(boundary_documents, list):
+    if not isinstance(boundary_documents, list) or not boundary_documents:
         raise DatadogAPIError("Datadog API returned no permissions boundary policy documents")
+    if len(boundary_documents) > MAX_BOUNDARY_POLICIES:
+        raise DatadogAPIError(
+            f"Datadog API returned {len(boundary_documents)} permissions boundaries; "
+            f"at most {MAX_BOUNDARY_POLICIES} are supported"
+        )
 
-    expected_names = set(BOUNDARY_POLICY_NAMES)
+    seen_ids = set()
     documents_by_name = {}
+    seen_role_patterns = []
     for boundary in boundary_documents:
         if not isinstance(boundary, dict):
             raise DatadogAPIError("Datadog API returned an invalid permissions boundary entry")
 
+        boundary_id = boundary.get("id")
+        if not isinstance(boundary_id, str) or not boundary_id:
+            raise DatadogAPIError("Datadog API returned a permissions boundary without an ID")
+        if boundary_id in seen_ids:
+            raise DatadogAPIError(f"Datadog API returned duplicate permissions boundary ID {boundary_id!r}")
+        seen_ids.add(boundary_id)
+
         policy_name = boundary.get("policy_name")
-        if policy_name not in expected_names:
-            raise DatadogAPIError(f"Datadog API returned unexpected permissions boundary {policy_name!r}")
-        if policy_name in documents_by_name:
+        if not isinstance(policy_name, str) or IAM_POLICY_NAME_PATTERN.fullmatch(policy_name) is None:
+            raise DatadogAPIError(f"Datadog API returned invalid permissions boundary name {policy_name!r}")
+        policy_name_key = policy_name.casefold()
+        if policy_name_key in documents_by_name:
             raise DatadogAPIError(f"Datadog API returned duplicate permissions boundary {policy_name!r}")
+        if boundary.get("policy_path") != BOUNDARY_POLICY_PATH:
+            raise DatadogAPIError(
+                f"Datadog API returned permissions boundary {policy_name!r} outside "
+                f"{BOUNDARY_POLICY_PATH}"
+            )
 
         expected_arn = _boundary_policy_arn(policy_name, account_id, partition)
         if boundary.get("policy_arn") != expected_arn:
@@ -186,17 +292,21 @@ def _validate_permissions_boundary_policy_documents(boundary_documents, account_
                 f"Datadog API returned ARN {boundary.get('policy_arn')!r} for {policy_name}; "
                 f"expected {expected_arn!r}"
             )
-        if not isinstance(boundary.get("policy_document"), dict):
-            raise DatadogAPIError(f"Datadog API returned no policy document for {policy_name}")
-        documents_by_name[policy_name] = boundary
+        role_patterns = boundary.get("role_arn_patterns")
+        _validate_boundary_role_arn_patterns(role_patterns, policy_name, account_id, partition)
+        for pattern in role_patterns:
+            for seen_pattern in seen_role_patterns:
+                if _role_arn_patterns_overlap(pattern, seen_pattern):
+                    raise DatadogAPIError(
+                        f"Datadog API returned overlapping role ARN patterns "
+                        f"{pattern!r} and {seen_pattern!r}"
+                    )
+            seen_role_patterns.append(pattern)
 
-    missing_names = expected_names - documents_by_name.keys()
-    if missing_names:
-        raise DatadogAPIError(
-            "Datadog API omitted permissions boundaries: " + ", ".join(sorted(missing_names))
-        )
+        _validate_boundary_policy_document(boundary.get("policy_document"), policy_name)
+        documents_by_name[policy_name_key] = boundary
 
-    return [documents_by_name[name] for name in BOUNDARY_POLICY_NAMES]
+    return [documents_by_name[name] for name in sorted(documents_by_name)]
 
 
 def _canonical_policy_document(policy_document):
@@ -234,7 +344,11 @@ def _ensure_permissions_boundary_policy(iam_client, boundary):
 
     if policy is None:
         try:
-            iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
+            iam_client.create_policy(
+                PolicyName=policy_name,
+                Path=boundary["policy_path"],
+                PolicyDocument=policy_json,
+            )
             return
         except iam_client.exceptions.EntityAlreadyExistsException:
             iam_client.get_waiter("policy_exists").wait(
@@ -266,6 +380,10 @@ def _ensure_permissions_boundary_policy(iam_client, boundary):
 def manage_permissions_boundaries(iam_client, boundary_documents):
     for boundary in boundary_documents:
         _ensure_permissions_boundary_policy(iam_client, boundary)
+    cleanup_permissions_boundaries(
+        iam_client,
+        retained_policy_arns={boundary["policy_arn"] for boundary in boundary_documents},
+    )
 
 
 def _permissions_boundary_is_in_use(iam_client, policy_arn):
@@ -280,28 +398,31 @@ def _permissions_boundary_is_in_use(iam_client, policy_arn):
     )
 
 
-def cleanup_permissions_boundaries(iam_client, account_id, partition):
-    for policy_name in BOUNDARY_POLICY_NAMES:
-        policy_arn = _boundary_policy_arn(policy_name, account_id, partition)
-        if _get_policy(iam_client, policy_arn) is None:
-            continue
-        try:
-            if _permissions_boundary_is_in_use(iam_client, policy_arn):
-                LOGGER.warning(f"Policy {policy_name} is still used as a permissions boundary; retaining it")
+def cleanup_permissions_boundaries(iam_client, retained_policy_arns=frozenset()):
+    paginator = iam_client.get_paginator("list_policies")
+    for page in paginator.paginate(Scope="Local", PathPrefix=BOUNDARY_POLICY_PATH):
+        for policy in page.get("Policies", []):
+            policy_arn = policy["Arn"]
+            if policy_arn in retained_policy_arns:
                 continue
-            versions = iam_client.list_policy_versions(PolicyArn=policy_arn).get("Versions", [])
-            for version in versions:
-                if version["IsDefaultVersion"]:
+            policy_name = policy["PolicyName"]
+            try:
+                if _permissions_boundary_is_in_use(iam_client, policy_arn):
+                    LOGGER.warning(f"Policy {policy_name} is still used as a permissions boundary; retaining it")
                     continue
-                iam_client.delete_policy_version(
-                    PolicyArn=policy_arn,
-                    VersionId=version["VersionId"],
-                )
-            iam_client.delete_policy(PolicyArn=policy_arn)
-        except iam_client.exceptions.NoSuchEntityException:
-            pass
-        except iam_client.exceptions.DeleteConflictException:
-            LOGGER.warning(f"Policy {policy_name} is still attached; retaining it")
+                versions = iam_client.list_policy_versions(PolicyArn=policy_arn).get("Versions", [])
+                for version in versions:
+                    if version["IsDefaultVersion"]:
+                        continue
+                    iam_client.delete_policy_version(
+                        PolicyArn=policy_arn,
+                        VersionId=version["VersionId"],
+                    )
+                iam_client.delete_policy(PolicyArn=policy_arn)
+            except iam_client.exceptions.NoSuchEntityException:
+                pass
+            except iam_client.exceptions.DeleteConflictException:
+                LOGGER.warning(f"Policy {policy_name} is still attached; retaining it")
 
 
 def _detach_and_delete_policy(
@@ -647,7 +768,7 @@ def handle_delete(event, context):
         if manage_base_permissions:
             cleanup_existing_policies(iam_client, role_name, account_id, partition)
         cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
-        cleanup_permissions_boundaries(iam_client, account_id, partition)
+        cleanup_permissions_boundaries(iam_client)
         _send_cfn_response(event, context, cfnresponse.SUCCESS, {})
     except Exception as e:
         LOGGER.error(f"Error deleting policy: {str(e)}")

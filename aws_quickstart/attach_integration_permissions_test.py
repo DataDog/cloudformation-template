@@ -28,12 +28,21 @@ from attach_integration_permissions import (
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
     LEGACY_POLICY_NAME_STANDARD,
     LEGACY_PREFIX_RESOURCE_COLLECTION,
-    BOUNDARY_POLICY_NAMES,
+    BOUNDARY_POLICY_PATH,
+    MAX_BOUNDARY_POLICIES,
     MAX_POLICY_DOCUMENTS,
     _ensure_permissions_boundary_policy,
     _validate_permissions_boundary_policy_documents,
     cleanup_permissions_boundaries,
     manage_permissions_boundaries,
+)
+
+
+BOUNDARY_POLICY_NAMES = (
+    "datadog-instrumenter-ec2-ssm-boundary",
+    "datadog-instrumenter-eks-lambda-boundary",
+    "datadog-instrumenter-eks-ascp-boundary",
+    "datadog-instrumenter-ecs-task-execution-boundary",
 )
 
 
@@ -65,7 +74,7 @@ class TestLambdaSourceEmbedding(unittest.TestCase):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
         self.assertIn('      PolicyAttachmentSchemaVersion: "3"', template_path.read_text())
 
-    def test_execution_role_scopes_boundary_lifecycle_to_known_policies(self):
+    def test_execution_role_scopes_boundary_lifecycle_to_namespace(self):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
         template = template_path.read_text()
 
@@ -78,9 +87,13 @@ class TestLambdaSourceEmbedding(unittest.TestCase):
             "iam:ListEntitiesForPolicy",
         ):
             self.assertIn(f"                  - {action}", template)
+        self.assertIn("                Action: iam:ListPolicies", template)
+        self.assertIn(
+            "policy/datadog/instrumenter-boundaries/*",
+            template,
+        )
         for policy_name in BOUNDARY_POLICY_NAMES:
-            self.assertIn(f"policy/{policy_name}", template)
-        self.assertNotIn("policy/datadog-instrumenter-*-boundary", template)
+            self.assertNotIn(f"policy/{policy_name}", template)
 
     def test_old_role_detach_is_limited_to_datadog_policies(self):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
@@ -107,13 +120,23 @@ def make_iam_mock(cleanup_side_effects=True):
     return iam
 
 
-def permissions_boundary_documents(account_id="123456789012", partition="aws"):
+def permissions_boundary_documents(
+    account_id="123456789012",
+    partition="aws",
+    policy_names=BOUNDARY_POLICY_NAMES,
+):
     return [
         {
             "id": policy_name.removeprefix("datadog-instrumenter-").removesuffix("-boundary"),
             "policy_name": policy_name,
-            "policy_arn": f"arn:{partition}:iam::{account_id}:policy/{policy_name}",
-            "role_arn_patterns": [],
+            "policy_path": BOUNDARY_POLICY_PATH,
+            "policy_arn": (
+                f"arn:{partition}:iam::{account_id}:policy"
+                f"{BOUNDARY_POLICY_PATH}{policy_name}"
+            ),
+            "role_arn_patterns": [
+                f"arn:{partition}:iam::{account_id}:role/datadog-test-{index}-*"
+            ],
             "policy_document": {
                 "Version": "2012-10-17",
                 "Statement": [
@@ -125,7 +148,7 @@ def permissions_boundary_documents(account_id="123456789012", partition="aws"):
                 ],
             },
         }
-        for policy_name in BOUNDARY_POLICY_NAMES
+        for index, policy_name in enumerate(policy_names)
     ]
 
 
@@ -285,7 +308,10 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.assertEqual(self.iam.create_policy.call_count, 2)
         self.assertEqual(self.iam.attach_role_policy.call_count, 2)
         self.assertEqual(self._created_policy_documents(), documents)
-        self.manage_boundaries.assert_called_once_with(self.iam, self.boundary_documents)
+        self.manage_boundaries.assert_called_once_with(
+            self.iam,
+            sorted(self.boundary_documents, key=lambda document: document["policy_name"]),
+        )
         self.assertEqual(
             [
                 request.kwargs["PolicyName"]
@@ -515,10 +541,26 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
 class TestPermissionsBoundaryPolicies(unittest.TestCase):
     def setUp(self):
         self.iam = make_iam_mock(cleanup_side_effects=False)
+        self.paginator = self.iam.get_paginator.return_value
+        self.paginator.paginate.return_value = []
         self.boundary = permissions_boundary_documents()[0]
         self.policy_arn = self.boundary["policy_arn"]
 
-    def test_validates_exact_boundary_contract(self):
+    def _list_boundaries(self, *boundaries):
+        self.paginator.paginate.return_value = [
+            {
+                "Policies": [
+                    {
+                        "Arn": boundary["policy_arn"],
+                        "PolicyName": boundary["policy_name"],
+                        "Path": boundary["policy_path"],
+                    }
+                    for boundary in boundaries
+                ]
+            }
+        ]
+
+    def test_validates_dynamic_boundary_contract(self):
         documents = permissions_boundary_documents(partition="aws-us-gov")
 
         validated = _validate_permissions_boundary_policy_documents(
@@ -529,22 +571,83 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
 
         self.assertEqual(
             [document["policy_name"] for document in validated],
-            list(BOUNDARY_POLICY_NAMES),
+            sorted(BOUNDARY_POLICY_NAMES),
         )
 
-    def test_rejects_missing_boundary(self):
-        with self.assertRaisesRegex(Exception, "omitted permissions boundaries"):
+    def test_accepts_new_boundary_name_without_quickstart_change(self):
+        documents = permissions_boundary_documents(policy_names=("datadog-new-boundary",))
+
+        validated = _validate_permissions_boundary_policy_documents(
+            documents,
+            "123456789012",
+            "aws",
+        )
+
+        self.assertEqual([document["policy_name"] for document in validated], ["datadog-new-boundary"])
+
+    def test_rejects_boundary_outside_namespace(self):
+        documents = permissions_boundary_documents()
+        documents[0]["policy_path"] = "/"
+
+        with self.assertRaisesRegex(Exception, "outside /datadog/instrumenter-boundaries/"):
             _validate_permissions_boundary_policy_documents(
-                permissions_boundary_documents()[:-1],
+                documents,
                 "123456789012",
                 "aws",
             )
 
-    def test_rejects_unexpected_boundary(self):
+    def test_rejects_overlapping_role_arn_patterns(self):
         documents = permissions_boundary_documents()
-        documents[0]["policy_name"] = "customer-policy"
+        documents[1]["role_arn_patterns"] = documents[0]["role_arn_patterns"]
 
-        with self.assertRaisesRegex(Exception, "unexpected permissions boundary"):
+        with self.assertRaisesRegex(Exception, "overlapping role ARN patterns"):
+            _validate_permissions_boundary_policy_documents(
+                documents,
+                "123456789012",
+                "aws",
+            )
+
+    def test_rejects_case_insensitive_duplicate_policy_names(self):
+        documents = permissions_boundary_documents(policy_names=("Datadog-Boundary", "datadog-boundary"))
+
+        with self.assertRaisesRegex(Exception, "duplicate permissions boundary"):
+            _validate_permissions_boundary_policy_documents(
+                documents,
+                "123456789012",
+                "aws",
+            )
+
+    def test_rejects_forbidden_boundary_actions(self):
+        for action in ("*", "iam:CreateRole", "sts:AssumeRole", "organizations:ListAccounts"):
+            with self.subTest(action=action):
+                documents = permissions_boundary_documents()
+                documents[0]["policy_document"]["Statement"][0]["Action"] = [action]
+
+                with self.assertRaisesRegex(Exception, "forbidden boundary action"):
+                    _validate_permissions_boundary_policy_documents(
+                        documents,
+                        "123456789012",
+                        "aws",
+                    )
+
+    def test_rejects_inverted_policy_statement(self):
+        documents = permissions_boundary_documents()
+        statement = documents[0]["policy_document"]["Statement"][0]
+        statement["NotAction"] = statement.pop("Action")
+
+        with self.assertRaisesRegex(Exception, "inverted policy statement"):
+            _validate_permissions_boundary_policy_documents(
+                documents,
+                "123456789012",
+                "aws",
+            )
+
+    def test_rejects_too_many_boundaries(self):
+        documents = permissions_boundary_documents(
+            policy_names=tuple(f"datadog-boundary-{index}" for index in range(MAX_BOUNDARY_POLICIES + 1))
+        )
+
+        with self.assertRaisesRegex(Exception, "at most"):
             _validate_permissions_boundary_policy_documents(
                 documents,
                 "123456789012",
@@ -569,12 +672,14 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
 
         request = self.iam.create_policy.call_args.kwargs
         self.assertEqual(request["PolicyName"], self.boundary["policy_name"])
+        self.assertEqual(request["Path"], BOUNDARY_POLICY_PATH)
         self.assertEqual(json.loads(request["PolicyDocument"]), self.boundary["policy_document"])
         self.iam.attach_role_policy.assert_not_called()
         self.iam.create_policy_version.assert_not_called()
 
+    @patch("attach_integration_permissions.cleanup_permissions_boundaries")
     @patch("attach_integration_permissions._ensure_permissions_boundary_policy")
-    def test_manages_every_returned_boundary(self, mock_ensure):
+    def test_reconciles_every_returned_boundary(self, mock_ensure, mock_cleanup):
         documents = permissions_boundary_documents()
 
         manage_permissions_boundaries(self.iam, documents)
@@ -582,6 +687,10 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         self.assertEqual(
             mock_ensure.call_args_list,
             [call(self.iam, document) for document in documents],
+        )
+        mock_cleanup.assert_called_once_with(
+            self.iam,
+            retained_policy_arns={document["policy_arn"] for document in documents},
         )
 
     def test_unchanged_boundary_does_not_create_version(self):
@@ -657,7 +766,7 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         self.iam.create_policy_version.assert_not_called()
 
     def test_delete_removes_unused_boundary_and_non_default_versions(self):
-        self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v2"}}
+        self._list_boundaries(self.boundary)
         self.iam.list_entities_for_policy.return_value = {
             "PolicyGroups": [],
             "PolicyUsers": [],
@@ -671,11 +780,13 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
             ]
         }
 
-        with patch(
-            "attach_integration_permissions.BOUNDARY_POLICY_NAMES",
-            (self.boundary["policy_name"],),
-        ):
-            cleanup_permissions_boundaries(self.iam, "123456789012", "aws")
+        cleanup_permissions_boundaries(self.iam)
+
+        self.iam.get_paginator.assert_called_once_with("list_policies")
+        self.paginator.paginate.assert_called_once_with(
+            Scope="Local",
+            PathPrefix=BOUNDARY_POLICY_PATH,
+        )
 
         self.iam.delete_policy_version.assert_called_once_with(
             PolicyArn=self.policy_arn,
@@ -684,20 +795,41 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         self.iam.delete_policy.assert_called_once_with(PolicyArn=self.policy_arn)
 
     def test_delete_retains_boundary_attached_to_role(self):
-        self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
+        self._list_boundaries(self.boundary)
         self.iam.list_entities_for_policy.return_value = {
             "PolicyRoles": [{"RoleName": "dd-eks-instrumenter-example"}],
             "IsTruncated": False,
         }
 
-        with patch(
-            "attach_integration_permissions.BOUNDARY_POLICY_NAMES",
-            (self.boundary["policy_name"],),
-        ):
-            cleanup_permissions_boundaries(self.iam, "123456789012", "aws")
+        cleanup_permissions_boundaries(self.iam)
 
         self.iam.list_policy_versions.assert_not_called()
         self.iam.delete_policy.assert_not_called()
+
+    def test_reconciliation_retains_returned_boundary_and_deletes_obsolete_boundary(self):
+        obsolete = permissions_boundary_documents(policy_names=("datadog-obsolete-boundary",))[0]
+        self._list_boundaries(self.boundary, obsolete)
+        self.iam.list_entities_for_policy.return_value = {
+            "PolicyGroups": [],
+            "PolicyUsers": [],
+            "PolicyRoles": [],
+            "IsTruncated": False,
+        }
+        self.iam.list_policy_versions.return_value = {
+            "Versions": [{"VersionId": "v1", "IsDefaultVersion": True}]
+        }
+
+        cleanup_permissions_boundaries(
+            self.iam,
+            retained_policy_arns={self.policy_arn},
+        )
+
+        self.iam.list_entities_for_policy.assert_called_once_with(
+            PolicyArn=obsolete["policy_arn"],
+            PolicyUsageFilter="PermissionsBoundary",
+            MaxItems=1,
+        )
+        self.iam.delete_policy.assert_called_once_with(PolicyArn=obsolete["policy_arn"])
 
 
 class TestCleanup(unittest.TestCase):
