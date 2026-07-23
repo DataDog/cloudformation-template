@@ -34,6 +34,8 @@ STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws
 RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
 INSTRUMENTATION_PERMISSIONS_API_PATH = "/api/unstable/instrumenter/aws/iam_permissions"
 MAX_POLICY_DOCUMENTS = 10
+# Keep this list aligned with every property that affects instrumentation policy
+# generation or replacement behavior. Otherwise, an update can retain stale policies.
 INSTRUMENTATION_UPDATE_PROPERTIES = (
     "PolicyAttachmentSchemaVersion",
     "DatadogIntegrationRole",
@@ -41,6 +43,7 @@ INSTRUMENTATION_UPDATE_PROPERTIES = (
     "Partition",
     "InstrumentationResourceTypes",
     "DatadogSite",
+    "FailOnInstrumentationError",
 )
 
 
@@ -411,6 +414,8 @@ def attach_instrumentation_permissions(
 ):
     # Fetch and validate capacity before cleanup so a transient failure leaves existing policies.
     replacing_existing_policies = bool(previous_resource_types)
+    # Existing policies make updates atomic even when initial attachment was best-effort;
+    # accepting new properties while retaining old policies would leave them permanently stale.
     mutation_must_succeed = fail_on_error or replacing_existing_policies
     if not resource_types:
         if replacing_existing_policies:

@@ -833,6 +833,28 @@ class TestManageBasePermissions(unittest.TestCase):
 
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.attach_instrumentation_permissions")
+    def test_enabling_fail_on_error_refreshes_instrumentation(self, mock_instr, mock_client):
+        mock_client.return_value = self.iam
+        event = self._update(
+            current={
+                "ManageBasePermissions": "false",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
+                "FailOnInstrumentationError": "true",
+            },
+            previous={
+                "ManageBasePermissions": "false",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
+                "FailOnInstrumentationError": "false",
+            },
+        )
+
+        handle_create_update(event, None)
+
+        mock_instr.assert_called_once()
+        self.assertTrue(mock_instr.call_args.kwargs["fail_on_error"])
+
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.attach_instrumentation_permissions")
     def test_resource_type_reordering_does_not_replace_policies(
         self, mock_instr, mock_client
     ):
