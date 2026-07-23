@@ -101,9 +101,6 @@ Resources:
                 Action: iam:GetAccountSummary
                 Resource: "*"
               - Effect: Allow
-                Action: iam:ListPolicies
-                Resource: "*"
-              - Effect: Allow
                 Action:
                   - iam:CreatePolicy
                   - iam:GetPolicy
@@ -111,8 +108,6 @@ Resources:
                   - iam:ListPolicyVersions
                   - iam:CreatePolicyVersion
                   - iam:DeletePolicyVersion
-                  - iam:ListEntitiesForPolicy
-                  - iam:DeletePolicy
                 Resource:
                   - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog/instrumenter-boundaries/*
   DatadogAttachIntegrationPermissionsFunction:

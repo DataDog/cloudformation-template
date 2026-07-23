@@ -393,49 +393,6 @@ def _ensure_permissions_boundary_policy(iam_client, boundary):
 def manage_permissions_boundaries(iam_client, boundary_documents):
     for boundary in boundary_documents:
         _ensure_permissions_boundary_policy(iam_client, boundary)
-    cleanup_permissions_boundaries(
-        iam_client,
-        retained_policy_arns={boundary["policy_arn"] for boundary in boundary_documents},
-    )
-
-
-def _permissions_boundary_is_in_use(iam_client, policy_arn):
-    entities = iam_client.list_entities_for_policy(
-        PolicyArn=policy_arn,
-        PolicyUsageFilter="PermissionsBoundary",
-        MaxItems=1,
-    )
-    return any(
-        entities.get(key)
-        for key in ("PolicyGroups", "PolicyUsers", "PolicyRoles", "IsTruncated")
-    )
-
-
-def cleanup_permissions_boundaries(iam_client, retained_policy_arns=frozenset()):
-    paginator = iam_client.get_paginator("list_policies")
-    for page in paginator.paginate(Scope="Local", PathPrefix=BOUNDARY_POLICY_PATH):
-        for policy in page.get("Policies", []):
-            policy_arn = policy["Arn"]
-            if policy_arn in retained_policy_arns:
-                continue
-            policy_name = policy["PolicyName"]
-            try:
-                if _permissions_boundary_is_in_use(iam_client, policy_arn):
-                    LOGGER.warning(f"Policy {policy_name} is still used as a permissions boundary; retaining it")
-                    continue
-                versions = iam_client.list_policy_versions(PolicyArn=policy_arn).get("Versions", [])
-                for version in versions:
-                    if version["IsDefaultVersion"]:
-                        continue
-                    iam_client.delete_policy_version(
-                        PolicyArn=policy_arn,
-                        VersionId=version["VersionId"],
-                    )
-                iam_client.delete_policy(PolicyArn=policy_arn)
-            except iam_client.exceptions.NoSuchEntityException:
-                pass
-            except iam_client.exceptions.DeleteConflictException:
-                LOGGER.warning(f"Policy {policy_name} is still attached; retaining it")
 
 
 def _detach_and_delete_policy(

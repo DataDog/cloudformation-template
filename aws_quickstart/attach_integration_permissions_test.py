@@ -33,7 +33,6 @@ from attach_integration_permissions import (
     MAX_POLICY_DOCUMENTS,
     _ensure_permissions_boundary_policy,
     _validate_permissions_boundary_policy_documents,
-    cleanup_permissions_boundaries,
     manage_permissions_boundaries,
 )
 
@@ -84,10 +83,10 @@ class TestLambdaSourceEmbedding(unittest.TestCase):
             "iam:ListPolicyVersions",
             "iam:CreatePolicyVersion",
             "iam:DeletePolicyVersion",
-            "iam:ListEntitiesForPolicy",
         ):
             self.assertIn(f"                  - {action}", template)
-        self.assertIn("                Action: iam:ListPolicies", template)
+        self.assertNotIn("                Action: iam:ListPolicies", template)
+        self.assertNotIn("                  - iam:ListEntitiesForPolicy", template)
         self.assertIn(
             "policy/datadog/instrumenter-boundaries/*",
             template,
@@ -542,24 +541,8 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
 class TestPermissionsBoundaryPolicies(unittest.TestCase):
     def setUp(self):
         self.iam = make_iam_mock(cleanup_side_effects=False)
-        self.paginator = self.iam.get_paginator.return_value
-        self.paginator.paginate.return_value = []
         self.boundary = permissions_boundary_documents()[0]
         self.policy_arn = self.boundary["policy_arn"]
-
-    def _list_boundaries(self, *boundaries):
-        self.paginator.paginate.return_value = [
-            {
-                "Policies": [
-                    {
-                        "Arn": boundary["policy_arn"],
-                        "PolicyName": boundary["policy_name"],
-                        "Path": boundary["policy_path"],
-                    }
-                    for boundary in boundaries
-                ]
-            }
-        ]
 
     def test_validates_dynamic_boundary_contract(self):
         documents = permissions_boundary_documents(partition="aws-us-gov")
@@ -678,9 +661,8 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         self.iam.attach_role_policy.assert_not_called()
         self.iam.create_policy_version.assert_not_called()
 
-    @patch("attach_integration_permissions.cleanup_permissions_boundaries")
     @patch("attach_integration_permissions._ensure_permissions_boundary_policy")
-    def test_reconciles_every_returned_boundary(self, mock_ensure, mock_cleanup):
+    def test_reconciles_every_returned_boundary(self, mock_ensure):
         documents = permissions_boundary_documents()
 
         manage_permissions_boundaries(self.iam, documents)
@@ -688,10 +670,6 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         self.assertEqual(
             mock_ensure.call_args_list,
             [call(self.iam, document) for document in documents],
-        )
-        mock_cleanup.assert_called_once_with(
-            self.iam,
-            retained_policy_arns={document["policy_arn"] for document in documents},
         )
 
     def test_unchanged_boundary_does_not_create_version(self):
@@ -817,73 +795,6 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         )
         self.iam.create_policy_version.assert_not_called()
         mock_sleep.assert_called_once_with(1)
-
-    def test_delete_removes_unused_boundary_and_non_default_versions(self):
-        self._list_boundaries(self.boundary)
-        self.iam.list_entities_for_policy.return_value = {
-            "PolicyGroups": [],
-            "PolicyUsers": [],
-            "PolicyRoles": [],
-            "IsTruncated": False,
-        }
-        self.iam.list_policy_versions.return_value = {
-            "Versions": [
-                {"VersionId": "v1", "IsDefaultVersion": False},
-                {"VersionId": "v2", "IsDefaultVersion": True},
-            ]
-        }
-
-        cleanup_permissions_boundaries(self.iam)
-
-        self.iam.get_paginator.assert_called_once_with("list_policies")
-        self.paginator.paginate.assert_called_once_with(
-            Scope="Local",
-            PathPrefix=BOUNDARY_POLICY_PATH,
-        )
-
-        self.iam.delete_policy_version.assert_called_once_with(
-            PolicyArn=self.policy_arn,
-            VersionId="v1",
-        )
-        self.iam.delete_policy.assert_called_once_with(PolicyArn=self.policy_arn)
-
-    def test_delete_retains_boundary_attached_to_role(self):
-        self._list_boundaries(self.boundary)
-        self.iam.list_entities_for_policy.return_value = {
-            "PolicyRoles": [{"RoleName": "dd-eks-instrumenter-example"}],
-            "IsTruncated": False,
-        }
-
-        cleanup_permissions_boundaries(self.iam)
-
-        self.iam.list_policy_versions.assert_not_called()
-        self.iam.delete_policy.assert_not_called()
-
-    def test_reconciliation_retains_returned_boundary_and_deletes_obsolete_boundary(self):
-        obsolete = permissions_boundary_documents(policy_names=("datadog-obsolete-boundary",))[0]
-        self._list_boundaries(self.boundary, obsolete)
-        self.iam.list_entities_for_policy.return_value = {
-            "PolicyGroups": [],
-            "PolicyUsers": [],
-            "PolicyRoles": [],
-            "IsTruncated": False,
-        }
-        self.iam.list_policy_versions.return_value = {
-            "Versions": [{"VersionId": "v1", "IsDefaultVersion": True}]
-        }
-
-        cleanup_permissions_boundaries(
-            self.iam,
-            retained_policy_arns={self.policy_arn},
-        )
-
-        self.iam.list_entities_for_policy.assert_called_once_with(
-            PolicyArn=obsolete["policy_arn"],
-            PolicyUsageFilter="PermissionsBoundary",
-            MaxItems=1,
-        )
-        self.iam.delete_policy.assert_called_once_with(PolicyArn=obsolete["policy_arn"])
-
 
 class TestCleanup(unittest.TestCase):
     def setUp(self):
@@ -1011,12 +922,12 @@ class TestManageBasePermissions(unittest.TestCase):
         mock_instr.assert_called_once()
         mock_legacy.assert_not_called()
 
-    @patch("attach_integration_permissions.cleanup_permissions_boundaries")
+    @patch("attach_integration_permissions.manage_permissions_boundaries")
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.cleanup_instrumentation_policies")
     @patch("attach_integration_permissions.cleanup_existing_policies")
     def test_delete_manage_base_false_preserves_shared_boundaries(
-        self, mock_cleanup_base, mock_cleanup_instr, mock_client, mock_cleanup_boundaries
+        self, mock_cleanup_base, mock_cleanup_instr, mock_client, mock_manage_boundaries
     ):
         mock_client.return_value = self.iam
         event = self._props(ManageBasePermissions="false")
@@ -1024,14 +935,14 @@ class TestManageBasePermissions(unittest.TestCase):
         handle_delete(event, None)
         mock_cleanup_base.assert_not_called()
         mock_cleanup_instr.assert_called_once()
-        mock_cleanup_boundaries.assert_not_called()
+        mock_manage_boundaries.assert_not_called()
 
-    @patch("attach_integration_permissions.cleanup_permissions_boundaries")
+    @patch("attach_integration_permissions.manage_permissions_boundaries")
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.cleanup_instrumentation_policies")
     @patch("attach_integration_permissions.cleanup_existing_policies")
     def test_delete_manage_base_true_preserves_shared_boundaries(
-        self, mock_cleanup_base, mock_cleanup_instr, mock_client, mock_cleanup_boundaries
+        self, mock_cleanup_base, mock_cleanup_instr, mock_client, mock_manage_boundaries
     ):
         mock_client.return_value = self.iam
         event = self._props(ManageBasePermissions="true")
@@ -1039,7 +950,7 @@ class TestManageBasePermissions(unittest.TestCase):
         handle_delete(event, None)
         mock_cleanup_base.assert_called_once()
         mock_cleanup_instr.assert_called_once()
-        mock_cleanup_boundaries.assert_not_called()
+        mock_manage_boundaries.assert_not_called()
 
     @patch("attach_integration_permissions.cfnresponse")
     @patch("attach_integration_permissions.boto3.client")
