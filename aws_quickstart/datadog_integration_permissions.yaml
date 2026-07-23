@@ -100,6 +100,16 @@ Resources:
               - Effect: Allow
                 Action: iam:GetAccountSummary
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - iam:CreatePolicy
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - iam:ListPolicyVersions
+                  - iam:CreatePolicyVersion
+                  - iam:DeletePolicyVersion
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog/instrumenter-boundaries/*
   DatadogAttachIntegrationPermissionsFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -119,7 +129,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
       # Bump this value when Lambda behavior changes so existing stacks invoke the custom resource.
-      PolicyAttachmentSchemaVersion: "2"
+      PolicyAttachmentSchemaVersion: "3"
       DatadogIntegrationRole: !Ref IAMRoleName
       AccountId: !Ref AWS::AccountId
       Partition: !Sub "${AWS::Partition}"
