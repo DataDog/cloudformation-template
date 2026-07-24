@@ -36,6 +36,7 @@ STANDARD_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws
 RESOURCE_COLLECTION_PERMISSIONS_API_URL = "https://api.datadoghq.com/api/v2/integration/aws/iam_permissions/resource_collection?chunked=true"
 INSTRUMENTATION_PERMISSIONS_API_PATH = "/api/unstable/instrumenter/aws/iam_permissions"
 MAX_POLICY_DOCUMENTS = 10
+INSTRUMENTATION_POLICY_GENERATIONS = ("a", "b")
 # Keep this list aligned with every property that affects instrumentation policy
 # generation or replacement behavior. Otherwise, an update can retain stale policies.
 INSTRUMENTATION_UPDATE_PROPERTIES = (
@@ -501,15 +502,16 @@ def cleanup_instrumentation_policies(
     max_policies=10,
     fail_on_error=False,
 ):
-    _cleanup_chunked_policies(
-        iam_client,
-        role_name,
-        account_id,
-        partition,
-        BASE_POLICY_PREFIX_INSTRUMENTATION,
-        max_policies,
-        fail_on_error=fail_on_error,
-    )
+    for generation in (None, *INSTRUMENTATION_POLICY_GENERATIONS):
+        _cleanup_instrumentation_policy_generation(
+            iam_client,
+            role_name,
+            account_id,
+            partition,
+            generation,
+            max_policies=max_policies,
+            fail_on_error=fail_on_error,
+        )
 
 
 def cleanup_legacy_base_policies(
@@ -591,11 +593,11 @@ def _create_and_attach_policy(iam_client, role_name, policy_name, actions):
     iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy['Policy']['Arn'])
 
 
-def _create_and_attach_policy_document(iam_client, role_name, policy_name, policy_document):
+def _create_policy_document(iam_client, policy_name, policy_document):
     policy_json = json.dumps(policy_document, separators=(',', ':'))
     LOGGER.info(f"Creating policy {policy_name} ({len(policy_json)} characters)")
     policy = iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
-    iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy['Policy']['Arn'])
+    return policy['Policy']['Arn']
 
 
 def attach_resource_collection_permissions(iam_client, role_name):
@@ -623,12 +625,221 @@ def _list_attached_role_policies(iam_client, role_name):
         marker = response["Marker"]
 
 
-def _is_instrumentation_policy(policy_name, role_name):
+def _instrumentation_policy_name(role_name, index, generation=None):
+    suffix = f"{generation or ''}{index}"
+    return f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{suffix}"
+
+
+def _instrumentation_policy_arn(
+    role_name,
+    account_id,
+    partition,
+    index,
+    generation=None,
+):
+    policy_name = _instrumentation_policy_name(role_name, index, generation)
+    return f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
+
+
+def _instrumentation_policy_identity(policy_name, role_name):
     prefix = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-"
     if not policy_name.startswith(prefix):
-        return False
+        return None
+
     suffix = policy_name[len(prefix):]
-    return suffix.isdigit() and 1 <= int(suffix) <= MAX_POLICY_DOCUMENTS
+    generation = None
+    if suffix[:1] in INSTRUMENTATION_POLICY_GENERATIONS:
+        generation = suffix[0]
+        suffix = suffix[1:]
+    if not suffix.isdigit():
+        return None
+
+    index = int(suffix)
+    if not 1 <= index <= MAX_POLICY_DOCUMENTS:
+        return None
+    return generation, index
+
+
+def _is_instrumentation_policy(policy_name, role_name):
+    return _instrumentation_policy_identity(policy_name, role_name) is not None
+
+
+def _cleanup_instrumentation_policy_generation(
+    iam_client,
+    role_name,
+    account_id,
+    partition,
+    generation,
+    max_policies=MAX_POLICY_DOCUMENTS,
+    fail_on_error=False,
+):
+    for index in range(1, max_policies + 1):
+        policy_name = _instrumentation_policy_name(role_name, index, generation)
+        policy_arn = _instrumentation_policy_arn(
+            role_name,
+            account_id,
+            partition,
+            index,
+            generation,
+        )
+        _detach_and_delete_policy(
+            iam_client,
+            role_name,
+            policy_arn,
+            policy_name,
+            fail_on_error=fail_on_error,
+        )
+
+
+def _attached_instrumentation_policies(iam_client, role_name):
+    policies = []
+    for policy in _list_attached_role_policies(iam_client, role_name):
+        identity = _instrumentation_policy_identity(policy["PolicyName"], role_name)
+        if identity is None:
+            continue
+        generation, index = identity
+        policies.append(
+            {
+                "generation": generation,
+                "index": index,
+                "name": policy["PolicyName"],
+                "arn": policy["PolicyArn"],
+            }
+        )
+    return sorted(policies, key=lambda policy: (policy["generation"] or "", policy["index"]))
+
+
+def _replacement_policy_generation(attached_policies):
+    active_generations = {
+        policy["generation"]
+        for policy in attached_policies
+        if policy["generation"] in INSTRUMENTATION_POLICY_GENERATIONS
+    }
+    if len(active_generations) == len(INSTRUMENTATION_POLICY_GENERATIONS):
+        raise RuntimeError("role has instrumentation policies from both replacement generations")
+    return "b" if "a" in active_generations else "a"
+
+
+def _restore_instrumentation_policies(
+    iam_client,
+    role_name,
+    attached_replacements,
+    detached_previous,
+):
+    restored = True
+    detached_replacements = []
+    for policy in reversed(attached_replacements):
+        try:
+            iam_client.detach_role_policy(RoleName=role_name, PolicyArn=policy["arn"])
+            detached_replacements.append(policy)
+        except Exception as e:
+            restored = False
+            LOGGER.error(f"Error detaching staged policy {policy['name']}: {str(e)}")
+
+    for policy in detached_previous:
+        try:
+            iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy["arn"])
+        except Exception as e:
+            restored = False
+            LOGGER.error(f"Error restoring policy {policy['name']}: {str(e)}")
+    if restored:
+        return True
+
+    for policy in reversed(detached_replacements):
+        try:
+            iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy["arn"])
+        except Exception as e:
+            LOGGER.error(f"Error reattaching staged policy {policy['name']}: {str(e)}")
+    return restored
+
+
+def _detach_attached_instrumentation_policy(iam_client, role_name, policy):
+    try:
+        iam_client.detach_role_policy(RoleName=role_name, PolicyArn=policy["arn"])
+        return True
+    except iam_client.exceptions.NoSuchEntityException:
+        return False
+
+
+def _replace_instrumentation_policies(
+    iam_client,
+    role_name,
+    account_id,
+    partition,
+    policy_documents,
+):
+    previous_policies = _attached_instrumentation_policies(iam_client, role_name)
+    replacement_generation = _replacement_policy_generation(previous_policies)
+
+    _cleanup_instrumentation_policy_generation(
+        iam_client,
+        role_name,
+        account_id,
+        partition,
+        replacement_generation,
+        fail_on_error=True,
+    )
+
+    replacement_policies = []
+    try:
+        for index, policy_document in enumerate(policy_documents, start=1):
+            policy_name = _instrumentation_policy_name(
+                role_name,
+                index,
+                replacement_generation,
+            )
+            policy_arn = _create_policy_document(
+                iam_client,
+                policy_name,
+                policy_document,
+            )
+            replacement_policies.append({"name": policy_name, "arn": policy_arn})
+    except Exception:
+        _cleanup_instrumentation_policy_generation(
+            iam_client,
+            role_name,
+            account_id,
+            partition,
+            replacement_generation,
+        )
+        raise
+
+    detached_previous = []
+    attached_replacements = []
+    try:
+        for policy in previous_policies:
+            if _detach_attached_instrumentation_policy(iam_client, role_name, policy):
+                detached_previous.append(policy)
+        for policy in replacement_policies:
+            iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy["arn"])
+            attached_replacements.append(policy)
+    except Exception:
+        restored = _restore_instrumentation_policies(
+            iam_client,
+            role_name,
+            attached_replacements,
+            detached_previous,
+        )
+        if restored:
+            _cleanup_instrumentation_policy_generation(
+                iam_client,
+                role_name,
+                account_id,
+                partition,
+                replacement_generation,
+            )
+        raise
+
+    for generation in (None, *INSTRUMENTATION_POLICY_GENERATIONS):
+        if generation == replacement_generation:
+            continue
+        _cleanup_instrumentation_policy_generation(
+            iam_client,
+            role_name,
+            account_id,
+            partition,
+            generation,
+        )
 
 
 def _validate_instrumentation_policy_capacity(iam_client, role_name, policy_document_count):
@@ -661,7 +872,7 @@ def attach_instrumentation_permissions(
     previous_resource_types,
     fail_on_error=False,
 ):
-    # Fetch and validate capacity before cleanup so a transient failure leaves existing policies.
+    # Fetch and validate capacity before staging so a transient failure leaves existing policies.
     replacing_existing_policies = bool(previous_resource_types)
     # Existing policies make updates atomic even when initial attachment was best-effort;
     # accepting new properties while retaining old policies would leave them permanently stale.
@@ -705,26 +916,21 @@ def attach_instrumentation_permissions(
         )
         return
 
-    cleanup_instrumentation_policies(
-        iam_client,
-        role_name,
-        account_id,
-        partition,
-        fail_on_error=mutation_must_succeed,
-    )
-    for i, policy_document in enumerate(policy_documents):
-        policy_name = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{i+1}"
-        try:
-            _create_and_attach_policy_document(
-                iam_client,
-                role_name,
-                policy_name,
-                policy_document,
-            )
-        except Exception as e:
-            if mutation_must_succeed:
-                raise
-            LOGGER.warning(f"Failed to create/attach instrumentation policy {policy_name}: {e}. Continuing.")
+    try:
+        _replace_instrumentation_policies(
+            iam_client,
+            role_name,
+            account_id,
+            partition,
+            policy_documents,
+        )
+    except Exception as e:
+        if mutation_must_succeed:
+            raise
+        LOGGER.warning(
+            f"Failed to replace instrumentation policies for {resource_types}: {e}. "
+            "Leaving any previously-attached instrumentation policies in place."
+        )
 
 
 def handle_delete(event, context):

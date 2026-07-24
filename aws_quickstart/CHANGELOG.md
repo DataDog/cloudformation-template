@@ -1,6 +1,7 @@
 # 4.18.0 (July 23, 2026)
 
 - Reconcile Datadog instrumenter permissions-boundary policies returned by the instrumentation permissions endpoint.
+- Stage complete instrumentation-policy replacements before switching role attachments, preserving the previous permissions when AWS rejects a replacement.
 
 # 4.17.1 (July 21, 2026)
 

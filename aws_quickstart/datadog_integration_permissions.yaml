@@ -129,7 +129,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
       # Bump this value when Lambda behavior changes so existing stacks invoke the custom resource.
-      PolicyAttachmentSchemaVersion: "3"
+      PolicyAttachmentSchemaVersion: "4"
       DatadogIntegrationRole: !Ref IAMRoleName
       AccountId: !Ref AWS::AccountId
       Partition: !Sub "${AWS::Partition}"
