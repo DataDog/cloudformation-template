@@ -46,7 +46,8 @@ Parameters:
       Set this value to "true" to fail the stack when the instrumentation permissions cannot be fetched
       or attached. Defaults to "false" (best-effort) for the role-creation case, where instrumentation is
       an optional add-on to the broader install. The post-setup add-on sets this to "true" because
-      attaching the instrumentation permissions is the stack's only purpose.
+      attaching the instrumentation permissions is the stack's only purpose. Updates that replace existing
+      instrumentation permissions still fail atomically so stale policies are not accepted.
 Resources:
   DatadogAttachIntegrationPermissionsLambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -72,9 +73,7 @@ Resources:
                 Action:
                   - iam:CreatePolicy
                   - iam:DeletePolicy
-                  - iam:DeleteRolePolicy
                   - iam:AttachRolePolicy
-                  - iam:DetachRolePolicy
                   - iam:ListAttachedRolePolicies
                   - iam:PutRolePolicy
                 Resource:
@@ -85,8 +84,32 @@ Resources:
                   - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*
                   - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
               - Effect: Allow
+                Action: iam:DetachRolePolicy
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+                Condition:
+                  ArnLike:
+                    iam:PolicyARN:
+                      - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*
+                      - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*
+              - Effect: Allow
+                Action: iam:DeleteRolePolicy
+                # Role replacement must remove a legacy inline policy from the previous role, whose
+                # name is known only at runtime. IAM cannot scope this action by inline policy name,
+                # so the handler limits deletion to fixed Datadog policy names in application code.
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+              - Effect: Allow
                 Action: iam:GetAccountSummary
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - iam:CreatePolicy
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - iam:ListPolicyVersions
+                  - iam:CreatePolicyVersion
+                  - iam:DeletePolicyVersion
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog/instrumenter-boundaries/*
   DatadogAttachIntegrationPermissionsFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -106,7 +129,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
       # Bump this value when Lambda behavior changes so existing stacks invoke the custom resource.
-      PolicyAttachmentSchemaVersion: "2"
+      PolicyAttachmentSchemaVersion: "4"
       DatadogIntegrationRole: !Ref IAMRoleName
       AccountId: !Ref AWS::AccountId
       Partition: !Sub "${AWS::Partition}"
