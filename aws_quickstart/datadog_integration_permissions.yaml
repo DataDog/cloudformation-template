@@ -109,11 +109,17 @@ Resources:
                   - iam:CreatePolicyVersion
                   - iam:DeletePolicyVersion
                   - iam:TagPolicy
+                  - iam:UntagPolicy
                   - iam:ListPolicyTags
                   - iam:ListEntitiesForPolicy
                   - iam:DeletePolicy
                 Resource:
                   - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog/instrumenter-boundaries/*
+              - Effect: Allow
+                Action: iam:ListPolicies
+                # IAM does not support resource-level authorization for ListPolicies. The handler
+                # constrains discovery to customer-managed policies under the boundary path.
+                Resource: "*"
   DatadogAttachIntegrationPermissionsFunction:
     Type: AWS::Lambda::Function
     Properties:

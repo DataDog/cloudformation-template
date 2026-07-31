@@ -29,12 +29,16 @@ from attach_integration_permissions import (
     LEGACY_POLICY_NAME_STANDARD,
     LEGACY_PREFIX_RESOURCE_COLLECTION,
     BOUNDARY_POLICY_PATH,
-    BOUNDARY_POLICY_OWNER_TAG_KEY,
+    BOUNDARY_POLICY_MANAGED_TAG_KEY,
+    BOUNDARY_POLICY_MANAGED_TAG_VALUE,
+    BOUNDARY_POLICY_OWNER_TAG_PREFIX,
     MAX_BOUNDARY_POLICIES,
     MAX_POLICY_DOCUMENTS,
     INSTRUMENTATION_POLICY_GENERATIONS,
     _ensure_permissions_boundary_policy,
+    _boundary_policy_owner_tag_key,
     _delete_permissions_boundary_policy,
+    _list_boundary_policies,
     _validate_permissions_boundary_policy_documents,
     cleanup_permissions_boundaries,
     manage_permissions_boundaries,
@@ -88,12 +92,13 @@ class TestLambdaSourceEmbedding(unittest.TestCase):
             "iam:CreatePolicyVersion",
             "iam:DeletePolicyVersion",
             "iam:TagPolicy",
+            "iam:UntagPolicy",
             "iam:ListPolicyTags",
             "iam:ListEntitiesForPolicy",
             "iam:DeletePolicy",
         ):
             self.assertIn(f"                  - {action}", template)
-        self.assertNotIn("                Action: iam:ListPolicies", template)
+        self.assertIn("                Action: iam:ListPolicies", template)
         self.assertIn(
             "policy/datadog/instrumenter-boundaries/*",
             template,
@@ -121,6 +126,8 @@ def make_iam_mock(cleanup_side_effects=True):
     iam.exceptions.DeleteConflictException = type("DCE", (Exception,), {})
     iam.exceptions.EntityAlreadyExistsException = type("EAE", (Exception,), {})
     iam.exceptions.LimitExceededException = type("LEE", (Exception,), {})
+    iam.list_policies.return_value = {"Policies": []}
+    iam.list_policy_tags.return_value = {"Tags": []}
     if cleanup_side_effects:
         iam.detach_role_policy.side_effect = iam.exceptions.NoSuchEntityException
         iam.delete_policy.side_effect = iam.exceptions.NoSuchEntityException
@@ -288,12 +295,7 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.iam.detach_role_policy.assert_not_called()
         self.iam.delete_policy.assert_not_called()
 
-    @patch("attach_integration_permissions.urllib.request.urlopen")
-    def test_empty_resource_types_cleans_up_when_previously_set(self, mock_urlopen):
-        mock_urlopen.return_value = self._mock_response(
-            policy_documents=[{"Version": "2012-10-17", "Statement": []}]
-        )
-
+    def test_empty_resource_types_cleans_up_when_previously_set(self):
         self._attach([], previous_resource_types=["aws:ec2:instance"])
 
         self.iam.create_policy.assert_not_called()
@@ -301,8 +303,8 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.assertGreater(self.iam.detach_role_policy.call_count, 0)
         self.cleanup_boundaries.assert_called_once_with(
             self.iam,
-            sorted(self.boundary_documents, key=lambda document: document["policy_name"]),
             self.owner_id,
+            retained_policy_arns=set(),
         )
 
     @patch("attach_integration_permissions.urllib.request.urlopen")
@@ -340,6 +342,13 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
             self.iam,
             sorted(self.boundary_documents, key=lambda document: document["policy_name"]),
             self.owner_id,
+        )
+        self.cleanup_boundaries.assert_called_once_with(
+            self.iam,
+            self.owner_id,
+            retained_policy_arns={
+                boundary["policy_arn"] for boundary in self.boundary_documents
+            },
         )
         self.assertEqual(
             [
@@ -492,19 +501,10 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         current_boundaries = permissions_boundary_documents(
             policy_names=(BOUNDARY_POLICY_NAMES[0],)
         )
-        previous_boundaries = permissions_boundary_documents(
-            policy_names=BOUNDARY_POLICY_NAMES[:2]
+        mock_urlopen.return_value = self._mock_response(
+            policy_documents=[{"Version": "2012-10-17", "Statement": []}],
+            permissions_boundary_policy_documents=current_boundaries,
         )
-        mock_urlopen.side_effect = [
-            self._mock_response(
-                policy_documents=[{"Version": "2012-10-17", "Statement": []}],
-                permissions_boundary_policy_documents=current_boundaries,
-            ),
-            self._mock_response(
-                policy_documents=[{"Version": "2012-10-17", "Statement": []}],
-                permissions_boundary_policy_documents=previous_boundaries,
-            ),
-        ]
 
         self._attach(
             ["aws:ec2:instance"],
@@ -518,8 +518,8 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         )
         self.cleanup_boundaries.assert_called_once_with(
             self.iam,
-            [previous_boundaries[1]],
             self.owner_id,
+            retained_policy_arns={current_boundaries[0]["policy_arn"]},
         )
 
     @patch("attach_integration_permissions.urllib.request.urlopen")
@@ -530,19 +530,10 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         current_boundaries = permissions_boundary_documents(
             policy_names=(BOUNDARY_POLICY_NAMES[0],)
         )
-        previous_boundaries = permissions_boundary_documents(
-            policy_names=BOUNDARY_POLICY_NAMES[:2]
+        mock_urlopen.return_value = self._mock_response(
+            policy_documents=[{"Version": "2012-10-17", "Statement": []}],
+            permissions_boundary_policy_documents=current_boundaries,
         )
-        mock_urlopen.side_effect = [
-            self._mock_response(
-                policy_documents=[{"Version": "2012-10-17", "Statement": []}],
-                permissions_boundary_policy_documents=current_boundaries,
-            ),
-            self._mock_response(
-                policy_documents=[{"Version": "2012-10-17", "Statement": []}],
-                permissions_boundary_policy_documents=previous_boundaries,
-            ),
-        ]
         self.cleanup_boundaries.side_effect = RuntimeError(
             "obsolete boundary is still in use"
         )
@@ -790,6 +781,48 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         self.boundary = permissions_boundary_documents()[0]
         self.policy_arn = self.boundary["policy_arn"]
         self.owner_id = "arn:aws:cloudformation:us-east-1:123456789012:stack/test-stack/id"
+        self.owner_tag_key = _boundary_policy_owner_tag_key(self.owner_id)
+
+    def _policy_listing(self, boundaries=None):
+        boundaries = boundaries or [self.boundary]
+        return {
+            "Policies": [
+                {
+                    "PolicyName": boundary["policy_name"],
+                    "Path": boundary["policy_path"],
+                    "Arn": boundary["policy_arn"],
+                }
+                for boundary in boundaries
+            ]
+        }
+
+    def _ownership_tags(self, *owner_ids):
+        return [
+            {
+                "Key": BOUNDARY_POLICY_MANAGED_TAG_KEY,
+                "Value": BOUNDARY_POLICY_MANAGED_TAG_VALUE,
+            },
+            *[
+                {"Key": _boundary_policy_owner_tag_key(owner_id), "Value": "true"}
+                for owner_id in owner_ids
+            ],
+        ]
+
+    def _mock_owned_boundary(self, entities=None, versions=None):
+        self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
+        self.iam.list_policy_tags.return_value = {
+            "Tags": self._ownership_tags(self.owner_id)
+        }
+        self.iam.list_entities_for_policy.return_value = (
+            entities if entities is not None else {}
+        )
+        self.iam.list_policy_versions.return_value = {
+            "Versions": (
+                versions
+                if versions is not None
+                else [{"VersionId": "v1", "IsDefaultVersion": True}]
+            )
+        }
 
     def test_validates_dynamic_boundary_contract(self):
         documents = permissions_boundary_documents(partition="aws-us-gov")
@@ -907,7 +940,7 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         self.assertEqual(json.loads(request["PolicyDocument"]), self.boundary["policy_document"])
         self.assertEqual(
             request["Tags"],
-            [{"Key": BOUNDARY_POLICY_OWNER_TAG_KEY, "Value": self.owner_id}],
+            self._ownership_tags(self.owner_id),
         )
         self.iam.attach_role_policy.assert_not_called()
         self.iam.create_policy_version.assert_not_called()
@@ -923,8 +956,50 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
             [call(self.iam, document, self.owner_id) for document in documents],
         )
 
+    def test_boundary_discovery_is_paginated_and_exactly_path_scoped(self):
+        boundaries = permissions_boundary_documents(
+            policy_names=BOUNDARY_POLICY_NAMES[:2]
+        )
+        first_page = self._policy_listing([boundaries[0]])
+        first_page.update({"IsTruncated": True, "Marker": "next"})
+        first_page["Policies"].append(
+            {
+                "PolicyName": "nested-policy",
+                "Path": f"{BOUNDARY_POLICY_PATH}nested/",
+                "Arn": (
+                    "arn:aws:iam::123456789012:policy"
+                    f"{BOUNDARY_POLICY_PATH}nested/nested-policy"
+                ),
+            }
+        )
+        self.iam.list_policies.side_effect = [
+            first_page,
+            self._policy_listing([boundaries[1]]),
+        ]
+
+        policies = _list_boundary_policies(self.iam)
+
+        self.assertEqual(
+            [policy["policy_arn"] for policy in policies],
+            [boundary["policy_arn"] for boundary in boundaries],
+        )
+        self.assertEqual(
+            self.iam.list_policies.call_args_list,
+            [
+                call(Scope="Local", PathPrefix=BOUNDARY_POLICY_PATH),
+                call(
+                    Scope="Local",
+                    PathPrefix=BOUNDARY_POLICY_PATH,
+                    Marker="next",
+                ),
+            ],
+        )
+
     def test_unchanged_boundary_does_not_create_version(self):
         self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
+        self.iam.list_policy_tags.return_value = {
+            "Tags": self._ownership_tags(self.owner_id)
+        }
         self.iam.get_policy_version.return_value = {
             "PolicyVersion": {"Document": json.dumps(self.boundary["policy_document"])}
         }
@@ -933,6 +1008,36 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
 
         self.iam.list_policy_versions.assert_not_called()
         self.iam.create_policy_version.assert_not_called()
+
+    def test_existing_managed_boundary_adds_independent_owner(self):
+        other_owner_id = (
+            "arn:aws:cloudformation:us-east-1:123456789012:stack/other-stack/id"
+        )
+        self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
+        self.iam.list_policy_tags.return_value = {
+            "Tags": self._ownership_tags(other_owner_id)
+        }
+        self.iam.get_policy_version.return_value = {
+            "PolicyVersion": {"Document": self.boundary["policy_document"]}
+        }
+
+        _ensure_permissions_boundary_policy(self.iam, self.boundary, self.owner_id)
+
+        self.iam.tag_policy.assert_called_once_with(
+            PolicyArn=self.policy_arn,
+            Tags=[{"Key": self.owner_tag_key, "Value": "true"}],
+        )
+
+    def test_existing_unverified_boundary_is_not_claimed(self):
+        self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
+        self.iam.list_policy_tags.return_value = {"Tags": []}
+        self.iam.get_policy_version.return_value = {
+            "PolicyVersion": {"Document": self.boundary["policy_document"]}
+        }
+
+        _ensure_permissions_boundary_policy(self.iam, self.boundary, self.owner_id)
+
+        self.iam.tag_policy.assert_not_called()
 
     def test_changed_boundary_creates_default_version(self):
         self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
@@ -1048,17 +1153,12 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         mock_sleep.assert_called_once_with(1)
 
     def test_deletes_owned_unused_boundary_and_nondefault_versions(self):
-        self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v2"}}
-        self.iam.list_policy_tags.return_value = {
-            "Tags": [{"Key": BOUNDARY_POLICY_OWNER_TAG_KEY, "Value": self.owner_id}]
-        }
-        self.iam.list_entities_for_policy.return_value = {}
-        self.iam.list_policy_versions.return_value = {
-            "Versions": [
+        self._mock_owned_boundary(
+            versions=[
                 {"VersionId": "v1", "IsDefaultVersion": False},
                 {"VersionId": "v2", "IsDefaultVersion": True},
             ]
-        }
+        )
 
         deleted = _delete_permissions_boundary_policy(
             self.iam,
@@ -1075,11 +1175,11 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
 
     def test_preserves_untagged_boundary(self):
         self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
+        self.iam.list_policies.return_value = self._policy_listing()
         self.iam.list_policy_tags.return_value = {"Tags": []}
 
         preserved = cleanup_permissions_boundaries(
             self.iam,
-            [self.boundary],
             self.owner_id,
         )
 
@@ -1088,34 +1188,133 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         self.iam.delete_policy.assert_not_called()
 
     def test_preserves_boundary_owned_by_another_stack(self):
+        other_owner_id = (
+            "arn:aws:cloudformation:us-east-1:123456789012:stack/other/id"
+        )
         self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
+        self.iam.list_policies.return_value = self._policy_listing()
         self.iam.list_policy_tags.return_value = {
-            "Tags": [
-                {
-                    "Key": BOUNDARY_POLICY_OWNER_TAG_KEY,
-                    "Value": "arn:aws:cloudformation:us-east-1:123456789012:stack/other/id",
-                }
-            ]
+            "Tags": self._ownership_tags(other_owner_id)
         }
 
         preserved = cleanup_permissions_boundaries(
             self.iam,
-            [self.boundary],
             self.owner_id,
         )
 
         self.assertEqual(preserved, [self.policy_arn])
         self.iam.delete_policy.assert_not_called()
 
-    def test_in_use_boundary_identifies_blocking_entities(self):
+    def test_releases_owner_without_deleting_boundary_used_by_another_stack(self):
+        other_owner_id = (
+            "arn:aws:cloudformation:us-east-1:123456789012:stack/other/id"
+        )
         self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
         self.iam.list_policy_tags.return_value = {
-            "Tags": [{"Key": BOUNDARY_POLICY_OWNER_TAG_KEY, "Value": self.owner_id}]
+            "Tags": self._ownership_tags(self.owner_id, other_owner_id)
+        }
+
+        deleted = _delete_permissions_boundary_policy(
+            self.iam,
+            self.boundary,
+            self.owner_id,
+        )
+
+        self.assertFalse(deleted)
+        self.iam.untag_policy.assert_called_once_with(
+            PolicyArn=self.policy_arn,
+            TagKeys=[self.owner_tag_key],
+        )
+        self.iam.list_entities_for_policy.assert_not_called()
+        self.iam.delete_policy.assert_not_called()
+
+    def test_last_concurrent_releaser_reclaims_and_deletes_boundary(self):
+        other_owner_id = (
+            "arn:aws:cloudformation:us-east-1:123456789012:stack/other/id"
+        )
+        self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
+        self.iam.list_policy_tags.side_effect = [
+            {"Tags": self._ownership_tags(self.owner_id, other_owner_id)},
+            {
+                "Tags": [
+                    {
+                        "Key": BOUNDARY_POLICY_MANAGED_TAG_KEY,
+                        "Value": BOUNDARY_POLICY_MANAGED_TAG_VALUE,
+                    }
+                ]
+            },
+            {"Tags": self._ownership_tags(self.owner_id)},
+        ]
+        self.iam.list_entities_for_policy.return_value = {}
+        self.iam.list_policy_versions.return_value = {
+            "Versions": [{"VersionId": "v1", "IsDefaultVersion": True}]
+        }
+
+        deleted = _delete_permissions_boundary_policy(
+            self.iam,
+            self.boundary,
+            self.owner_id,
+        )
+
+        self.assertTrue(deleted)
+        self.iam.untag_policy.assert_called_once_with(
+            PolicyArn=self.policy_arn,
+            TagKeys=[self.owner_tag_key],
+        )
+        self.iam.tag_policy.assert_called_once_with(
+            PolicyArn=self.policy_arn,
+            Tags=[{"Key": self.owner_tag_key, "Value": "true"}],
+        )
+        self.iam.delete_policy.assert_called_once_with(PolicyArn=self.policy_arn)
+
+    def test_ownerless_managed_boundary_is_adopted_for_retryable_cleanup(self):
+        self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
+        self.iam.list_policy_tags.return_value = {
+            "Tags": [
+                {
+                    "Key": BOUNDARY_POLICY_MANAGED_TAG_KEY,
+                    "Value": BOUNDARY_POLICY_MANAGED_TAG_VALUE,
+                }
+            ]
         }
         self.iam.list_entities_for_policy.return_value = {
-            "PolicyRoles": [{"RoleName": "datadog-ssm-i-123"}],
-            "PolicyUsers": [{"UserName": "customer-user"}],
+            "PolicyRoles": [{"RoleName": "datadog-ssm-i-123"}]
         }
+
+        with self.assertRaisesRegex(RuntimeError, "datadog-ssm-i-123"):
+            _delete_permissions_boundary_policy(
+                self.iam,
+                self.boundary,
+                self.owner_id,
+            )
+
+        self.iam.tag_policy.assert_called_once_with(
+            PolicyArn=self.policy_arn,
+            Tags=[{"Key": self.owner_tag_key, "Value": "true"}],
+        )
+        self.iam.delete_policy.assert_not_called()
+
+    def test_cleanup_retains_current_desired_boundary(self):
+        self.iam.list_policies.return_value = self._policy_listing()
+
+        preserved = cleanup_permissions_boundaries(
+            self.iam,
+            self.owner_id,
+            retained_policy_arns={self.policy_arn},
+        )
+
+        self.assertEqual(preserved, [])
+        self.iam.get_policy.assert_not_called()
+        self.iam.list_policy_tags.assert_not_called()
+        self.iam.delete_policy.assert_not_called()
+
+    def test_in_use_boundary_identifies_blocking_entities(self):
+        self._mock_owned_boundary(
+            entities={
+                "PolicyRoles": [{"RoleName": "datadog-ssm-i-123"}],
+                "PolicyUsers": [{"UserName": "customer-user"}],
+            }
+        )
 
         with self.assertRaisesRegex(
             RuntimeError,
@@ -1130,17 +1329,11 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         self.iam.delete_policy.assert_not_called()
 
     def test_delete_conflict_reports_entities_created_during_delete(self):
-        self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
-        self.iam.list_policy_tags.return_value = {
-            "Tags": [{"Key": BOUNDARY_POLICY_OWNER_TAG_KEY, "Value": self.owner_id}]
-        }
+        self._mock_owned_boundary()
         self.iam.list_entities_for_policy.side_effect = [
             {},
             {"PolicyRoles": [{"RoleName": "datadog-ssm-i-raced"}]},
         ]
-        self.iam.list_policy_versions.return_value = {
-            "Versions": [{"VersionId": "v1", "IsDefaultVersion": True}]
-        }
         self.iam.delete_policy.side_effect = self.iam.exceptions.DeleteConflictException()
 
         with self.assertRaisesRegex(RuntimeError, "datadog-ssm-i-raced"):
@@ -1158,8 +1351,9 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
             {"Policy": {"DefaultVersionId": "v1"}},
             self.iam.exceptions.NoSuchEntityException(),
         ]
+        self.iam.list_policies.return_value = self._policy_listing(boundaries)
         self.iam.list_policy_tags.return_value = {
-            "Tags": [{"Key": BOUNDARY_POLICY_OWNER_TAG_KEY, "Value": self.owner_id}]
+            "Tags": self._ownership_tags(self.owner_id)
         }
         self.iam.list_entities_for_policy.return_value = {}
         self.iam.list_policy_versions.return_value = {
@@ -1168,7 +1362,6 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
 
         preserved = cleanup_permissions_boundaries(
             self.iam,
-            boundaries,
             self.owner_id,
         )
 
@@ -1319,7 +1512,7 @@ class TestManageBasePermissions(unittest.TestCase):
         handle_delete(event, None)
         mock_cleanup_base.assert_not_called()
         mock_cleanup_instr.assert_called_once()
-        mock_cleanup_boundaries.assert_called_once_with(self.iam, [], self.stack_id)
+        mock_cleanup_boundaries.assert_called_once_with(self.iam, self.stack_id)
 
     @patch("attach_integration_permissions.cleanup_permissions_boundaries")
     @patch("attach_integration_permissions.boto3.client")
@@ -1334,13 +1527,13 @@ class TestManageBasePermissions(unittest.TestCase):
         handle_delete(event, None)
         mock_cleanup_base.assert_called_once()
         mock_cleanup_instr.assert_called_once()
-        mock_cleanup_boundaries.assert_called_once_with(self.iam, [], self.stack_id)
+        mock_cleanup_boundaries.assert_called_once_with(self.iam, self.stack_id)
 
     @patch("attach_integration_permissions.cfnresponse")
     @patch("attach_integration_permissions.cleanup_permissions_boundaries")
-    @patch("attach_integration_permissions.fetch_instrumentation_permissions")
+    @patch("attach_integration_permissions._fetch_instrumentation_permissions_for_resource_types")
     @patch("attach_integration_permissions.boto3.client")
-    def test_delete_cleans_boundaries_for_current_resource_types(
+    def test_delete_discovers_owned_boundaries_without_datadog_api(
         self,
         mock_client,
         mock_fetch,
@@ -1348,10 +1541,6 @@ class TestManageBasePermissions(unittest.TestCase):
         mock_cfn,
     ):
         mock_client.return_value = self.iam
-        boundaries = permissions_boundary_documents(
-            policy_names=(BOUNDARY_POLICY_NAMES[0],)
-        )
-        mock_fetch.return_value = ([], boundaries)
         event = self._props(
             ManageBasePermissions="false",
             InstrumentationResourceTypes="aws:ec2:instance",
@@ -1360,21 +1549,16 @@ class TestManageBasePermissions(unittest.TestCase):
 
         handle_delete(event, None)
 
-        mock_cleanup_boundaries.assert_called_once_with(
-            self.iam,
-            boundaries,
-            self.stack_id,
-        )
+        mock_fetch.assert_not_called()
+        mock_cleanup_boundaries.assert_called_once_with(self.iam, self.stack_id)
         self.assertEqual(mock_cfn.send.call_args.args[2], mock_cfn.SUCCESS)
 
     @patch("attach_integration_permissions.cfnresponse")
     @patch("attach_integration_permissions.cleanup_permissions_boundaries")
-    @patch("attach_integration_permissions.fetch_instrumentation_permissions")
     @patch("attach_integration_permissions.boto3.client")
     def test_delete_fails_when_owned_boundary_remains_in_use(
         self,
         mock_client,
-        mock_fetch,
         mock_cleanup_boundaries,
         mock_cfn,
     ):
@@ -1382,7 +1566,6 @@ class TestManageBasePermissions(unittest.TestCase):
         boundaries = permissions_boundary_documents(
             policy_names=(BOUNDARY_POLICY_NAMES[0],)
         )
-        mock_fetch.return_value = ([], boundaries)
         mock_cleanup_boundaries.side_effect = RuntimeError(
             f"Permissions boundary {boundaries[0]['policy_arn']} is still in use by "
             "roles=[datadog-ssm-i-123]"
@@ -1403,12 +1586,10 @@ class TestManageBasePermissions(unittest.TestCase):
 
     @patch("attach_integration_permissions.cfnresponse")
     @patch("attach_integration_permissions.cleanup_permissions_boundaries")
-    @patch("attach_integration_permissions.fetch_instrumentation_permissions")
     @patch("attach_integration_permissions.boto3.client")
-    def test_delete_reports_preserved_unverified_boundaries(
+    def test_delete_reports_boundaries_preserved_for_other_owners(
         self,
         mock_client,
-        mock_fetch,
         mock_cleanup_boundaries,
         mock_cfn,
     ):
@@ -1416,7 +1597,6 @@ class TestManageBasePermissions(unittest.TestCase):
         boundaries = permissions_boundary_documents(
             policy_names=(BOUNDARY_POLICY_NAMES[0],)
         )
-        mock_fetch.return_value = ([], boundaries)
         mock_cleanup_boundaries.return_value = [boundaries[0]["policy_arn"]]
         event = self._props(
             ManageBasePermissions="false",

@@ -1,6 +1,6 @@
 # 4.18.1 (July 31, 2026)
 
-- Tag instrumenter permissions-boundary policies with their owning CloudFormation stack and safely remove owned, unused boundaries when resource types are removed or the stack is deleted.
+- Track every CloudFormation stack using an instrumenter permissions-boundary policy and safely remove the policy after the final owning stack releases it and no IAM entities remain.
 
 # 4.18.0 (July 23, 2026)
 
