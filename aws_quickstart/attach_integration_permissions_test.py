@@ -39,6 +39,7 @@ from attach_integration_permissions import (
     _boundary_policy_owner_tag_key,
     _delete_permissions_boundary_policy,
     _list_boundary_policies,
+    _policy_tags_by_key,
     _validate_permissions_boundary_policy_documents,
     cleanup_permissions_boundaries,
     manage_permissions_boundaries,
@@ -803,7 +804,7 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
                 "Value": BOUNDARY_POLICY_MANAGED_TAG_VALUE,
             },
             *[
-                {"Key": _boundary_policy_owner_tag_key(owner_id), "Value": "true"}
+                {"Key": _boundary_policy_owner_tag_key(owner_id), "Value": owner_id}
                 for owner_id in owner_ids
             ],
         ]
@@ -995,6 +996,15 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
             ],
         )
 
+    def test_policy_tags_by_key_keeps_tags_with_empty_values(self):
+        self.iam.list_policy_tags.return_value = {
+            "Tags": [{"Key": "EmptyValue"}]
+        }
+
+        tags = _policy_tags_by_key(self.iam, self.policy_arn)
+
+        self.assertEqual(tags, {"EmptyValue": ""})
+
     def test_unchanged_boundary_does_not_create_version(self):
         self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
         self.iam.list_policy_tags.return_value = {
@@ -1025,7 +1035,7 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
 
         self.iam.tag_policy.assert_called_once_with(
             PolicyArn=self.policy_arn,
-            Tags=[{"Key": self.owner_tag_key, "Value": "true"}],
+            Tags=[{"Key": self.owner_tag_key, "Value": self.owner_id}],
         )
 
     def test_existing_unverified_boundary_is_not_claimed(self):
@@ -1263,7 +1273,7 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         )
         self.iam.tag_policy.assert_called_once_with(
             PolicyArn=self.policy_arn,
-            Tags=[{"Key": self.owner_tag_key, "Value": "true"}],
+            Tags=[{"Key": self.owner_tag_key, "Value": self.owner_id}],
         )
         self.iam.delete_policy.assert_called_once_with(PolicyArn=self.policy_arn)
 
@@ -1290,7 +1300,7 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
 
         self.iam.tag_policy.assert_called_once_with(
             PolicyArn=self.policy_arn,
-            Tags=[{"Key": self.owner_tag_key, "Value": "true"}],
+            Tags=[{"Key": self.owner_tag_key, "Value": self.owner_id}],
         )
         self.iam.delete_policy.assert_not_called()
 
@@ -1307,6 +1317,42 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         self.iam.get_policy.assert_not_called()
         self.iam.list_policy_tags.assert_not_called()
         self.iam.delete_policy.assert_not_called()
+
+    @patch("attach_integration_permissions._delete_permissions_boundary_policy")
+    def test_cleanup_collects_failures_and_continues_sweep(self, mock_delete):
+        boundaries = permissions_boundary_documents(
+            policy_names=BOUNDARY_POLICY_NAMES[:3]
+        )
+        self.iam.list_policies.return_value = self._policy_listing(boundaries)
+        mock_delete.side_effect = [
+            RuntimeError("roles=[datadog-ssm-i-1]"),
+            True,
+            RuntimeError("roles=[datadog-ssm-i-2]"),
+        ]
+
+        with self.assertRaises(RuntimeError) as raised:
+            cleanup_permissions_boundaries(self.iam, self.owner_id)
+
+        message = str(raised.exception)
+        self.assertIn("datadog-ssm-i-1", message)
+        self.assertIn("datadog-ssm-i-2", message)
+        self.assertIn(boundaries[0]["policy_arn"], message)
+        self.assertIn(boundaries[2]["policy_arn"], message)
+        self.assertEqual(
+            mock_delete.call_args_list,
+            [
+                call(
+                    self.iam,
+                    {
+                        "policy_name": boundary["policy_name"],
+                        "policy_path": boundary["policy_path"],
+                        "policy_arn": boundary["policy_arn"],
+                    },
+                    self.owner_id,
+                )
+                for boundary in boundaries
+            ],
+        )
 
     def test_in_use_boundary_identifies_blocking_entities(self):
         self._mock_owned_boundary(

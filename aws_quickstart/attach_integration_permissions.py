@@ -193,13 +193,17 @@ def _boundary_policy_owner_tag_key(owner_id):
     return f"{BOUNDARY_POLICY_OWNER_TAG_PREFIX}{owner_hash}"
 
 
+def _boundary_policy_owner_tag(owner_id):
+    return {"Key": _boundary_policy_owner_tag_key(owner_id), "Value": owner_id}
+
+
 def _boundary_policy_tags(owner_id):
     return [
         {
             "Key": BOUNDARY_POLICY_MANAGED_TAG_KEY,
             "Value": BOUNDARY_POLICY_MANAGED_TAG_VALUE,
         },
-        {"Key": _boundary_policy_owner_tag_key(owner_id), "Value": "true"},
+        _boundary_policy_owner_tag(owner_id),
     ]
 
 
@@ -398,10 +402,7 @@ def _ensure_permissions_boundary_policy(iam_client, boundary, owner_id):
                 )
                 continue
 
-        tags = {
-            tag["Key"]: tag.get("Value", "")
-            for tag in _list_policy_tags(iam_client, policy_arn)
-        }
+        tags = _policy_tags_by_key(iam_client, policy_arn)
         if (
             tags.get(BOUNDARY_POLICY_MANAGED_TAG_KEY)
             == BOUNDARY_POLICY_MANAGED_TAG_VALUE
@@ -410,7 +411,7 @@ def _ensure_permissions_boundary_policy(iam_client, boundary, owner_id):
             if owner_tag_key not in tags:
                 iam_client.tag_policy(
                     PolicyArn=policy_arn,
-                    Tags=[{"Key": owner_tag_key, "Value": "true"}],
+                    Tags=[_boundary_policy_owner_tag(owner_id)],
                 )
         else:
             LOGGER.warning(
@@ -463,6 +464,14 @@ def _list_policy_tags(iam_client, policy_arn):
         if not marker:
             return tags
         request["Marker"] = marker
+
+
+def _policy_tags_by_key(iam_client, policy_arn):
+    return {
+        tag["Key"]: tag.get("Value", "")
+        for tag in _list_policy_tags(iam_client, policy_arn)
+        if "Key" in tag
+    }
 
 
 def _list_policy_entities(iam_client, policy_arn):
@@ -519,10 +528,10 @@ def _boundary_owner_tag_keys(tags):
     }
 
 
-def _claim_boundary_ownership(iam_client, policy_arn, owner_tag_key):
+def _claim_boundary_ownership(iam_client, policy_arn, owner_id):
     iam_client.tag_policy(
         PolicyArn=policy_arn,
-        Tags=[{"Key": owner_tag_key, "Value": "true"}],
+        Tags=[_boundary_policy_owner_tag(owner_id)],
     )
 
 
@@ -531,11 +540,7 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
     if _get_policy(iam_client, policy_arn) is None:
         return True
 
-    tags = {
-        tag["Key"]: tag["Value"]
-        for tag in _list_policy_tags(iam_client, policy_arn)
-        if "Key" in tag and "Value" in tag
-    }
+    tags = _policy_tags_by_key(iam_client, policy_arn)
     owner_tag_key = _boundary_policy_owner_tag_key(owner_id)
     is_managed = (
         tags.get(BOUNDARY_POLICY_MANAGED_TAG_KEY)
@@ -543,33 +548,39 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
     )
     if not is_managed:
         LOGGER.warning(
-            "Preserving permissions boundary %s because it is not owned by stack %s",
+            "Preserving permissions boundary %s because it lacks the Datadog management tag",
             policy_arn,
-            owner_id,
         )
         return False
 
     owner_tags = _boundary_owner_tag_keys(tags)
     if owner_tag_key not in owner_tags:
         if owner_tags:
+            LOGGER.warning(
+                "Preserving permissions boundary %s because it is owned by another "
+                "CloudFormation stack",
+                policy_arn,
+            )
             return False
-        _claim_boundary_ownership(iam_client, policy_arn, owner_tag_key)
+        _claim_boundary_ownership(iam_client, policy_arn, owner_id)
 
     other_owner_tags = owner_tags - {owner_tag_key}
     if other_owner_tags:
         iam_client.untag_policy(PolicyArn=policy_arn, TagKeys=[owner_tag_key])
-        tags = {
-            tag["Key"]: tag.get("Value", "")
-            for tag in _list_policy_tags(iam_client, policy_arn)
-        }
+        tags = _policy_tags_by_key(iam_client, policy_arn)
         if (
             tags.get(BOUNDARY_POLICY_MANAGED_TAG_KEY)
             != BOUNDARY_POLICY_MANAGED_TAG_VALUE
         ):
             return False
         if _boundary_owner_tag_keys(tags) - {owner_tag_key}:
+            LOGGER.warning(
+                "Preserving permissions boundary %s because it remains owned by another "
+                "CloudFormation stack",
+                policy_arn,
+            )
             return False
-        _claim_boundary_ownership(iam_client, policy_arn, owner_tag_key)
+        _claim_boundary_ownership(iam_client, policy_arn, owner_id)
 
     entities = _list_policy_entities(iam_client, policy_arn)
     if any(entities.values()):
@@ -578,13 +589,15 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
             f"{_format_policy_entities(entities)}"
         )
 
-    tags = {
-        tag["Key"]: tag.get("Value", "")
-        for tag in _list_policy_tags(iam_client, policy_arn)
-    }
+    tags = _policy_tags_by_key(iam_client, policy_arn)
     other_owner_tags = _boundary_owner_tag_keys(tags) - {owner_tag_key}
     if other_owner_tags:
         iam_client.untag_policy(PolicyArn=policy_arn, TagKeys=[owner_tag_key])
+        LOGGER.warning(
+            "Preserving permissions boundary %s because it became owned by another "
+            "CloudFormation stack during cleanup",
+            policy_arn,
+        )
         return False
     if (
         tags.get(BOUNDARY_POLICY_MANAGED_TAG_KEY)
@@ -617,11 +630,19 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
 def cleanup_permissions_boundaries(iam_client, owner_id, retained_policy_arns=()):
     retained_policy_arns = set(retained_policy_arns)
     preserved = []
+    failures = []
     for boundary in _list_boundary_policies(iam_client):
         if boundary["policy_arn"] in retained_policy_arns:
             continue
-        if not _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
-            preserved.append(boundary["policy_arn"])
+        try:
+            if not _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
+                preserved.append(boundary["policy_arn"])
+        except Exception as error:
+            failures.append(f"{boundary['policy_arn']}: {error}")
+    if failures:
+        raise RuntimeError(
+            "Failed to clean up permissions boundaries: " + "; ".join(failures)
+        )
     return preserved
 
 
@@ -1118,16 +1139,14 @@ def attach_instrumentation_permissions(
                 account_id,
                 partition,
             )
-        else:
-            policy_documents, boundary_documents = [], []
-
-        if resource_types:
             _validate_instrumentation_policy_capacity(
                 iam_client,
                 role_name,
                 len(policy_documents),
             )
             manage_permissions_boundaries(iam_client, boundary_documents, owner_id)
+        else:
+            policy_documents, boundary_documents = [], []
     except Exception as e:
         if mutation_must_succeed:
             raise
@@ -1182,6 +1201,7 @@ def handle_delete(event, context):
         if manage_base_permissions:
             cleanup_existing_policies(iam_client, role_name, account_id, partition)
         cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
+        # Fail on in-use boundaries so CloudFormation retains ownership for a cleanup retry.
         preserved_boundaries = cleanup_permissions_boundaries(
             iam_client,
             event["StackId"],
