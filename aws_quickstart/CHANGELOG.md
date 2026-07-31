@@ -1,3 +1,7 @@
+# 4.18.1 (July 31, 2026)
+
+- Tag instrumenter permissions-boundary policies with their owning CloudFormation stack and safely remove owned, unused boundaries when resource types are removed or the stack is deleted.
+
 # 4.18.0 (July 23, 2026)
 
 - Reconcile Datadog instrumenter permissions-boundary policies returned by the instrumentation permissions endpoint.
