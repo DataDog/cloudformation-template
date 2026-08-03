@@ -50,15 +50,6 @@ if [[ ${?} -eq 0 ]]; then
 fi
 set -e
 
-# Confirm that the readme link points to the current release
-set +e
-response=$(grep -q "aws_cloud_cost/${VERSION}/main.yaml" README.md)
-if [[ ${?} -ne 0 ]]; then
-    echo "README.md does not point to the current release. Please update the link."
-    exit 1
-fi
-set -e
-
 # Confirm to proceed
 for i in *.yaml; do
     [ -f "$i" ] || break

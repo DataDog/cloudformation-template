@@ -1,3 +1,45 @@
+# 4.18.0 (July 23, 2026)
+
+- Reconcile Datadog instrumenter permissions-boundary policies returned by the instrumentation permissions endpoint.
+- Stage complete instrumentation-policy replacements before switching role attachments, preserving the previous permissions when AWS rejects a replacement.
+
+# 4.17.1 (July 21, 2026)
+
+- Make instrumentation IAM policy updates rollback-safe by validating replacements before cleanup, preserving the custom resource identity, and safely moving permissions when the integration role changes.
+
+# 4.17.0 (July 21, 2026)
+
+- Add `datadog_agentless_saas.yaml` for SaaS-mode Agentless Scanning. The template provisions a single managed policy with the SaaS scanner permissions and attaches it to the local Datadog integration role — no scanner EC2/VPC/ASG resources and no delegate-role chaining. `SecurityAudit` is unconditionally attached to the integration role. `DatadogIntegrationRoleName` is required. Released alongside an entry added to `release.sh` so the new template participates in the standard placeholder substitution and upload pipeline.
+
+# 4.16.0 (July 20, 2026)
+
+- Use server-rendered IAM policy documents for Agent instrumentation permissions so policies can include account- and partition-specific resource scopes.
+
+# 4.15.0 (June 12, 2026)
+
+- Add an IAM role to `datadog_agent_resource_update_forwarding.yaml` to allow EventBridge in secondary regions to forward events to the primary region's default event bus.
+
+# 4.14.0 (June 9, 2026)
+
+- Add `main_agent_installation.yaml`, a standalone template that enables Datadog Agent installation against an existing AWS integration role. Customers who skipped Agent installation during initial setup can deploy it later without recreating the integration.
+
+# 4.13.0 (May 29, 2026)
+
+- Add `uk1.datadoghq.com` site support. Affects `main_v2.yaml`, `main_workflow.yaml`, `main_extended.yaml`, and `main_extended_workflow.yaml`.
+
+# 4.12.0 (May 28, 2026)
+
+- Add an EventBridge pipeline that forwards EC2 and EKS resource lifecycle and configuration update events to Datadog, enabling the Datadog Agent management feature to react to changes in real time. Customers enable forwarding per resource type when configuring Agent management.
+
+# 4.11.1 (May 27, 2026)
+
+- Forward `InstrumentationResourceTypes` and `DatadogSite` from workflow and extended templates to the nested integration role stack, so launches can attach the Agent instrumentation IAM permissions selected during onboarding. Affects `main_workflow.yaml`, `main_extended_workflow.yaml`, and `main_extended.yaml`
+
+# 4.11.0 (May 19, 2026)
+
+- Allow the Datadog Agent running in agentless scanner instances to read the systemd journal.
+  This should help with debugging when the scanner fails to start.
+
 # 4.10.0 (May 13, 2026)
 
 - Add `InstrumentationResourceTypes` parameter to `main_v2.yaml`. When set to a comma-separated list of UDM resource types (e.g. `aws:ec2:instance,aws:ecs:cluster,aws:eks:cluster`), the integration role's permission-attach Lambda calls `GET /api/unstable/instrumenter/aws/iam_permissions?resource_type=...&chunked=true` and attaches the returned IAM permissions as additional managed policies on the integration role, so customers can install the Datadog Agent on those resources without extra IAM setup. Failure to fetch or attach these extra permissions is non-blocking — the integration install proceeds with a warning. Affects `main_v2.yaml`, `datadog_integration_role.yaml`, `attach_integration_permissions.py`

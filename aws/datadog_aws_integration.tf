@@ -2,7 +2,7 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# Find your api key from https://app.datadoghq.com/account/settings#api
+# Find your api key from https://app.datadoghq.com/organization-settings/api-keys
 # Run `export TF_VAR_dd_api_key=<ACTUAL_DD_API_KEY>` to set its value.
 variable "dd_api_key" {
   type        = string

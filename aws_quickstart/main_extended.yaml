@@ -35,7 +35,7 @@ Parameters:
     Description: >-
       Define your Datadog Site to send data to.
       Allowed values: datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com,
-      ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com (GovCloud), us2.ddog-gov.com (GovCloud).
+      ap1.datadoghq.com, ap2.datadoghq.com, uk1.datadoghq.com, ddog-gov.com (GovCloud), us2.ddog-gov.com (GovCloud).
   IAMRoleName:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
@@ -82,6 +82,13 @@ Parameters:
       Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
+  InstrumentationResourceTypes:
+    Type: CommaDelimitedList
+    Description: >-
+      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster, aws:eks:cluster)
+      that the Datadog integration role should be granted the IAM permissions required to instrument with the Datadog
+      Agent. Leave blank to skip granting any extra instrumentation permissions.
+    Default: ""
   AgentlessVulnerabilityScanning:
     Type: String
     AllowedValues:
@@ -177,6 +184,9 @@ Mappings:
     us2.ddog-gov.com:
       AccountId: "382742775718"
       AccountIdGovCloud: "486737091498"
+    uk1.datadoghq.com:
+      AccountId: "117348461845"
+      AccountIdGovCloud: "NOT_APPLICABLE"
     datad0g.com:
       AccountId: "727006795293"
       AccountIdGovCloud: "NOT_APPLICABLE"
@@ -269,6 +279,8 @@ Resources:
         ExternalId: !GetAtt DatadogAPICall.Outputs.ExternalId
         IAMRoleName: !Ref IAMRoleName
         ResourceCollectionPermissions: !If [ResourceCollectionPermissions, true, false]
+        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+        DatadogSite: !Ref DatadogSite
         DdAWSAccountId: !If
           - IsGov
           - !If
@@ -327,6 +339,7 @@ Metadata:
         - ScannerDelegateRoleName
         - ScannerInstanceRoleARN
         - DisableMetricCollection
+        - InstrumentationResourceTypes
     ParameterLabels:
       APIKey:
         default: "DatadogApiKey *"

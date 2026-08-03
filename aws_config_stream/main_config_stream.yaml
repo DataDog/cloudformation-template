@@ -34,6 +34,7 @@ Parameters:
       - https://cloudplatform-intake.datadoghq.eu/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
       - https://cloudplatform-intake.ap1.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
       - https://cloudplatform-intake.ap2.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
+      - https://cloudplatform-intake.uk1.datadoghq.com/api/v2/cloudchanges?dd-protocol=aws-kinesis-firehose
 Resources:
   ConfigurationRecorder:
     Type: AWS::Config::ConfigurationRecorder

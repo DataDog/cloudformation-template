@@ -1,10 +1,9 @@
 #!/bin/bash
 
-# Usage: ./release.sh <S3_Bucket> [--private] [--yes]
+# Usage: ./release.sh [<S3_Bucket>] [--gov] [--private] [--yes]
 
 set -e
 
-VERSIONS_BUCKET="datadog-opensource-asset-versions"
 VERSIONS_JSON_PATH=".quickstart/versions.json"
 
 generate_versions_json() {
@@ -42,20 +41,30 @@ upload_versions_json() {
     echo "Uploaded versions.json to S3!"
 }
 
-# Read the S3 bucket
-if [ -z "$1" ]; then
-    echo "Must specify a S3 bucket to publish the template"
-    exit 1
-else
-    BUCKET=$1
-fi
+embed_python_source() {
+    local template="$1"
+    local source="$2"
 
-# Parse optional flags
+    perl -i -pe '
+        BEGIN { $p = do { local $/; <STDIN> } }
+        /^(\s+)<ZIPFILE_PLACEHOLDER>/ && (
+            $_ = join("\n", map { $1 . $_ } split(/\n/, $p)) . "\n"
+        )
+    ' "$template" < "$source"
+}
+
+# Parse flags and optional bucket argument
+GOV=false
 PRIVATE_TEMPLATE=false
 AUTO_YES=false
-shift
+BUCKET=""
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --gov)
+            GOV=true
+            shift
+            ;;
         --private)
             PRIVATE_TEMPLATE=true
             shift
@@ -64,13 +73,28 @@ while [[ $# -gt 0 ]]; do
             AUTO_YES=true
             shift
             ;;
-        *)
+        --*)
             echo "Unknown option: $1"
-            echo "Usage: ./release.sh <S3_Bucket> [--private] [--yes]"
+            echo "Usage: ./release.sh [<S3_Bucket>] [--gov] [--private] [--yes]"
             exit 1
+            ;;
+        *)
+            BUCKET=$1
+            shift
             ;;
     esac
 done
+
+if [ "$GOV" = true ]; then
+    BUCKET="${BUCKET:-datadog-cloudformation-template-quickstart-us-gov}"
+    VERSIONS_BUCKET="datadog-opensource-asset-versions-us-gov"
+else
+    if [ -z "$BUCKET" ]; then
+        echo "Must specify a S3 bucket to publish the template"
+        exit 1
+    fi
+    VERSIONS_BUCKET="datadog-opensource-asset-versions"
+fi
 
 # Read the version
 VERSION=$(head -n 1 version.txt)
@@ -110,32 +134,41 @@ trap "rm -rf ${TEMP_DIR}" EXIT
 
 # Copy all YAML files to temp directory
 cp *.yaml "${TEMP_DIR}/"
-cp datadog_agentless_api_call.py "${TEMP_DIR}/"
+cp datadog_agentless_api_call.py attach_integration_permissions.py "${TEMP_DIR}/"
 
 # Change to temp directory for processing
 cd "${TEMP_DIR}"
 
+# Mirror forwarder template to GovCloud bucket so nested stack TemplateURL is reachable.
+# Fetch via HTTPS (public bucket) since GovCloud credentials can't reach commercial S3.
+if [ "$GOV" = true ]; then
+    echo "Mirroring forwarder template to GovCloud bucket..."
+    FORWARDER_TMP=$(mktemp)
+    curl -fsSL "https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/latest.yaml" -o "${FORWARDER_TMP}"
+    aws s3 cp "${FORWARDER_TMP}" "s3://datadog-cloudformation-template-us-gov/aws/forwarder/latest.yaml"
+    rm -f "${FORWARDER_TMP}"
+    echo "Mirrored forwarder template!"
+fi
+
 # Update placeholder
-for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main_extended.yaml; do
+for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main_extended.yaml datadog_integration_role.yaml main_agent_installation.yaml; do
     perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" $template
     perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" $template
+    if [ "$GOV" = true ]; then
+        # Rewrite forwarder URL to GovCloud bucket before generic endpoint substitution
+        perl -pi -e "s|datadog-cloudformation-template\.s3\.amazonaws\.com/aws/forwarder/latest\.yaml|datadog-cloudformation-template-us-gov.s3.us-gov-west-1.amazonaws.com/aws/forwarder/latest.yaml|g" $template
+        perl -pi -e 's/\.s3\.amazonaws\.com/.s3.us-gov-west-1.amazonaws.com/g' $template
+    fi
 done
 
+embed_python_source datadog_integration_permissions.yaml attach_integration_permissions.py
+
 # Process Agentless Scanning templates
-for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml datadog_agentless_delegate_role_stackset.yaml; do
+for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml datadog_agentless_delegate_role_stackset.yaml datadog_agentless_saas.yaml; do
     # Note: unlike above, here we remove the 'v' prefix from the version
     perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION#v}/g" "$template"
 
-    # Replace ZIPFILE_PLACEHOLDER with the contents of the Python file
-    perl -i -pe '
-        # Read the Python script from stdin
-        BEGIN { $p = do { local $/; <STDIN> } }
-        # Find the placeholder and capture its indentation
-        /^(\s+)<ZIPFILE_PLACEHOLDER>/ && (
-            # Replace with the Python script, preserving the indentation
-            $_ = join("\n", map { $1 . $_ } split(/\n/, $p)) . "\n"
-        )
-    ' "$template" < datadog_agentless_api_call.py
+    embed_python_source "$template" datadog_agentless_api_call.py
 done
 
 # Upload from temp directory

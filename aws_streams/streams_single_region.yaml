@@ -42,6 +42,16 @@ Parameters:
       within the AWS CloudWatch Console after the stack is created successfully.
     Type: String
     Default: ""
+  IncludeLinkedAccounts:
+    Description: >-
+      Set to "true" to include metrics from source accounts linked to this monitoring account
+      via CloudWatch cross-account observability. Only relevant if this account is configured
+      as a monitoring account. Defaults to "false".
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
   DdSite:
     Description: >-
       Define your Datadog Site to send data to. For the Datadog EU site, set to datadoghq.eu
@@ -102,6 +112,8 @@ Mappings:
             Endpoint: "https://awsmetrics-intake.ddog-gov.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
         "us2.ddog-gov.com":
             Endpoint: "https://awsmetrics-intake.us2.ddog-gov.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
+        "uk1.datadoghq.com":
+            Endpoint: "https://awsmetrics-intake.uk1.datadoghq.com/api/v2/awsmetrics?dd-protocol=aws-kinesis-firehose"
 Resources:
   DatadogStreamLogs:
     Type: AWS::Logs::LogGroup
@@ -178,7 +190,8 @@ Resources:
       Name: "datadog-metrics-stream"
       FirehoseArn: !GetAtt DatadogMetricKinesisFirehose.Arn
       RoleArn: !Ref StreamRoleArn
-      OutputFormat: "opentelemetry0.7"
+      OutputFormat: "opentelemetry1.0"
+      IncludeLinkedAccountsMetrics: !Ref IncludeLinkedAccounts
       IncludeFilters: !If
         - IsInclude
         - - !If

@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Integration - attach IAM permissions to the integration role
+Parameters:
+  IAMRoleName:
+    Description: Name of the IAM role to attach the Datadog integration permissions to.
+    Type: String
+    Default: DatadogIntegrationRole
+  ResourceCollectionPermissions:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Set this value to "true" to add permissions for Datadog to collect resource configuration data.
+  InstrumentationResourceTypes:
+    Type: String
+    Default: ""
+    Description: >-
+      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster,
+      aws:eks:cluster) that the Datadog integration role should be granted the IAM permissions
+      required to instrument with the Datadog Agent. Leave blank to skip.
+  DatadogSite:
+    Type: String
+    Default: "datadoghq.com"
+    Description: >-
+      Datadog site the integration is being installed against. Used to call the Datadog API that
+      returns the IAM permissions required to instrument the selected resource types.
+  ManageBasePermissions:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Set this value to "true" to manage the standard and resource-collection permissions on the role
+      (the role-creation case). Set it to "false" to manage only the instrumentation permissions and
+      leave the standard and resource-collection policies untouched (the post-setup add-on case).
+  FailOnInstrumentationError:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Set this value to "true" to fail the stack when the instrumentation permissions cannot be fetched
+      or attached. Defaults to "false" (best-effort) for the role-creation case, where instrumentation is
+      an optional add-on to the broader install. The post-setup add-on sets this to "true" because
+      attaching the instrumentation permissions is the stack's only purpose. Updates that replace existing
+      instrumentation permissions still fail atomically so stale policies are not accepted.
+Resources:
+  DatadogAttachIntegrationPermissionsLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: !Sub "datadog-aws-integration-iam-permissions-${IAMRoleName}"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:CreatePolicy
+                  - iam:DeletePolicy
+                  - iam:AttachRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:PutRolePolicy
+                Resource:
+                  # Wildcards cover both the v2 names this template creates and the un-suffixed legacy
+                  # names it cleans up on an in-place upgrade.
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${IAMRoleName}
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*
+                  - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
+              - Effect: Allow
+                Action: iam:DetachRolePolicy
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+                Condition:
+                  ArnLike:
+                    iam:PolicyARN:
+                      - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*
+                      - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*
+              - Effect: Allow
+                Action: iam:DeleteRolePolicy
+                # Role replacement must remove a legacy inline policy from the previous role, whose
+                # name is known only at runtime. IAM cannot scope this action by inline policy name,
+                # so the handler limits deletion to fixed Datadog policy names in application code.
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+              - Effect: Allow
+                Action: iam:GetAccountSummary
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - iam:CreatePolicy
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - iam:ListPolicyVersions
+                  - iam:CreatePolicyVersion
+                  - iam:DeletePolicyVersion
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog/instrumenter-boundaries/*
+  DatadogAttachIntegrationPermissionsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: "A function to attach Datadog AWS integration permissions to an IAM role."
+      Role: !GetAtt DatadogAttachIntegrationPermissionsLambdaExecutionRole.Arn
+      Handler: "index.handler"
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
+      Runtime: "python3.14"
+      Timeout: 300
+      Code:
+        ZipFile: |
+          <ZIPFILE_PLACEHOLDER>
+  DatadogAttachIntegrationPermissionsFunctionTrigger:
+    Type: Custom::DatadogAttachIntegrationPermissionsFunctionTrigger
+    Properties:
+      ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
+      # Bump this value when Lambda behavior changes so existing stacks invoke the custom resource.
+      PolicyAttachmentSchemaVersion: "4"
+      DatadogIntegrationRole: !Ref IAMRoleName
+      AccountId: !Ref AWS::AccountId
+      Partition: !Sub "${AWS::Partition}"
+      ResourceCollectionPermissions: !Ref ResourceCollectionPermissions
+      InstrumentationResourceTypes: !Ref InstrumentationResourceTypes
+      DatadogSite: !Ref DatadogSite
+      ManageBasePermissions: !Ref ManageBasePermissions
+      FailOnInstrumentationError: !Ref FailOnInstrumentationError

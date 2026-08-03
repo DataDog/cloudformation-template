@@ -1,0 +1,293 @@
+# version: v<VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Attaches Datadog Agentless Scanning permissions for SaaS-mode deployments to the Datadog integration role.
+Parameters:
+  AccountId:
+    Type: String
+    Description: The current AWS account ID. This parameter is for validation purposes only, and may be left empty.
+    AllowedPattern: "|[0-9]{12}"
+    Default: ""
+
+  DatadogAPIKey:
+    Type: String
+    AllowedPattern: "[0-9a-f]{32}"
+    Description: API key for the Datadog account
+    NoEcho: true
+
+  DatadogAPPKey:
+    Type: String
+    AllowedPattern: "([0-9a-f]{40})|(ddapp_[a-zA-Z0-9]{34})"
+    Description: Application key for the Datadog account
+    NoEcho: true
+
+  DatadogSite:
+    Type: String
+    Description: >-
+      The Datadog site to use for the Datadog Agentless Scanner.
+      Allowed values: datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com,
+      ap1.datadoghq.com, ap2.datadoghq.com.
+    Default: datadoghq.com
+
+  AgentlessVulnerabilityScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Vulnerability Scanning (hosts, containers, and Lambda functions).
+    Default: false
+
+  AgentlessSensitiveDataScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Scanning of datastores (S3 buckets).
+    Default: false
+
+  AgentlessComplianceHostScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Agentless Compliance Scanning for hosts.
+    Default: false
+
+  DatadogIntegrationRoleName:
+    Type: String
+    Description: >-
+      The name of the IAM role used by the Datadog AWS integration. In SaaS mode, Datadog assumes this
+      role directly to perform agentless scans. The SecurityAudit policy is also attached to this role.
+    AllowedPattern: '[\w+=,.@-]{1,64}'
+
+Rules:
+  MustMatchAccountId:
+    AssertDescription: 'Checking that AccountId matches the current AWS account ID'
+    Assertions:
+      - Assert: !Or [!Equals [!Ref AccountId, !Ref AWS::AccountId], !Equals [!Ref AccountId, ""]]
+        AssertDescription: >-
+          The current AWS account ID does not match the AWS account selected in Datadog.
+          Please log in to the AWS account where you want to set up Datadog Agentless Scanning and try again.
+
+Resources:
+  DatadogAgentlessSaaSScanningPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for Datadog Agentless Scanning in SaaS mode.
+      Roles:
+        - !Ref DatadogIntegrationRoleName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action: 'ec2:CreateTags'
+            Effect: Allow
+            Resource:
+              - 'arn:aws:ec2:*:*:volume/*'
+              - 'arn:aws:ec2:*:*:snapshot/*'
+              - 'arn:aws:ec2:*:*:image/*'
+            Condition:
+              StringEquals:
+                'ec2:CreateAction':
+                  - CreateSnapshot
+                  - CreateVolume
+                  - CopySnapshot
+                  - CopyImage
+          - Action: 'ec2:CreateSnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:volume/*'
+            Condition:
+              StringNotEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+          - Action: 'ec2:CopySnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/snap-*'
+          - Action: 'ec2:CopySnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/${*}'
+            Condition:
+              'ForAllValues:StringLike':
+                'aws:TagKeys': DatadogAgentlessScanner*
+              StringEquals:
+                'aws:RequestTag/DatadogAgentlessScanner': 'true'
+          - Action: 'ec2:CreateSnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/*'
+            Condition:
+              'ForAllValues:StringLike':
+                'aws:TagKeys': DatadogAgentlessScanner*
+              StringEquals:
+                'aws:RequestTag/DatadogAgentlessScanner': 'true'
+          - Action: 'ec2:DeleteSnapshot'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Action: 'ec2:DescribeSnapshots'
+            Effect: Allow
+            Resource: '*'
+          - Action: 'kms:CreateGrant'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+            Condition:
+              'ForAnyValue:StringEquals':
+                'kms:EncryptionContextKeys': 'aws:ebs:id'
+              StringLike:
+                'kms:ViaService': 'ec2.*.amazonaws.com'
+              Bool:
+                'kms:GrantIsForAWSResource': true
+          - Action: 'kms:DescribeKey'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+          - Action: 'ec2:DeregisterImage'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:image/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Action:
+              - 'ebs:ListSnapshotBlocks'
+              - 'ebs:ListChangedBlocks'
+              - 'ebs:GetSnapshotBlock'
+            Effect: Allow
+            Resource: 'arn:aws:ec2:*:*:snapshot/*'
+            Condition:
+              StringEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'true'
+          - Action: 'ec2:DescribeSnapshots'
+            Effect: Allow
+            Resource: '*'
+          - Action: 'ec2:DescribeVolumes'
+            Effect: Allow
+            Resource: '*'
+          - Action: 'kms:Decrypt'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+            Condition:
+              'ForAnyValue:StringEquals':
+                'kms:EncryptionContextKeys': 'aws:ebs:id'
+              StringLike:
+                'kms:ViaService': 'ec2.*.amazonaws.com'
+          - Action: 'kms:DescribeKey'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+          - Action: 'lambda:GetFunction'
+            Effect: Allow
+            Resource: 'arn:aws:lambda:*:*:function:*'
+            Condition:
+              StringNotEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+          - Action: 'lambda:GetLayerVersion'
+            Effect: Allow
+            Resource: 'arn:aws:lambda:*:*:layer:*:*'
+            Condition:
+              StringNotEquals:
+                'aws:ResourceTag/DatadogAgentlessScanner': 'false'
+          - Action:
+              - "ecr:GetAuthorizationToken"
+            Effect: Allow
+            Resource: "*"
+          - Action:
+              - "ecr:GetDownloadUrlForLayer"
+              - "ecr:BatchGetImage"
+            Condition:
+              StringNotEquals:
+                "ecr:ResourceTag/DatadogAgentlessScanner": "false"
+            Effect: Allow
+            Resource: "arn:aws:ecr:*:*:repository/*"
+          - Action: 's3:GetObject'
+            Effect: Allow
+            Resource: 'arn:aws:s3:::*/*'
+          - Action: 's3:ListBucket'
+            Effect: Allow
+            Resource: 'arn:aws:s3:::*'
+          - Action:
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+            Effect: Allow
+            Resource: 'arn:aws:kms:*:*:key/*'
+            Condition:
+              StringLike:
+                'kms:ViaService': 's3.*.amazonaws.com'
+
+  LambdaExecutionRoleDatadogAgentlessAPICall:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+  SecurityAuditPolicyAttachmentPermissions:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref LambdaExecutionRoleDatadogAgentlessAPICall
+      PolicyName: SecurityAuditPolicyAttachmentPermissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - iam:ListAttachedRolePolicies
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DatadogIntegrationRoleName}"
+          - Effect: Allow
+            Action:
+              - iam:AttachRolePolicy
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DatadogIntegrationRoleName}"
+            Condition:
+              ArnEquals:
+                'iam:PolicyARN':
+                  - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
+
+  DatadogAgentlessAPICall:
+    Type: "Custom::DatadogAgentlessAPICall"
+    Properties:
+      ServiceToken: !GetAtt "DatadogAgentlessAPICallFunction.Arn"
+      TemplateVersion: "<VERSION_PLACEHOLDER>"
+      APIKey: !Ref "DatadogAPIKey"
+      APPKey: !Ref "DatadogAPPKey"
+      DatadogSite: !Ref "DatadogSite"
+      AccountId: !Ref "AWS::AccountId"
+      VulnerabilityScanning: !Ref "AgentlessVulnerabilityScanning"
+      SensitiveData: !Ref "AgentlessSensitiveDataScanning"
+      ComplianceHost: !Ref "AgentlessComplianceHostScanning"
+      IntegrationRoleName: !Ref "DatadogIntegrationRoleName"
+      Partition: !Ref "AWS::Partition"
+      # Optional parameters
+      SaaSScanningPolicyArn: !Ref "DatadogAgentlessSaaSScanningPolicy"
+
+  DatadogAgentlessAPICallFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: A function to call the Datadog Agentless API.
+      Role: !GetAtt LambdaExecutionRoleDatadogAgentlessAPICall.Arn
+      Handler: "index.handler"
+      LoggingConfig:
+        ApplicationLogLevel: "INFO"
+        LogFormat: "JSON"
+      Runtime: "python3.13"
+      Timeout: 30
+      Code:
+        ZipFile: |
+          <ZIPFILE_PLACEHOLDER>
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Required"
+        Parameters:
+          - DatadogIntegrationRoleName
+      - Label:
+          default: "Advanced"
+        Parameters:
+          - AgentlessSensitiveDataScanning
+          - AgentlessComplianceHostScanning
+          - AccountId

@@ -11,7 +11,7 @@ Parameters:
   DdApiKey:
     Description: >-
       API key for the Datadog account (find at
-      https://app.datadoghq.com/account/settings#api)
+      https://app.datadoghq.com/organization-settings/api-keys)
       It will be stored in AWS Secrets Manager securely. If DdApiKeySecretArn is also set, this value is ignored.
     Type: String
     NoEcho: true
