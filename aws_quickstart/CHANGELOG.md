@@ -1,3 +1,7 @@
+# 4.18.1 (July 31, 2026)
+
+- Track every CloudFormation stack using an instrumenter permissions-boundary policy and safely remove the policy after the final owning stack releases it and no IAM entities remain.
+
 # 4.18.0 (July 23, 2026)
 
 - Reconcile Datadog instrumenter permissions-boundary policies returned by the instrumentation permissions endpoint.

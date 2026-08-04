@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import re
@@ -54,6 +55,9 @@ BOUNDARY_POLICY_RECONCILE_BASE_DELAY_SECONDS = 1
 MAX_BOUNDARY_POLICIES = 10
 MAX_MANAGED_POLICY_CHARACTERS = 6144
 BOUNDARY_POLICY_PATH = "/datadog/instrumenter-boundaries/"
+BOUNDARY_POLICY_MANAGED_TAG_KEY = "DatadogInstrumenterBoundaryManaged"
+BOUNDARY_POLICY_MANAGED_TAG_VALUE = "true"
+BOUNDARY_POLICY_OWNER_TAG_PREFIX = "DatadogCloudFormationOwner/"
 IAM_POLICY_NAME_PATTERN = re.compile(r"[\w+=,.@-]{1,128}", re.ASCII)
 FORBIDDEN_BOUNDARY_ACTION_PREFIXES = ("iam:", "sts:", "organizations:")
 
@@ -164,8 +168,43 @@ def build_instrumentation_permissions_url(datadog_site, resource_types, account_
     return f"https://api.{datadog_site}{INSTRUMENTATION_PERMISSIONS_API_PATH}?{query}"
 
 
+def _fetch_instrumentation_permissions_for_resource_types(
+    datadog_site,
+    resource_types,
+    account_id,
+    partition,
+):
+    url = build_instrumentation_permissions_url(
+        datadog_site,
+        resource_types,
+        account_id,
+        partition,
+    )
+    LOGGER.info("Fetching instrumentation permissions for %s from %s", resource_types, url)
+    return fetch_instrumentation_permissions(url, account_id, partition)
+
+
 def _boundary_policy_arn(policy_name, account_id, partition):
     return f"arn:{partition}:iam::{account_id}:policy{BOUNDARY_POLICY_PATH}{policy_name}"
+
+
+def _boundary_policy_owner_tag_key(owner_id):
+    owner_hash = hashlib.sha256(owner_id.encode()).hexdigest()
+    return f"{BOUNDARY_POLICY_OWNER_TAG_PREFIX}{owner_hash}"
+
+
+def _boundary_policy_owner_tag(owner_id):
+    return {"Key": _boundary_policy_owner_tag_key(owner_id), "Value": owner_id}
+
+
+def _boundary_policy_tags(owner_id):
+    return [
+        {
+            "Key": BOUNDARY_POLICY_MANAGED_TAG_KEY,
+            "Value": BOUNDARY_POLICY_MANAGED_TAG_VALUE,
+        },
+        _boundary_policy_owner_tag(owner_id),
+    ]
 
 
 def _validate_boundary_role_arn_patterns(patterns, policy_name, account_id, partition):
@@ -340,7 +379,7 @@ def _prune_oldest_policy_version_if_needed(iam_client, policy_arn):
     iam_client.delete_policy_version(PolicyArn=policy_arn, VersionId=oldest["VersionId"])
 
 
-def _ensure_permissions_boundary_policy(iam_client, boundary):
+def _ensure_permissions_boundary_policy(iam_client, boundary, owner_id):
     policy_name = boundary["policy_name"]
     policy_arn = boundary["policy_arn"]
     policy_json = _canonical_policy_document(boundary["policy_document"])
@@ -353,6 +392,7 @@ def _ensure_permissions_boundary_policy(iam_client, boundary):
                     PolicyName=policy_name,
                     Path=boundary["policy_path"],
                     PolicyDocument=policy_json,
+                    Tags=_boundary_policy_tags(owner_id),
                 )
                 return
             except iam_client.exceptions.EntityAlreadyExistsException:
@@ -361,6 +401,24 @@ def _ensure_permissions_boundary_policy(iam_client, boundary):
                     WaiterConfig={"Delay": 1, "MaxAttempts": 20},
                 )
                 continue
+
+        tags = _policy_tags_by_key(iam_client, policy_arn)
+        if (
+            tags.get(BOUNDARY_POLICY_MANAGED_TAG_KEY)
+            == BOUNDARY_POLICY_MANAGED_TAG_VALUE
+        ):
+            owner_tag_key = _boundary_policy_owner_tag_key(owner_id)
+            if owner_tag_key not in tags:
+                iam_client.tag_policy(
+                    PolicyArn=policy_arn,
+                    Tags=[_boundary_policy_owner_tag(owner_id)],
+                )
+        else:
+            LOGGER.warning(
+                "Using permissions boundary %s without claiming ownership because it lacks "
+                "the Datadog management tag",
+                policy_arn,
+            )
 
         default_version_id = policy.get("DefaultVersionId")
         if not default_version_id:
@@ -391,9 +449,201 @@ def _ensure_permissions_boundary_policy(iam_client, boundary):
     raise RuntimeError(f"Policy {policy_name} could not be reconciled")
 
 
-def manage_permissions_boundaries(iam_client, boundary_documents):
+def manage_permissions_boundaries(iam_client, boundary_documents, owner_id):
     for boundary in boundary_documents:
-        _ensure_permissions_boundary_policy(iam_client, boundary)
+        _ensure_permissions_boundary_policy(iam_client, boundary, owner_id)
+
+
+def _list_policy_tags(iam_client, policy_arn):
+    tags = []
+    request = {"PolicyArn": policy_arn}
+    while True:
+        response = iam_client.list_policy_tags(**request)
+        tags.extend(response.get("Tags", []))
+        marker = response.get("Marker") if response.get("IsTruncated") else None
+        if not marker:
+            return tags
+        request["Marker"] = marker
+
+
+def _policy_tags_by_key(iam_client, policy_arn):
+    return {
+        tag["Key"]: tag.get("Value", "")
+        for tag in _list_policy_tags(iam_client, policy_arn)
+        if "Key" in tag
+    }
+
+
+def _list_policy_entities(iam_client, policy_arn):
+    entities = {"roles": [], "users": [], "groups": []}
+    request = {"PolicyArn": policy_arn}
+    while True:
+        response = iam_client.list_entities_for_policy(**request)
+        entities["roles"].extend(
+            role["RoleName"] for role in response.get("PolicyRoles", [])
+        )
+        entities["users"].extend(
+            user["UserName"] for user in response.get("PolicyUsers", [])
+        )
+        entities["groups"].extend(
+            group["GroupName"] for group in response.get("PolicyGroups", [])
+        )
+        marker = response.get("Marker") if response.get("IsTruncated") else None
+        if not marker:
+            return entities
+        request["Marker"] = marker
+
+
+def _list_boundary_policies(iam_client):
+    policies = []
+    request = {"Scope": "Local", "PathPrefix": BOUNDARY_POLICY_PATH}
+    while True:
+        response = iam_client.list_policies(**request)
+        policies.extend(
+            {
+                "policy_name": policy["PolicyName"],
+                "policy_path": policy["Path"],
+                "policy_arn": policy["Arn"],
+            }
+            for policy in response.get("Policies", [])
+            if policy.get("Path") == BOUNDARY_POLICY_PATH
+        )
+        marker = response.get("Marker") if response.get("IsTruncated") else None
+        if not marker:
+            return policies
+        request["Marker"] = marker
+
+
+def _format_policy_entities(entities):
+    return ", ".join(
+        f"{entity_type}=[{', '.join(sorted(names))}]"
+        for entity_type, names in entities.items()
+        if names
+    )
+
+
+def _boundary_owner_tag_keys(tags):
+    return {
+        key for key in tags if key.startswith(BOUNDARY_POLICY_OWNER_TAG_PREFIX)
+    }
+
+
+def _claim_boundary_ownership(iam_client, policy_arn, owner_id):
+    iam_client.tag_policy(
+        PolicyArn=policy_arn,
+        Tags=[_boundary_policy_owner_tag(owner_id)],
+    )
+
+
+def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
+    policy_arn = boundary["policy_arn"]
+    if _get_policy(iam_client, policy_arn) is None:
+        return True
+
+    tags = _policy_tags_by_key(iam_client, policy_arn)
+    owner_tag_key = _boundary_policy_owner_tag_key(owner_id)
+    is_managed = (
+        tags.get(BOUNDARY_POLICY_MANAGED_TAG_KEY)
+        == BOUNDARY_POLICY_MANAGED_TAG_VALUE
+    )
+    if not is_managed:
+        LOGGER.warning(
+            "Preserving permissions boundary %s because it lacks the Datadog management tag",
+            policy_arn,
+        )
+        return False
+
+    owner_tags = _boundary_owner_tag_keys(tags)
+    if owner_tag_key not in owner_tags:
+        if owner_tags:
+            LOGGER.warning(
+                "Preserving permissions boundary %s because it is owned by another "
+                "CloudFormation stack",
+                policy_arn,
+            )
+            return False
+        _claim_boundary_ownership(iam_client, policy_arn, owner_id)
+
+    other_owner_tags = owner_tags - {owner_tag_key}
+    if other_owner_tags:
+        iam_client.untag_policy(PolicyArn=policy_arn, TagKeys=[owner_tag_key])
+        tags = _policy_tags_by_key(iam_client, policy_arn)
+        if (
+            tags.get(BOUNDARY_POLICY_MANAGED_TAG_KEY)
+            != BOUNDARY_POLICY_MANAGED_TAG_VALUE
+        ):
+            return False
+        if _boundary_owner_tag_keys(tags) - {owner_tag_key}:
+            LOGGER.warning(
+                "Preserving permissions boundary %s because it remains owned by another "
+                "CloudFormation stack",
+                policy_arn,
+            )
+            return False
+        _claim_boundary_ownership(iam_client, policy_arn, owner_id)
+
+    entities = _list_policy_entities(iam_client, policy_arn)
+    if any(entities.values()):
+        raise RuntimeError(
+            f"Permissions boundary {policy_arn} is still in use by "
+            f"{_format_policy_entities(entities)}"
+        )
+
+    tags = _policy_tags_by_key(iam_client, policy_arn)
+    other_owner_tags = _boundary_owner_tag_keys(tags) - {owner_tag_key}
+    if other_owner_tags:
+        iam_client.untag_policy(PolicyArn=policy_arn, TagKeys=[owner_tag_key])
+        LOGGER.warning(
+            "Preserving permissions boundary %s because it became owned by another "
+            "CloudFormation stack during cleanup",
+            policy_arn,
+        )
+        return False
+    if (
+        tags.get(BOUNDARY_POLICY_MANAGED_TAG_KEY)
+        != BOUNDARY_POLICY_MANAGED_TAG_VALUE
+        or owner_tag_key not in tags
+    ):
+        return False
+
+    versions = iam_client.list_policy_versions(PolicyArn=policy_arn).get("Versions", [])
+    for version in versions:
+        if not version["IsDefaultVersion"]:
+            iam_client.delete_policy_version(
+                PolicyArn=policy_arn,
+                VersionId=version["VersionId"],
+            )
+
+    try:
+        iam_client.delete_policy(PolicyArn=policy_arn)
+    except iam_client.exceptions.NoSuchEntityException:
+        pass
+    except iam_client.exceptions.DeleteConflictException as error:
+        entities = _list_policy_entities(iam_client, policy_arn)
+        blockers = _format_policy_entities(entities) or "entities IAM did not enumerate"
+        raise RuntimeError(
+            f"Permissions boundary {policy_arn} is still in use by {blockers}"
+        ) from error
+    return True
+
+
+def cleanup_permissions_boundaries(iam_client, owner_id, retained_policy_arns=()):
+    retained_policy_arns = set(retained_policy_arns)
+    preserved = []
+    failures = []
+    for boundary in _list_boundary_policies(iam_client):
+        if boundary["policy_arn"] in retained_policy_arns:
+            continue
+        try:
+            if not _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
+                preserved.append(boundary["policy_arn"])
+        except Exception as error:
+            failures.append(f"{boundary['policy_arn']}: {error}")
+    if failures:
+        raise RuntimeError(
+            "Failed to clean up permissions boundaries: " + "; ".join(failures)
+        )
+    return preserved
 
 
 def _detach_and_delete_policy(
@@ -870,6 +1120,7 @@ def attach_instrumentation_permissions(
     datadog_site,
     resource_types,
     previous_resource_types,
+    owner_id,
     fail_on_error=False,
 ):
     # Fetch and validate capacity before staging so a transient failure leaves existing policies.
@@ -877,36 +1128,25 @@ def attach_instrumentation_permissions(
     # Existing policies make updates atomic even when initial attachment was best-effort;
     # accepting new properties while retaining old policies would leave them permanently stale.
     mutation_must_succeed = fail_on_error or replacing_existing_policies
-    if not resource_types:
-        if replacing_existing_policies:
-            cleanup_instrumentation_policies(
-                iam_client,
-                role_name,
-                account_id,
-                partition,
-                fail_on_error=mutation_must_succeed,
-            )
+    if not resource_types and not replacing_existing_policies:
         return
 
     try:
-        url = build_instrumentation_permissions_url(
-            datadog_site,
-            resource_types,
-            account_id,
-            partition,
-        )
-        LOGGER.info(f"Fetching instrumentation permissions for {resource_types} from {url}")
-        policy_documents, boundary_documents = fetch_instrumentation_permissions(
-            url,
-            account_id,
-            partition,
-        )
-        _validate_instrumentation_policy_capacity(
-            iam_client,
-            role_name,
-            len(policy_documents),
-        )
-        manage_permissions_boundaries(iam_client, boundary_documents)
+        if resource_types:
+            policy_documents, boundary_documents = _fetch_instrumentation_permissions_for_resource_types(
+                datadog_site,
+                resource_types,
+                account_id,
+                partition,
+            )
+            _validate_instrumentation_policy_capacity(
+                iam_client,
+                role_name,
+                len(policy_documents),
+            )
+            manage_permissions_boundaries(iam_client, boundary_documents, owner_id)
+        else:
+            policy_documents, boundary_documents = [], []
     except Exception as e:
         if mutation_must_succeed:
             raise
@@ -917,19 +1157,36 @@ def attach_instrumentation_permissions(
         return
 
     try:
-        _replace_instrumentation_policies(
+        if resource_types:
+            _replace_instrumentation_policies(
+                iam_client,
+                role_name,
+                account_id,
+                partition,
+                policy_documents,
+            )
+        else:
+            cleanup_instrumentation_policies(
+                iam_client,
+                role_name,
+                account_id,
+                partition,
+                fail_on_error=mutation_must_succeed,
+            )
+
+        retained_boundary_arns = {
+            boundary["policy_arn"] for boundary in boundary_documents
+        }
+        cleanup_permissions_boundaries(
             iam_client,
-            role_name,
-            account_id,
-            partition,
-            policy_documents,
+            owner_id,
+            retained_policy_arns=retained_boundary_arns,
         )
     except Exception as e:
         if mutation_must_succeed:
             raise
         LOGGER.warning(
-            f"Failed to replace instrumentation policies for {resource_types}: {e}. "
-            "Leaving any previously-attached instrumentation policies in place."
+            f"Failed to reconcile instrumentation permissions for {resource_types}: {e}."
         )
 
 
@@ -944,7 +1201,15 @@ def handle_delete(event, context):
         if manage_base_permissions:
             cleanup_existing_policies(iam_client, role_name, account_id, partition)
         cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
-        _send_cfn_response(event, context, cfnresponse.SUCCESS, {})
+        # Fail on in-use boundaries so CloudFormation retains ownership for a cleanup retry.
+        preserved_boundaries = cleanup_permissions_boundaries(
+            iam_client,
+            event["StackId"],
+        )
+        response_data = {}
+        if preserved_boundaries:
+            response_data["PreservedPermissionsBoundaries"] = preserved_boundaries
+        _send_cfn_response(event, context, cfnresponse.SUCCESS, response_data)
     except Exception as e:
         LOGGER.error(f"Error deleting policy: {str(e)}")
         _send_cfn_response(event, context, cfnresponse.FAILED, {"Message": str(e)})
@@ -993,6 +1258,7 @@ def handle_create_update(event, context):
                 datadog_site,
                 instrumentation_resource_types,
                 previous_instrumentation_resource_types,
+                event["StackId"],
                 fail_on_error=fail_on_instrumentation_error,
             )
         if target_changed:
