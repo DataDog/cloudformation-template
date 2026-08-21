@@ -14,12 +14,13 @@ Parameters:
     Description: >-
       Set this value to "true" to add permissions for Datadog to collect resource configuration data.
   InstrumentationResourceTypes:
-    Type: String
+    Type: CommaDelimitedList
     Default: ""
     Description: >-
       Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster,
       aws:eks:cluster) that the Datadog integration role should be granted the IAM permissions
-      required to instrument with the Datadog Agent. Leave blank to skip.
+      required to instrument with the Datadog Agent. In the commercial AWS partition, selecting
+      EKS also accepts the free Datadog Operator AWS Marketplace agreement. Leave blank to skip.
   DatadogSite:
     Type: String
     Default: "datadoghq.com"
@@ -50,10 +51,22 @@ Parameters:
       instrumentation permissions still fail atomically so stale policies are not accepted.
 Conditions:
   IncludeEKS:
-    Fn::Not:
+    Fn::And:
       - Fn::Equals:
-          - !Join ["", !Split [",aws:eks:cluster,", !Sub ",${InstrumentationResourceTypes},"]]
-          - !Sub ",${InstrumentationResourceTypes},"
+          - !Ref AWS::Partition
+          - aws
+      - Fn::Not:
+          - Fn::Equals:
+              - !Join
+                - ""
+                - !Split
+                  - ",aws:eks:cluster,"
+                  - !Sub
+                    - ",${NormalizedResourceTypes},"
+                    - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+              - !Sub
+                - ",${NormalizedResourceTypes},"
+                - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
 Resources:
   DatadogAttachIntegrationPermissionsLambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -150,7 +163,7 @@ Resources:
       AccountId: !Ref AWS::AccountId
       Partition: !Sub "${AWS::Partition}"
       ResourceCollectionPermissions: !Ref ResourceCollectionPermissions
-      InstrumentationResourceTypes: !Ref InstrumentationResourceTypes
+      InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
       DatadogSite: !Ref DatadogSite
       ManageBasePermissions: !Ref ManageBasePermissions
       FailOnInstrumentationError: !Ref FailOnInstrumentationError

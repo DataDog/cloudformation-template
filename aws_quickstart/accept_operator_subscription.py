@@ -376,12 +376,17 @@ def _require_zero(value, field, *, required=False):
         )
 
 
-def _validate_taxes(taxes, field):
-    if not taxes:
-        return
-    _require_zero(taxes.get("totalAmount"), f"{field}.totalAmount")
-    for index, item in enumerate(taxes.get("breakdown", [])):
-        _require_zero(item.get("amount"), f"{field}.breakdown[{index}].amount")
+def _validate_amount_fields(node, path=""):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            field = f"{path}.{key}" if path else key
+            if isinstance(value, (dict, list)):
+                _validate_amount_fields(value, field)
+            elif key.lower().endswith(("amount", "amountaftertax")):
+                _require_zero(value, field)
+    elif isinstance(node, list):
+        for index, item in enumerate(node):
+            _validate_amount_fields(item, f"{path}[{index}]")
 
 
 def validate_zero_charge_summary(summary):
@@ -401,20 +406,11 @@ def validate_zero_charge_summary(summary):
         summary.get("newAgreementValueAfterTax"),
         "newAgreementValueAfterTax",
     )
-    _validate_taxes(summary.get("estimatedTaxes"), "estimatedTaxes")
     for index, charge in enumerate(summary.get("expectedCharges", [])):
         _require_zero(
             charge.get("amount"),
             f"expectedCharges[{index}].amount",
             required=True,
-        )
-        _require_zero(
-            charge.get("amountAfterTax"),
-            f"expectedCharges[{index}].amountAfterTax",
-        )
-        _validate_taxes(
-            charge.get("estimatedTaxes"),
-            f"expectedCharges[{index}].estimatedTaxes",
         )
     for index, charge in enumerate(summary.get("itemizedCharges", [])):
         _require_zero(
@@ -422,6 +418,7 @@ def validate_zero_charge_summary(summary):
             f"itemizedCharges[{index}].incrementalChargeAmount",
             required=True,
         )
+    _validate_amount_fields(summary)
 
 
 def _client_token(event, proposal_id, terms):
@@ -507,7 +504,7 @@ def create_and_accept_agreement(
                 marketplace_agreement_request_id=agreement_request_id,
                 marketplace_agreement_id=agreement_id,
             )
-            return agreement_id, True
+            return agreement_id
         raise SubscriptionError(
             "request_acceptance",
             "aws_api_error",
@@ -534,7 +531,7 @@ def create_and_accept_agreement(
         marketplace_agreement_request_id=agreement_request_id,
         marketplace_agreement_id=agreement_id,
     )
-    return agreement_id, True
+    return agreement_id
 
 
 def entitlement_status(agreement_client, agreement_id, *, deadline=None):
@@ -657,7 +654,6 @@ def ensure_subscription(event, *, deadline=None):
     )
 
     agreement_id = find_active_agreement(agreement_client, deadline=deadline)
-    created = False
     if agreement_id:
         _log(
             "agreement_discovery",
@@ -671,14 +667,14 @@ def ensure_subscription(event, *, deadline=None):
             "succeeded",
             "active_agreement_not_found",
         )
-        agreement_id, created = create_and_accept_agreement(
+        agreement_id = create_and_accept_agreement(
             event,
             discovery_client,
             agreement_client,
             deadline=deadline,
         )
     wait_for_entitlement(agreement_client, agreement_id, deadline=deadline)
-    return agreement_id, created
+    return agreement_id
 
 
 def handler(event, context):
@@ -719,12 +715,12 @@ def handler(event, context):
             0,
             remaining_seconds - CLOUDFORMATION_RESPONSE_BUFFER_SECONDS,
         )
-        agreement_id, created = ensure_subscription(event, deadline=deadline)
+        agreement_id = ensure_subscription(event, deadline=deadline)
         _send_response(
             event,
             context,
             cfnresponse.SUCCESS,
-            {"AgreementId": agreement_id, "AgreementCreated": created},
+            {"AgreementId": agreement_id},
         )
     except Exception as error:
         stage = getattr(error, "stage", "subscription")

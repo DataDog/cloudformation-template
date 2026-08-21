@@ -96,6 +96,26 @@ class TestTemplate(unittest.TestCase):
 
         self.assertEqual(template.count("<ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE>"), 1)
         self.assertIn("  IncludeEKS:", template)
+        self.assertIn(
+            "  InstrumentationResourceTypes:\n    Type: CommaDelimitedList",
+            template,
+        )
+        self.assertEqual(
+            template.count(
+                'NormalizedResourceTypes: !Join [",", '
+                "!Ref InstrumentationResourceTypes]"
+            ),
+            2,
+        )
+        self.assertIn(
+            'InstrumentationResourceTypes: !Join [",", '
+            "!Ref InstrumentationResourceTypes]",
+            template,
+        )
+        self.assertIn(
+            "      - Fn::Equals:\n          - !Ref AWS::Partition\n          - aws",
+            template,
+        )
         for resource in (
             "DatadogOperatorSubscriptionLambdaExecutionRole",
             "DatadogOperatorSubscriptionFunction",
@@ -103,6 +123,19 @@ class TestTemplate(unittest.TestCase):
         ):
             self.assertIn(f"  {resource}:\n", template)
         self.assertEqual(template.count("    Condition: IncludeEKS"), 3)
+
+        role_template = Path(__file__).with_name(
+            "datadog_integration_role.yaml"
+        ).read_text()
+        self.assertIn(
+            "  InstrumentationResourceTypes:\n    Type: CommaDelimitedList",
+            role_template,
+        )
+        self.assertIn(
+            'InstrumentationResourceTypes: !Join [",", '
+            "!Ref InstrumentationResourceTypes]",
+            role_template,
+        )
 
     def test_template_grants_only_required_marketplace_actions(self):
         template = Path(__file__).with_name(
@@ -323,6 +356,47 @@ class TestQuoteValidation(unittest.TestCase):
         with self.assertRaisesRegex(SubscriptionError, "no value"):
             validate_zero_charge_summary({})
 
+    def test_rejects_after_tax_amounts(self):
+        with self.assertRaisesRegex(SubscriptionError, "amountAfterTax"):
+            validate_zero_charge_summary(
+                {
+                    "newAgreementValue": "0",
+                    "expectedCharges": [
+                        {"amount": "0", "amountAfterTax": "0.01"}
+                    ],
+                }
+            )
+
+    def test_rejects_future_nested_amount_fields(self):
+        with self.assertRaisesRegex(
+            SubscriptionError,
+            r"futureCharges\[0\]\.serviceFeeAmount",
+        ):
+            validate_zero_charge_summary(
+                {
+                    "newAgreementValue": "0",
+                    "futureCharges": [{"serviceFeeAmount": "1"}],
+                }
+            )
+
+    def test_ignores_nonmonetary_value_fields(self):
+        validate_zero_charge_summary(
+            {
+                "newAgreementValue": "0",
+                "selectorValue": "paid-plan",
+                "metadata": {"referenceValue": "1"},
+            }
+        )
+
+    def test_requires_known_charge_amounts(self):
+        for summary in (
+            {"newAgreementValue": "0", "expectedCharges": [{}]},
+            {"newAgreementValue": "0", "itemizedCharges": [{}]},
+        ):
+            with self.subTest(summary=summary):
+                with self.assertRaisesRegex(SubscriptionError, "no value"):
+                    validate_zero_charge_summary(summary)
+
 
 class TestAgreementCreation(unittest.TestCase):
     @patch("accept_operator_subscription.find_free_offer")
@@ -345,7 +419,7 @@ class TestAgreementCreation(unittest.TestCase):
 
         self.assertEqual(
             create_and_accept_agreement(event(), discovery, agreement),
-            ("agreement-1", True),
+            "agreement-1",
         )
         create_call = agreement.create_agreement_request.call_args.kwargs
         self.assertEqual(create_call["agreementProposalIdentifier"], "ap-proposal1")
@@ -377,7 +451,7 @@ class TestAgreementCreation(unittest.TestCase):
 
         self.assertEqual(
             create_and_accept_agreement(event(), MagicMock(), agreement),
-            ("agreement-1", True),
+            "agreement-1",
         )
 
 
@@ -574,14 +648,14 @@ class TestHandler(unittest.TestCase):
     @patch("accept_operator_subscription.time.monotonic", return_value=100)
     @patch("accept_operator_subscription.ensure_subscription")
     def test_returns_agreement_details(self, mock_ensure, _mock_monotonic):
-        mock_ensure.return_value = ("agreement-1", True)
+        mock_ensure.return_value = "agreement-1"
 
         handler(event(), self.context)
 
         self.assertEqual(self.response().args[2], "SUCCESS")
         self.assertEqual(
             self.response().kwargs["responseData"],
-            {"AgreementId": "agreement-1", "AgreementCreated": True},
+            {"AgreementId": "agreement-1"},
         )
         mock_ensure.assert_called_once_with(event(), deadline=385)
 
