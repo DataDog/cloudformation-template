@@ -48,6 +48,12 @@ Parameters:
       an optional add-on to the broader install. The post-setup add-on sets this to "true" because
       attaching the instrumentation permissions is the stack's only purpose. Updates that replace existing
       instrumentation permissions still fail atomically so stale policies are not accepted.
+Conditions:
+  IncludeEKS:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Split [",aws:eks:cluster,", !Sub ",${InstrumentationResourceTypes},"]]
+          - !Sub ",${InstrumentationResourceTypes},"
 Resources:
   DatadogAttachIntegrationPermissionsLambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -133,7 +139,7 @@ Resources:
       Timeout: 300
       Code:
         ZipFile: |
-          <ZIPFILE_PLACEHOLDER>
+          <ATTACH_INTEGRATION_PERMISSIONS_SOURCE>
   DatadogAttachIntegrationPermissionsFunctionTrigger:
     Type: Custom::DatadogAttachIntegrationPermissionsFunctionTrigger
     Properties:
@@ -148,3 +154,91 @@ Resources:
       DatadogSite: !Ref DatadogSite
       ManageBasePermissions: !Ref ManageBasePermissions
       FailOnInstrumentationError: !Ref FailOnInstrumentationError
+  DatadogOperatorSubscriptionLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: IncludeEKS
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: datadog-operator-marketplace-subscription
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: aws-marketplace:ListPurchaseOptions
+                Resource: !Sub arn:${AWS::Partition}:aws-marketplace:::catalog/AWSMarketplace/purchaseOption/*
+              - Effect: Allow
+                Action:
+                  - aws-marketplace:GetOffer
+                  - aws-marketplace:GetOfferTerms
+                Resource: !Sub arn:${AWS::Partition}:aws-marketplace:::catalog/AWSMarketplace/offer/*
+              - Effect: Allow
+                Action:
+                  - aws-marketplace:CreateAgreementRequest
+                  - aws-marketplace:AcceptAgreementRequest
+                Resource: "*"
+                Condition:
+                  "Null":
+                    aws-marketplace:AgreementType: "false"
+                    aws-marketplace:ProductId: "false"
+                  ForAllValues:StringEquals:
+                    aws-marketplace:AgreementType:
+                      - PurchaseAgreement
+                  ForAnyValue:StringEquals:
+                    aws-marketplace:ProductId:
+                      - 6e852b2a-ecbb-431c-9b63-7de0288f4d00
+              - Effect: Allow
+                Action: aws-marketplace:SearchAgreements
+                Resource: "*"
+                Condition:
+                  "Null":
+                    aws-marketplace:AgreementType: "false"
+                  ForAllValues:StringEquals:
+                    aws-marketplace:AgreementType:
+                      - PurchaseAgreement
+                  StringEquals:
+                    aws-marketplace:PartyType: Acceptor
+              - Effect: Allow
+                Action: aws-marketplace:GetAgreementEntitlements
+                Resource: "*"
+                Condition:
+                  "Null":
+                    aws-marketplace:AgreementType: "false"
+                  ForAllValues:StringEquals:
+                    aws-marketplace:AgreementType:
+                      - PurchaseAgreement
+  DatadogOperatorSubscriptionFunction:
+    Type: AWS::Lambda::Function
+    Condition: IncludeEKS
+    Properties:
+      Description: Accepts the free Datadog Operator AWS Marketplace agreement.
+      Role: !GetAtt DatadogOperatorSubscriptionLambdaExecutionRole.Arn
+      Handler: index.handler
+      LoggingConfig:
+        ApplicationLogLevel: INFO
+        LogFormat: JSON
+      Runtime: python3.14
+      Timeout: 300
+      Code:
+        ZipFile: |
+          <ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE>
+  DatadogOperatorSubscriptionFunctionTrigger:
+    Type: Custom::DatadogOperatorSubscriptionFunctionTrigger
+    Condition: IncludeEKS
+    Properties:
+      ServiceToken: !GetAtt DatadogOperatorSubscriptionFunction.Arn
+      SubscriptionSchemaVersion: "1"
+      AccountId: !Ref AWS::AccountId
+      Partition: !Sub "${AWS::Partition}"
+      InstrumentationResourceTypes: !Ref InstrumentationResourceTypes

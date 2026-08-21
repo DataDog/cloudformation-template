@@ -25,3 +25,7 @@ jobs:
         run: |
           cd aws_quickstart
           python -B -S -m unittest attach_integration_permissions_test.py -v
+      - name: Run Operator subscription unit tests
+        run: |
+          cd aws_quickstart
+          python -B -S -m unittest accept_operator_subscription_test.py -v
