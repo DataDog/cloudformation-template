@@ -99,6 +99,7 @@ validate_versions:
         "aws_quickstart:datadog-cloudformation-template-quickstart:aws"
         "aws_organizations:datadog-cloudformation-template:aws"
         "aws_attach_integration_permissions:datadog-cloudformation-template:aws_attach_integration_permissions"
+        "aws_bio_permissions:datadog-cloudformation-template:aws_bio_permissions"
         "aws_cloud_cost:datadog-cloudformation-template:aws_cloud_cost"
         "aws_llm:datadog-cloudformation-template-quickstart:aws_llm"
         "aws_storage_management:datadog-cloudformation-template:aws_storage_management"
@@ -227,6 +228,19 @@ release_attach_integration_permissions:
     - if: '$CI_COMMIT_BRANCH == "master"'
       changes:
         - aws_attach_integration_permissions/version.txt
+      when: on_success
+
+release_bio_permissions:
+  extends: .release_template
+  variables:
+    S3_BUCKET: datadog-cloudformation-template
+  script:
+    - cd aws_bio_permissions
+    - ./release.sh "$S3_BUCKET" --yes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - aws_bio_permissions/version.txt
       when: on_success
 
 release_cloud_cost:
