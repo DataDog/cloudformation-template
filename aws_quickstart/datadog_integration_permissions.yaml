@@ -241,4 +241,3 @@ Resources:
       SubscriptionSchemaVersion: "1"
       AccountId: !Ref AWS::AccountId
       Partition: !Sub "${AWS::Partition}"
-      InstrumentationResourceTypes: !Ref InstrumentationResourceTypes

@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
 
 from datetime import datetime, timedelta, timezone
-from io import BytesIO
-import http.client
 from pathlib import Path
 import sys
 import unittest
-import urllib.error
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 
 if "boto3" not in sys.modules:
     sys.modules["boto3"] = MagicMock()
 if "botocore.config" not in sys.modules:
     sys.modules["botocore"] = MagicMock()
-    sys.modules["botocore.auth"] = MagicMock()
-    sys.modules["botocore.awsrequest"] = MagicMock()
     sys.modules["botocore.config"] = MagicMock()
 if "cfnresponse" not in sys.modules:
     cfnresponse = MagicMock()
@@ -25,9 +20,7 @@ if "cfnresponse" not in sys.modules:
 
 
 from accept_operator_subscription import (
-    SignedAgreementClient,
     DATADOG_OPERATOR_PRODUCT_ID,
-    EKS_RESOURCE_TYPE,
     SubscriptionError,
     create_and_accept_agreement,
     entitlement_status,
@@ -35,7 +28,6 @@ from accept_operator_subscription import (
     find_active_agreement,
     find_free_offer,
     handler,
-    parse_resource_types,
     requested_terms,
     validate_zero_charge_summary,
     wait_for_entitlement,
@@ -83,7 +75,7 @@ def free_offer(offer_id="offer-1", **overrides):
     return value
 
 
-def event(request_type="Create", resource_types=EKS_RESOURCE_TYPE, partition="aws"):
+def event(request_type="Create", partition="aws"):
     return {
         "RequestType": request_type,
         "RequestId": "request-1",
@@ -92,7 +84,6 @@ def event(request_type="Create", resource_types=EKS_RESOURCE_TYPE, partition="aw
         "ResourceProperties": {
             "AccountId": "123456789012",
             "Partition": partition,
-            "InstrumentationResourceTypes": resource_types,
         },
     }
 
@@ -140,18 +131,6 @@ class TestTemplate(unittest.TestCase):
             "embed_python_source datadog_integration_permissions.yaml "
             "accept_operator_subscription.py ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE",
             release,
-        )
-
-
-class TestResourceTypes(unittest.TestCase):
-    def test_parse_string_and_list(self):
-        self.assertEqual(
-            parse_resource_types("aws:ec2:instance, aws:eks:cluster"),
-            ["aws:ec2:instance", "aws:eks:cluster"],
-        )
-        self.assertEqual(
-            parse_resource_types(["aws:eks:cluster", ""]),
-            ["aws:eks:cluster"],
         )
 
 
@@ -345,226 +324,6 @@ class TestQuoteValidation(unittest.TestCase):
             validate_zero_charge_summary({})
 
 
-class TestSignedAgreementClient(unittest.TestCase):
-    @patch("accept_operator_subscription.SigV4Auth")
-    @patch("accept_operator_subscription.AWSRequest")
-    def test_signs_and_sends_json_request(self, mock_request, mock_signer):
-        credentials = MagicMock()
-        frozen_credentials = credentials.get_frozen_credentials.return_value
-        prepared = mock_request.return_value.prepare.return_value
-        prepared.url = "https://agreement-marketplace.us-east-1.amazonaws.com"
-        prepared.body = b'{"agreementRequestId":"request-1"}'
-        prepared.headers = {"Authorization": "signed"}
-        prepared.method = "POST"
-        response = MagicMock()
-        response.__enter__.return_value.read.return_value = b'{"agreementId":"agreement-1"}'
-        opener = MagicMock(return_value=response)
-
-        client = SignedAgreementClient(credentials, prepared.url, opener=opener)
-
-        self.assertEqual(
-            client.accept_agreement_request(agreementRequestId="request-1"),
-            {"agreementId": "agreement-1"},
-        )
-        request_kwargs = mock_request.call_args.kwargs
-        self.assertEqual(
-            request_kwargs["headers"]["X-Amz-Target"],
-            "AWSMPCommerceService_v20200301.AcceptAgreementRequest",
-        )
-        self.assertEqual(
-            request_kwargs["data"], b'{"agreementRequestId":"request-1"}'
-        )
-        mock_signer.assert_called_once_with(
-            frozen_credentials,
-            "aws-marketplace",
-            "us-east-1",
-        )
-        mock_signer.return_value.add_auth.assert_called_once_with(
-            mock_request.return_value
-        )
-        opener.assert_called_once()
-
-    @patch("accept_operator_subscription.time.monotonic", return_value=10)
-    def test_splits_remaining_deadline_between_connection_and_read(
-        self,
-        _mock_monotonic,
-    ):
-        client = SignedAgreementClient(
-            MagicMock(),
-            "https://agreement-marketplace.us-east-1.amazonaws.com",
-            deadline=30,
-        )
-
-        self.assertEqual(client._request_timeout("GetAgreementEntitlements"), 10)
-
-    @patch("accept_operator_subscription.time.sleep")
-    @patch("accept_operator_subscription.SigV4Auth")
-    @patch("accept_operator_subscription.AWSRequest")
-    def test_retries_transient_error_with_new_signature(
-        self,
-        mock_request,
-        mock_signer,
-        mock_sleep,
-    ):
-        prepared = mock_request.return_value.prepare.return_value
-        prepared.url = "https://agreement-marketplace.us-east-1.amazonaws.com"
-        prepared.body = b"{}"
-        prepared.headers = {"Authorization": "signed"}
-        prepared.method = "POST"
-        transient_error = urllib.error.HTTPError(
-            prepared.url,
-            503,
-            "Unavailable",
-            {},
-            BytesIO(b'{"__type":"ServiceUnavailable","message":"retry"}'),
-        )
-        response = MagicMock()
-        response.__enter__.return_value.read.return_value = b'{"agreementId":"agreement-1"}'
-        opener = MagicMock(side_effect=[transient_error, response])
-        client = SignedAgreementClient(MagicMock(), prepared.url, opener=opener)
-
-        self.assertEqual(
-            client.accept_agreement_request(agreementRequestId="request-1"),
-            {"agreementId": "agreement-1"},
-        )
-        self.assertEqual(mock_request.call_count, 2)
-        self.assertEqual(mock_signer.call_count, 2)
-        mock_sleep.assert_called_once_with(1)
-
-    @patch("accept_operator_subscription.time.sleep")
-    @patch("accept_operator_subscription.SigV4Auth")
-    @patch("accept_operator_subscription.AWSRequest")
-    def test_retries_response_read_timeout(
-        self,
-        mock_request,
-        mock_signer,
-        mock_sleep,
-    ):
-        prepared = mock_request.return_value.prepare.return_value
-        prepared.url = "https://agreement-marketplace.us-east-1.amazonaws.com"
-        prepared.body = b"{}"
-        prepared.headers = {"Authorization": "signed"}
-        prepared.method = "POST"
-        timed_out_response = MagicMock()
-        timed_out_response.__enter__.return_value.read.side_effect = TimeoutError(
-            "timed out"
-        )
-        successful_response = MagicMock()
-        successful_response.__enter__.return_value.read.return_value = (
-            b'{"agreementId":"agreement-1"}'
-        )
-        opener = MagicMock(side_effect=[timed_out_response, successful_response])
-        client = SignedAgreementClient(MagicMock(), prepared.url, opener=opener)
-
-        self.assertEqual(
-            client.accept_agreement_request(agreementRequestId="request-1"),
-            {"agreementId": "agreement-1"},
-        )
-        self.assertEqual(mock_request.call_count, 2)
-        self.assertEqual(mock_signer.call_count, 2)
-        mock_sleep.assert_called_once_with(1)
-
-    @patch("accept_operator_subscription.time.sleep")
-    @patch("accept_operator_subscription.SigV4Auth")
-    @patch("accept_operator_subscription.AWSRequest")
-    def test_retries_incomplete_response_body(
-        self,
-        mock_request,
-        mock_signer,
-        mock_sleep,
-    ):
-        prepared = mock_request.return_value.prepare.return_value
-        prepared.url = "https://agreement-marketplace.us-east-1.amazonaws.com"
-        prepared.body = b"{}"
-        prepared.headers = {"Authorization": "signed"}
-        prepared.method = "POST"
-        incomplete_response = MagicMock()
-        incomplete_response.__enter__.return_value.read.side_effect = (
-            http.client.IncompleteRead(b"partial")
-        )
-        successful_response = MagicMock()
-        successful_response.__enter__.return_value.read.return_value = (
-            b'{"agreementId":"agreement-1"}'
-        )
-        opener = MagicMock(side_effect=[incomplete_response, successful_response])
-        client = SignedAgreementClient(MagicMock(), prepared.url, opener=opener)
-
-        self.assertEqual(
-            client.accept_agreement_request(agreementRequestId="request-1"),
-            {"agreementId": "agreement-1"},
-        )
-        self.assertEqual(mock_request.call_count, 2)
-        self.assertEqual(mock_signer.call_count, 2)
-        mock_sleep.assert_called_once_with(1)
-
-    @patch("accept_operator_subscription.time.sleep")
-    @patch("accept_operator_subscription.SigV4Auth")
-    @patch("accept_operator_subscription.AWSRequest")
-    def test_retries_transient_http_error_when_body_read_fails(
-        self,
-        mock_request,
-        mock_signer,
-        mock_sleep,
-    ):
-        prepared = mock_request.return_value.prepare.return_value
-        prepared.url = "https://agreement-marketplace.us-east-1.amazonaws.com"
-        prepared.body = b"{}"
-        prepared.headers = {"Authorization": "signed"}
-        prepared.method = "POST"
-        error_body = MagicMock()
-        error_body.read.side_effect = TimeoutError("timed out")
-        transient_error = urllib.error.HTTPError(
-            prepared.url,
-            503,
-            "Unavailable",
-            {},
-            error_body,
-        )
-        successful_response = MagicMock()
-        successful_response.__enter__.return_value.read.return_value = (
-            b'{"agreementId":"agreement-1"}'
-        )
-        opener = MagicMock(side_effect=[transient_error, successful_response])
-        client = SignedAgreementClient(MagicMock(), prepared.url, opener=opener)
-
-        self.assertEqual(
-            client.accept_agreement_request(agreementRequestId="request-1"),
-            {"agreementId": "agreement-1"},
-        )
-        self.assertEqual(mock_request.call_count, 2)
-        self.assertEqual(mock_signer.call_count, 2)
-        mock_sleep.assert_called_once_with(1)
-
-    @patch("accept_operator_subscription.SigV4Auth")
-    @patch("accept_operator_subscription.AWSRequest")
-    def test_includes_aws_error_details(self, mock_request, _mock_signer):
-        prepared = mock_request.return_value.prepare.return_value
-        prepared.url = "https://agreement-marketplace.us-east-1.amazonaws.com"
-        prepared.body = b"{}"
-        prepared.headers = {}
-        prepared.method = "POST"
-        error = urllib.error.HTTPError(
-            prepared.url,
-            403,
-            "Forbidden",
-            {},
-            BytesIO(b'{"__type":"AccessDeniedException","message":"denied"}'),
-        )
-        client = SignedAgreementClient(
-            MagicMock(),
-            prepared.url,
-            opener=MagicMock(side_effect=error),
-        )
-
-        try:
-            with self.assertRaisesRegex(
-                RuntimeError, "HTTP 403: AccessDeniedException: denied"
-            ):
-                client.create_agreement_request(intent="NEW", requestedTerms=[])
-        finally:
-            error.close()
-
-
 class TestAgreementCreation(unittest.TestCase):
     @patch("accept_operator_subscription.find_free_offer")
     @patch("accept_operator_subscription.requested_terms")
@@ -585,7 +344,7 @@ class TestAgreementCreation(unittest.TestCase):
         }
 
         self.assertEqual(
-            create_and_accept_agreement(event(), discovery, agreement, agreement),
+            create_and_accept_agreement(event(), discovery, agreement),
             ("agreement-1", True),
         )
         create_call = agreement.create_agreement_request.call_args.kwargs
@@ -617,41 +376,36 @@ class TestAgreementCreation(unittest.TestCase):
         agreement.accept_agreement_request.side_effect = TimeoutError("timed out")
 
         self.assertEqual(
-            create_and_accept_agreement(event(), MagicMock(), agreement, agreement),
+            create_and_accept_agreement(event(), MagicMock(), agreement),
             ("agreement-1", True),
         )
 
 
 class TestEntitlements(unittest.TestCase):
     def test_returns_only_operator_entitlement_across_pages(self):
-        client = MagicMock()
-        client.get_agreement_entitlements.side_effect = [
-            {
-                "agreementEntitlements": [
-                    {"resource": {"id": "other"}, "status": "PROVISIONED"}
-                ],
-                "nextToken": "next-page",
-            },
-            {
-                "agreementEntitlements": [
-                    {
-                        "resource": {"id": DATADOG_OPERATOR_PRODUCT_ID},
-                        "status": "PENDING",
-                    }
-                ]
-            },
-        ]
+        client = paginator_client(
+            get_agreement_entitlements=[
+                {
+                    "agreementEntitlements": [
+                        {"resource": {"id": "other"}, "status": "PROVISIONED"}
+                    ]
+                },
+                {
+                    "agreementEntitlements": [
+                        {
+                            "resource": {"id": DATADOG_OPERATOR_PRODUCT_ID},
+                            "status": "PENDING",
+                        }
+                    ]
+                },
+            ]
+        )
 
         self.assertEqual(
             entitlement_status(client, "agreement-1")["status"], "PENDING"
         )
-        self.assertEqual(
-            client.get_agreement_entitlements.call_args_list,
-            [
-                call(agreementId="agreement-1"),
-                call(agreementId="agreement-1", nextToken="next-page"),
-            ],
-        )
+        paginator = client.paginators["get_agreement_entitlements"]
+        paginator.paginate.assert_called_once_with(agreementId="agreement-1")
 
     @patch("accept_operator_subscription.time.sleep")
     @patch("accept_operator_subscription.entitlement_status")
@@ -685,7 +439,7 @@ class TestEntitlements(unittest.TestCase):
         with self.assertRaisesRegex(SubscriptionError, "Timed out"):
             wait_for_entitlement(client, "agreement-1", deadline=100)
 
-        client.get_agreement_entitlements.assert_not_called()
+        client.get_paginator.assert_not_called()
 
 
 class TestAPIFailureStages(unittest.TestCase):
@@ -743,7 +497,7 @@ class TestAPIFailureStages(unittest.TestCase):
             self.assert_stage(
                 "request_creation",
                 lambda: create_and_accept_agreement(
-                    event(), MagicMock(), agreement, agreement
+                    event(), MagicMock(), agreement
                 ),
             )
 
@@ -771,7 +525,7 @@ class TestAPIFailureStages(unittest.TestCase):
             self.assert_stage(
                 "request_acceptance",
                 lambda: create_and_accept_agreement(
-                    event(), MagicMock(), agreement, agreement
+                    event(), MagicMock(), agreement
                 ),
             )
 
@@ -798,23 +552,15 @@ class TestHandler(unittest.TestCase):
     def response(self):
         return sys.modules["cfnresponse"].send.call_args
 
-    @patch("accept_operator_subscription.boto3.client")
-    def test_delete_retains_agreement_without_aws_calls(self, mock_client):
+    @patch("accept_operator_subscription.boto3.Session")
+    def test_delete_retains_agreement_without_aws_calls(self, mock_session):
         handler(event(request_type="Delete"), self.context)
 
-        mock_client.assert_not_called()
+        mock_session.assert_not_called()
         self.assertEqual(self.response().args[2], "SUCCESS")
         self.assertEqual(
             self.response().kwargs["responseData"], {"AgreementRetained": True}
         )
-
-    @patch("accept_operator_subscription.boto3.client")
-    def test_skips_when_eks_is_not_selected(self, mock_client):
-        handler(event(resource_types="aws:ec2:instance"), self.context)
-
-        mock_client.assert_not_called()
-        self.assertEqual(self.response().args[2], "SUCCESS")
-        self.assertEqual(self.response().kwargs["responseData"], {"Skipped": True})
 
     def test_fails_eks_on_unsupported_partition(self):
         handler(event(partition="aws-us-gov"), self.context)

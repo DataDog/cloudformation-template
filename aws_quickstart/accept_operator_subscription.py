@@ -1,16 +1,11 @@
-import http.client
 import json
 import logging
 import time
-import urllib.error
-import urllib.request
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 import boto3
-from botocore.auth import SigV4Auth
-from botocore.awsrequest import AWSRequest
 from botocore.config import Config
 import cfnresponse
 
@@ -19,12 +14,8 @@ LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
 
 DATADOG_OPERATOR_PRODUCT_ID = "6e852b2a-ecbb-431c-9b63-7de0288f4d00"
-EKS_RESOURCE_TYPE = "aws:eks:cluster"
 MARKETPLACE_CATALOG = "AWSMarketplace"
 MARKETPLACE_REGION = "us-east-1"
-AGREEMENT_API_VERSION = "2020-03-01"
-AGREEMENT_TARGET_PREFIX = "AWSMPCommerceService_v20200301"
-AGREEMENT_SIGNING_NAME = "aws-marketplace"
 ENTITLEMENT_ATTEMPTS = 24
 ENTITLEMENT_DELAY_SECONDS = 5
 AWS_READ_TIMEOUT_SECONDS = 20
@@ -32,8 +23,6 @@ SDK_CONNECT_TIMEOUT_SECONDS = 5
 SDK_READ_TIMEOUT_SECONDS = 10
 SDK_REQUEST_BUDGET_SECONDS = 32
 CLOUDFORMATION_RESPONSE_BUFFER_SECONDS = 15
-SIGNED_REQUEST_RETRY_DELAYS_SECONDS = (1, 2)
-TRANSIENT_HTTP_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 AWS_CONFIG = Config(
     retries={"total_max_attempts": 2, "mode": "standard"},
@@ -59,158 +48,6 @@ class SubscriptionError(Exception):
         self.offer_id = offer_id
         self.agreement_request_id = agreement_request_id
         self.agreement_id = agreement_id
-
-
-# The Python SDK model does not expose these Agreement operations, so use the
-# service's documented AWS JSON protocol with the runtime's SigV4 signer.
-class SignedAgreementClient:
-    def __init__(
-        self,
-        credentials,
-        endpoint,
-        *,
-        deadline=None,
-        opener=urllib.request.urlopen,
-    ):
-        self._credentials = credentials.get_frozen_credentials()
-        self._endpoint = endpoint
-        self._deadline = deadline
-        self._opener = opener
-
-    def _request_timeout(self, operation):
-        if self._deadline is None:
-            return AWS_READ_TIMEOUT_SECONDS
-        remaining = self._deadline - time.monotonic()
-        if remaining <= 0:
-            raise RuntimeError(
-                f"{operation} was not attempted because the Lambda deadline was reached"
-            )
-        # urllib applies the timeout separately to connection and response reads.
-        return min(AWS_READ_TIMEOUT_SECONDS, remaining / 2)
-
-    def _send(self, operation, payload):
-        timeout = self._request_timeout(operation)
-        body = json.dumps(payload, separators=(",", ":")).encode()
-        request = AWSRequest(
-            method="POST",
-            url=self._endpoint,
-            data=body,
-            headers={
-                "Content-Type": "application/x-amz-json-1.0",
-                "X-Amz-Api-Version": AGREEMENT_API_VERSION,
-                "X-Amz-Target": f"{AGREEMENT_TARGET_PREFIX}.{operation}",
-            },
-        )
-        SigV4Auth(
-            self._credentials,
-            AGREEMENT_SIGNING_NAME,
-            MARKETPLACE_REGION,
-        ).add_auth(request)
-        prepared = request.prepare()
-        http_request = urllib.request.Request(
-            prepared.url,
-            data=prepared.body,
-            headers=dict(prepared.headers),
-            method=prepared.method,
-        )
-        with self._opener(http_request, timeout=timeout) as response:
-            return response.read()
-
-    def _wait_before_retry(self, operation, retry_number, delay, error):
-        if (
-            self._deadline is not None
-            and time.monotonic() + delay >= self._deadline
-        ):
-            raise RuntimeError(
-                f"{error}; the Lambda deadline does not allow another attempt"
-            )
-        _log(
-            "agreement_api",
-            "retrying",
-            "transient_aws_api_error",
-            marketplace_operation=operation,
-            marketplace_retry_number=retry_number,
-            error=str(error),
-        )
-        time.sleep(delay)
-
-    def _call(self, operation, payload):
-        for attempt in range(len(SIGNED_REQUEST_RETRY_DELAYS_SECONDS) + 1):
-            try:
-                response_body = self._send(operation, payload)
-            except urllib.error.HTTPError as error:
-                try:
-                    error_body = error.read()
-                    body_read_error = None
-                except (OSError, http.client.IncompleteRead) as read_error:
-                    error_body = b""
-                    body_read_error = read_error
-                finally:
-                    error.close()
-                message = (
-                    f"{operation} failed with HTTP {error.code}: "
-                    f"{_aws_error_message(error_body)}"
-                )
-                if body_read_error is not None:
-                    message += f" (error body read failed: {body_read_error})"
-                if (
-                    error.code not in TRANSIENT_HTTP_STATUS_CODES
-                    or attempt == len(SIGNED_REQUEST_RETRY_DELAYS_SECONDS)
-                ):
-                    raise RuntimeError(message) from error
-                self._wait_before_retry(
-                    operation,
-                    attempt + 1,
-                    SIGNED_REQUEST_RETRY_DELAYS_SECONDS[attempt],
-                    message,
-                )
-                continue
-            except (OSError, http.client.IncompleteRead) as error:
-                detail = getattr(error, "reason", error)
-                message = f"{operation} request failed: {detail}"
-                if attempt == len(SIGNED_REQUEST_RETRY_DELAYS_SECONDS):
-                    raise RuntimeError(message) from error
-                self._wait_before_retry(
-                    operation,
-                    attempt + 1,
-                    SIGNED_REQUEST_RETRY_DELAYS_SECONDS[attempt],
-                    message,
-                )
-                continue
-
-            if not response_body:
-                return {}
-            try:
-                return json.loads(response_body)
-            except (UnicodeDecodeError, json.JSONDecodeError) as error:
-                raise RuntimeError(f"{operation} returned invalid JSON") from error
-
-    def create_agreement_request(self, **kwargs):
-        return self._call("CreateAgreementRequest", kwargs)
-
-    def accept_agreement_request(self, **kwargs):
-        return self._call("AcceptAgreementRequest", kwargs)
-
-    def get_agreement_entitlements(self, **kwargs):
-        return self._call("GetAgreementEntitlements", kwargs)
-
-
-def _aws_error_message(body):
-    try:
-        payload = json.loads(body)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return body.decode(errors="replace") or "empty response"
-    error_type = payload.get("__type") or payload.get("code") or "AWS service error"
-    error_type = error_type.rsplit("#", 1)[-1]
-    message = payload.get("message") or payload.get("Message")
-    return f"{error_type}: {message}" if message else error_type
-
-
-def parse_resource_types(raw):
-    if raw is None:
-        return []
-    items = raw.split(",") if isinstance(raw, str) else list(raw)
-    return [item.strip() for item in items if item and item.strip()]
 
 
 def _physical_resource_id(event):
@@ -293,7 +130,7 @@ def _api_call(stage, message, operation, *, deadline=None, **kwargs):
         raise SubscriptionError(stage, "aws_api_error", f"{message}: {error}") from error
 
 
-def find_active_agreement(agreement_search_client, *, deadline=None):
+def find_active_agreement(agreement_client, *, deadline=None):
     filters = [
         {"name": "PartyType", "values": ["Acceptor"]},
         {"name": "AgreementType", "values": ["PurchaseAgreement"]},
@@ -305,7 +142,7 @@ def find_active_agreement(agreement_search_client, *, deadline=None):
     ]
     agreements = list(
         _pages(
-            agreement_search_client,
+            agreement_client,
             "search_agreements",
             "agreementViewSummaries",
             error_stage="agreement_discovery",
@@ -603,8 +440,7 @@ def _client_token(event, proposal_id, terms):
 def create_and_accept_agreement(
     event,
     discovery_client,
-    signed_agreement_client,
-    agreement_search_client,
+    agreement_client,
     *,
     deadline=None,
 ):
@@ -614,7 +450,8 @@ def create_and_accept_agreement(
     response = _api_call(
         "request_creation",
         "Failed to create the Datadog Operator Marketplace agreement request",
-        signed_agreement_client.create_agreement_request,
+        agreement_client.create_agreement_request,
+        deadline=deadline,
         agreementProposalIdentifier=offer["agreementProposalId"],
         clientToken=_client_token(event, offer["agreementProposalId"], terms),
         intent="NEW",
@@ -642,13 +479,14 @@ def create_and_accept_agreement(
     )
 
     try:
-        accepted = signed_agreement_client.accept_agreement_request(
+        _require_sdk_request_budget(deadline, "accept_agreement_request")
+        accepted = agreement_client.accept_agreement_request(
             agreementRequestId=agreement_request_id
         )
     except Exception as acceptance_error:
         try:
             agreement_id = find_active_agreement(
-                agreement_search_client,
+                agreement_client,
                 deadline=deadline,
             )
         except Exception as recovery_error:
@@ -699,26 +537,24 @@ def create_and_accept_agreement(
     return agreement_id, True
 
 
-def entitlement_status(signed_agreement_client, agreement_id):
-    matches = []
-    next_token = None
-    while True:
-        request = {"agreementId": agreement_id}
-        if next_token:
-            request["nextToken"] = next_token
-        response = _api_call(
-            "entitlement",
-            "Failed to get Datadog Operator Marketplace agreement "
-            f"{agreement_id} entitlements",
-            signed_agreement_client.get_agreement_entitlements,
-            **request,
+def entitlement_status(agreement_client, agreement_id, *, deadline=None):
+    matches = [
+        entitlement
+        for entitlement in _pages(
+            agreement_client,
+            "get_agreement_entitlements",
+            "agreementEntitlements",
+            error_stage="entitlement",
+            error_message=(
+                "Failed to get Datadog Operator Marketplace agreement "
+                f"{agreement_id} entitlements"
+            ),
+            deadline=deadline,
+            agreementId=agreement_id,
         )
-        for entitlement in response.get("agreementEntitlements", []):
-            if entitlement.get("resource", {}).get("id") == DATADOG_OPERATOR_PRODUCT_ID:
-                matches.append(entitlement)
-        next_token = response.get("nextToken")
-        if not next_token:
-            break
+        if entitlement.get("resource", {}).get("id")
+        == DATADOG_OPERATOR_PRODUCT_ID
+    ]
     if len(matches) > 1:
         raise SubscriptionError(
             "entitlement",
@@ -730,7 +566,7 @@ def entitlement_status(signed_agreement_client, agreement_id):
 
 
 def wait_for_entitlement(
-    signed_agreement_client,
+    agreement_client,
     agreement_id,
     *,
     attempts=ENTITLEMENT_ATTEMPTS,
@@ -745,7 +581,9 @@ def wait_for_entitlement(
             and time.monotonic() + AWS_READ_TIMEOUT_SECONDS >= deadline
         ):
             break
-        entitlement = entitlement_status(signed_agreement_client, agreement_id)
+        entitlement = entitlement_status(
+            agreement_client, agreement_id, deadline=deadline
+        )
         status = entitlement.get("status") if entitlement else None
         reason = entitlement.get("statusReasonCode") if entitlement else None
         last_status = status
@@ -799,18 +637,10 @@ def ensure_subscription(event, *, deadline=None):
             region_name=MARKETPLACE_REGION,
             config=AWS_CONFIG,
         )
-        agreement_search_client = session.client(
+        agreement_client = session.client(
             "marketplace-agreement",
             region_name=MARKETPLACE_REGION,
             config=AWS_CONFIG,
-        )
-        credentials = session.get_credentials()
-        if credentials is None:
-            raise RuntimeError("No AWS credentials are available")
-        signed_agreement_client = SignedAgreementClient(
-            credentials,
-            agreement_search_client.meta.endpoint_url,
-            deadline=deadline,
         )
     except Exception as error:
         raise SubscriptionError(
@@ -826,7 +656,7 @@ def ensure_subscription(event, *, deadline=None):
         boto3_version=getattr(boto3, "__version__", "unknown"),
     )
 
-    agreement_id = find_active_agreement(agreement_search_client, deadline=deadline)
+    agreement_id = find_active_agreement(agreement_client, deadline=deadline)
     created = False
     if agreement_id:
         _log(
@@ -844,11 +674,10 @@ def ensure_subscription(event, *, deadline=None):
         agreement_id, created = create_and_accept_agreement(
             event,
             discovery_client,
-            signed_agreement_client,
-            agreement_search_client,
+            agreement_client,
             deadline=deadline,
         )
-    wait_for_entitlement(signed_agreement_client, agreement_id, deadline=deadline)
+    wait_for_entitlement(agreement_client, agreement_id, deadline=deadline)
     return agreement_id, created
 
 
@@ -857,10 +686,6 @@ def handler(event, context):
     properties = event["ResourceProperties"]
     account_id = properties.get("AccountId")
     partition = properties.get("Partition", "aws")
-    resource_types = parse_resource_types(
-        properties.get("InstrumentationResourceTypes")
-    )
-
     if request_type == "Delete":
         _log(
             "cloudformation_delete",
@@ -869,16 +694,6 @@ def handler(event, context):
             account_id=account_id,
         )
         _send_response(event, context, cfnresponse.SUCCESS, {"AgreementRetained": True})
-        return
-
-    if EKS_RESOURCE_TYPE not in resource_types:
-        _log(
-            "resource_selection",
-            "succeeded",
-            "eks_not_selected",
-            account_id=account_id,
-        )
-        _send_response(event, context, cfnresponse.SUCCESS, {"Skipped": True})
         return
 
     if partition != "aws":
