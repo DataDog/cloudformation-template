@@ -10,6 +10,8 @@ import urllib.request
 import cfnresponse
 import boto3
 
+from cfn_common import send_cfn_response
+
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
 API_CALL_SOURCE_HEADER_VALUE = "cfn-quickstart"
@@ -139,20 +141,6 @@ def _should_update_instrumentation_permissions(event):
         _normalized_instrumentation_property(name, current.get(name))
         != _normalized_instrumentation_property(name, previous.get(name))
         for name in INSTRUMENTATION_UPDATE_PROPERTIES
-    )
-
-
-def _physical_resource_id(event):
-    return event.get("PhysicalResourceId") or f"{event['StackId']}/{event['LogicalResourceId']}"
-
-
-def _send_cfn_response(event, context, status, response_data):
-    cfnresponse.send(
-        event,
-        context,
-        status,
-        responseData=response_data,
-        physicalResourceId=_physical_resource_id(event),
     )
 
 
@@ -1209,10 +1197,14 @@ def handle_delete(event, context):
         response_data = {}
         if preserved_boundaries:
             response_data["PreservedPermissionsBoundaries"] = preserved_boundaries
-        _send_cfn_response(event, context, cfnresponse.SUCCESS, response_data)
+        send_cfn_response(
+            cfnresponse, event, context, cfnresponse.SUCCESS, response_data
+        )
     except Exception as e:
         LOGGER.error(f"Error deleting policy: {str(e)}")
-        _send_cfn_response(event, context, cfnresponse.FAILED, {"Message": str(e)})
+        send_cfn_response(
+            cfnresponse, event, context, cfnresponse.FAILED, {"Message": str(e)}
+        )
 
 
 def handle_create_update(event, context):
@@ -1263,10 +1255,12 @@ def handle_create_update(event, context):
             )
         if target_changed:
             _cleanup_previous_target_policies(iam_client, previous_props)
-        _send_cfn_response(event, context, cfnresponse.SUCCESS, {})
+        send_cfn_response(cfnresponse, event, context, cfnresponse.SUCCESS, {})
     except Exception as e:
         LOGGER.error(f"Error creating/attaching policy: {str(e)}")
-        _send_cfn_response(event, context, cfnresponse.FAILED, {"Message": str(e)})
+        send_cfn_response(
+            cfnresponse, event, context, cfnresponse.FAILED, {"Message": str(e)}
+        )
 
 
 def handler(event, context):

@@ -161,7 +161,7 @@ class TestTemplate(unittest.TestCase):
         release = Path(__file__).with_name("release.sh").read_text()
 
         self.assertIn(
-            "embed_python_source datadog_integration_permissions.yaml "
+            "embed_python_source_with_common datadog_integration_permissions.yaml "
             "accept_operator_subscription.py ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE",
             release,
         )

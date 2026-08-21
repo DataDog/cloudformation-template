@@ -25,6 +25,10 @@ jobs:
         run: |
           cd aws_quickstart
           python -B -S -m unittest attach_integration_permissions_test.py -v
+      - name: Run shared CloudFormation helper unit tests
+        run: |
+          cd aws_quickstart
+          python -B -S -m unittest cfn_common_test.py -v
       - name: Run Operator subscription unit tests
         run: |
           cd aws_quickstart

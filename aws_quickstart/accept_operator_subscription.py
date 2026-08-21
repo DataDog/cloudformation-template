@@ -9,6 +9,8 @@ import boto3
 from botocore.config import Config
 import cfnresponse
 
+from cfn_common import send_cfn_response
+
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
@@ -48,22 +50,6 @@ class SubscriptionError(Exception):
         self.offer_id = offer_id
         self.agreement_request_id = agreement_request_id
         self.agreement_id = agreement_id
-
-
-def _physical_resource_id(event):
-    return event.get("PhysicalResourceId") or (
-        f"{event['StackId']}/{event['LogicalResourceId']}"
-    )
-
-
-def _send_response(event, context, status, data):
-    cfnresponse.send(
-        event,
-        context,
-        status,
-        responseData=data,
-        physicalResourceId=_physical_resource_id(event),
-    )
 
 
 def _log(stage, result, reason, **fields):
@@ -689,7 +675,13 @@ def handler(event, context):
             "agreement_retained",
             account_id=account_id,
         )
-        _send_response(event, context, cfnresponse.SUCCESS, {"AgreementRetained": True})
+        send_cfn_response(
+            cfnresponse,
+            event,
+            context,
+            cfnresponse.SUCCESS,
+            {"AgreementRetained": True},
+        )
         return
 
     if partition != "aws":
@@ -706,7 +698,13 @@ def handler(event, context):
             account_id=account_id,
             error=str(error),
         )
-        _send_response(event, context, cfnresponse.FAILED, {"Message": str(error)})
+        send_cfn_response(
+            cfnresponse,
+            event,
+            context,
+            cfnresponse.FAILED,
+            {"Message": str(error)},
+        )
         return
 
     try:
@@ -716,7 +714,8 @@ def handler(event, context):
             remaining_seconds - CLOUDFORMATION_RESPONSE_BUFFER_SECONDS,
         )
         agreement_id = ensure_subscription(event, deadline=deadline)
-        _send_response(
+        send_cfn_response(
+            cfnresponse,
             event,
             context,
             cfnresponse.SUCCESS,
@@ -738,4 +737,10 @@ def handler(event, context):
             error=str(error),
         )
         LOGGER.exception("Failed to accept the Datadog Operator Marketplace agreement")
-        _send_response(event, context, cfnresponse.FAILED, {"Message": str(error)})
+        send_cfn_response(
+            cfnresponse,
+            event,
+            context,
+            cfnresponse.FAILED,
+            {"Message": str(error)},
+        )

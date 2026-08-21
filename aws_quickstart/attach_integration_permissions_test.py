@@ -70,11 +70,11 @@ class TestLambdaSourceEmbedding(unittest.TestCase):
         release = release_path.read_text()
 
         self.assertIn(
-            'cp datadog_agentless_api_call.py attach_integration_permissions.py accept_operator_subscription.py "${TEMP_DIR}/"',
+            'cp datadog_agentless_api_call.py cfn_common.py attach_integration_permissions.py accept_operator_subscription.py "${TEMP_DIR}/"',
             release,
         )
         self.assertIn(
-            "embed_python_source datadog_integration_permissions.yaml attach_integration_permissions.py ATTACH_INTEGRATION_PERMISSIONS_SOURCE",
+            "embed_python_source_with_common datadog_integration_permissions.yaml attach_integration_permissions.py ATTACH_INTEGRATION_PERMISSIONS_SOURCE",
             release,
         )
 
