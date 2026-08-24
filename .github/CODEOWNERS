@@ -15,3 +15,6 @@
 
 # Lambda Durable Function event forwarder template
 /aws_durable_function_event_forwarder/ @DataDog/serverless-aws
+
+# BIO (Bits Infrastructure Operations) permissions template
+/aws_bio_permissions/ @DataDog/bits-infrastructure-operations
