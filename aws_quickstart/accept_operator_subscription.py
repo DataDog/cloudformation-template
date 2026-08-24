@@ -20,7 +20,6 @@ MARKETPLACE_CATALOG = "AWSMarketplace"
 MARKETPLACE_REGION = "us-east-1"
 ENTITLEMENT_ATTEMPTS = 24
 ENTITLEMENT_DELAY_SECONDS = 5
-AWS_READ_TIMEOUT_SECONDS = 20
 SDK_CONNECT_TIMEOUT_SECONDS = 5
 SDK_READ_TIMEOUT_SECONDS = 10
 SDK_REQUEST_BUDGET_SECONDS = 32
@@ -295,8 +294,7 @@ def requested_terms(discovery_client, offer_id, *, deadline=None):
             offerId=offer_id,
         )
     )
-    term_ids = []
-    seen = set()
+    term_ids_by_name = {}
     supported = {"legalTerm", "supportTerm"}
     for term in terms:
         present = [name for name in supported if name in term]
@@ -308,7 +306,7 @@ def requested_terms(discovery_client, offer_id, *, deadline=None):
                 offer_id=offer_id,
             )
         term_name = present[0]
-        if term_name in seen:
+        if term_name in term_ids_by_name:
             raise SubscriptionError(
                 "offer_terms",
                 "invalid_terms",
@@ -323,10 +321,9 @@ def requested_terms(discovery_client, offer_id, *, deadline=None):
                 "The Datadog Operator Marketplace offer contains a term without an identifier",
                 offer_id=offer_id,
             )
-        seen.add(term_name)
-        term_ids.append(term_id)
+        term_ids_by_name[term_name] = term_id
 
-    if seen != supported:
+    if term_ids_by_name.keys() != supported:
         raise SubscriptionError(
             "offer_terms",
             "invalid_terms",
@@ -334,7 +331,7 @@ def requested_terms(discovery_client, offer_id, *, deadline=None):
             "legal and one support term",
             offer_id=offer_id,
         )
-    return [{"id": term_id} for term_id in sorted(term_ids)]
+    return [{"id": term_id} for term_id in sorted(term_ids_by_name.values())]
 
 
 def _require_zero(value, field, *, required=False):
@@ -461,8 +458,8 @@ def create_and_accept_agreement(
         marketplace_agreement_request_id=agreement_request_id,
     )
 
+    _require_sdk_request_budget(deadline, "accept_agreement_request")
     try:
-        _require_sdk_request_budget(deadline, "accept_agreement_request")
         accepted = agreement_client.accept_agreement_request(
             agreementRequestId=agreement_request_id
         )
@@ -561,7 +558,7 @@ def wait_for_entitlement(
     for attempt in range(attempts):
         if (
             deadline is not None
-            and time.monotonic() + AWS_READ_TIMEOUT_SECONDS >= deadline
+            and time.monotonic() + SDK_REQUEST_BUDGET_SECONDS >= deadline
         ):
             break
         entitlement = entitlement_status(
@@ -598,7 +595,7 @@ def wait_for_entitlement(
         if attempt + 1 < attempts:
             if (
                 deadline is not None
-                and time.monotonic() + delay + AWS_READ_TIMEOUT_SECONDS >= deadline
+                and time.monotonic() + delay + SDK_REQUEST_BUDGET_SECONDS >= deadline
             ):
                 break
             time.sleep(delay)
@@ -667,7 +664,6 @@ def handler(event, context):
     request_type = event["RequestType"]
     properties = event["ResourceProperties"]
     account_id = properties.get("AccountId")
-    partition = properties.get("Partition", "aws")
     if request_type == "Delete":
         _log(
             "cloudformation_delete",
@@ -681,29 +677,6 @@ def handler(event, context):
             context,
             cfnresponse.SUCCESS,
             {"AgreementRetained": True},
-        )
-        return
-
-    if partition != "aws":
-        error = SubscriptionError(
-            "partition_validation",
-            "unsupported_partition",
-            "Datadog Operator Marketplace subscription acceptance is supported "
-            "only in the commercial AWS partition",
-        )
-        _log(
-            error.stage,
-            "failed",
-            error.reason,
-            account_id=account_id,
-            error=str(error),
-        )
-        send_cfn_response(
-            cfnresponse,
-            event,
-            context,
-            cfnresponse.FAILED,
-            {"Message": str(error)},
         )
         return
 

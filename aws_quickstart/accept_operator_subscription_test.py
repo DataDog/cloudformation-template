@@ -75,7 +75,7 @@ def free_offer(offer_id="offer-1", **overrides):
     return value
 
 
-def event(request_type="Create", partition="aws"):
+def event(request_type="Create"):
     return {
         "RequestType": request_type,
         "RequestId": "request-1",
@@ -83,7 +83,6 @@ def event(request_type="Create", partition="aws"):
         "LogicalResourceId": "DatadogOperatorSubscriptionFunctionTrigger",
         "ResourceProperties": {
             "AccountId": "123456789012",
-            "Partition": partition,
         },
     }
 
@@ -95,7 +94,16 @@ class TestTemplate(unittest.TestCase):
         ).read_text()
 
         self.assertEqual(template.count("<ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE>"), 1)
-        self.assertIn("  IncludeEKS:", template)
+        self.assertIn(
+            "Conditions:\n"
+            "  IncludeEKS:\n"
+            "    Fn::And:\n"
+            "      - Fn::Equals:\n"
+            "          - !Ref AWS::Partition\n"
+            "          - aws\n"
+            "      - Fn::Not:\n",
+            template,
+        )
         self.assertIn(
             "  InstrumentationResourceTypes:\n    Type: CommaDelimitedList",
             template,
@@ -110,10 +118,6 @@ class TestTemplate(unittest.TestCase):
         self.assertIn(
             'InstrumentationResourceTypes: !Join [",", '
             "!Ref InstrumentationResourceTypes]",
-            template,
-        )
-        self.assertIn(
-            "      - Fn::Equals:\n          - !Ref AWS::Partition\n          - aws",
             template,
         )
         for resource in (
@@ -454,6 +458,36 @@ class TestAgreementCreation(unittest.TestCase):
             "agreement-1",
         )
 
+    @patch("accept_operator_subscription.time.monotonic", side_effect=[0, 100])
+    @patch("accept_operator_subscription.find_active_agreement")
+    @patch("accept_operator_subscription.find_free_offer")
+    @patch("accept_operator_subscription.requested_terms")
+    def test_does_not_recover_when_acceptance_was_not_attempted(
+        self,
+        mock_terms,
+        mock_offer,
+        mock_find_active,
+        _mock_monotonic,
+    ):
+        mock_offer.return_value = free_offer()
+        mock_terms.return_value = [{"id": "legal"}, {"id": "support"}]
+        agreement = MagicMock()
+        agreement.create_agreement_request.return_value = {
+            "agreementRequestId": "request-1",
+            "chargeSummary": {"newAgreementValue": "0"},
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "accept_agreement_request"):
+            create_and_accept_agreement(
+                event(),
+                MagicMock(),
+                agreement,
+                deadline=120,
+            )
+
+        agreement.accept_agreement_request.assert_not_called()
+        mock_find_active.assert_not_called()
+
 
 class TestEntitlements(unittest.TestCase):
     def test_returns_only_operator_entitlement_across_pages(self):
@@ -506,7 +540,7 @@ class TestEntitlements(unittest.TestCase):
             with self.assertRaisesRegex(SubscriptionError, "Timed out"):
                 wait_for_entitlement(MagicMock(), "agreement-1", attempts=1)
 
-    @patch("accept_operator_subscription.time.monotonic", return_value=90)
+    @patch("accept_operator_subscription.time.monotonic", return_value=70)
     def test_stops_before_deadline_without_starting_request(self, _mock_monotonic):
         client = MagicMock()
 
@@ -514,6 +548,34 @@ class TestEntitlements(unittest.TestCase):
             wait_for_entitlement(client, "agreement-1", deadline=100)
 
         client.get_paginator.assert_not_called()
+
+    @patch("accept_operator_subscription.time.sleep")
+    @patch("accept_operator_subscription.entitlement_status")
+    @patch("accept_operator_subscription.time.monotonic", side_effect=[0, 65])
+    def test_preserves_last_status_when_next_request_exceeds_budget(
+        self,
+        _mock_monotonic,
+        mock_status,
+        mock_sleep,
+    ):
+        mock_status.return_value = {
+            "status": "PENDING",
+            "statusReasonCode": "PROVISIONING_IN_PROGRESS",
+        }
+
+        with self.assertRaises(SubscriptionError) as raised:
+            wait_for_entitlement(
+                MagicMock(),
+                "agreement-1",
+                attempts=2,
+                delay=5,
+                deadline=100,
+            )
+
+        self.assertEqual(raised.exception.reason, "entitlement_timeout")
+        self.assertIn("status=PENDING", str(raised.exception))
+        mock_status.assert_called_once()
+        mock_sleep.assert_not_called()
 
 
 class TestAPIFailureStages(unittest.TestCase):
@@ -634,15 +696,6 @@ class TestHandler(unittest.TestCase):
         self.assertEqual(self.response().args[2], "SUCCESS")
         self.assertEqual(
             self.response().kwargs["responseData"], {"AgreementRetained": True}
-        )
-
-    def test_fails_eks_on_unsupported_partition(self):
-        handler(event(partition="aws-us-gov"), self.context)
-
-        self.assertEqual(self.response().args[2], "FAILED")
-        self.assertIn(
-            "commercial AWS partition",
-            self.response().kwargs["responseData"]["Message"],
         )
 
     @patch("accept_operator_subscription.time.monotonic", return_value=100)
