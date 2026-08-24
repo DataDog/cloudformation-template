@@ -1,0 +1,73 @@
+# version: <VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog Bits Infrastructure Operations Permissions
+Parameters:
+  Product:
+    Type: String
+    AllowedValues:
+      - ecs
+      - serverless
+    Description: The BIO product whose permissions should be installed.
+  DatadogIntegrationRole:
+    Type: String
+    Description: The name of the IAM role used by the Datadog AWS integration.
+  AccountId:
+    Type: String
+    Description: The AWS account ID of the account integrated in Datadog.
+Rules:
+  ValidateAccountId:
+    Assertions:
+      - Assert: !Equals [!Ref AccountId, !Ref "AWS::AccountId"]
+        AssertDescription: The integrated AWS account ID must match the account where this stack is created.
+Conditions:
+  InstallEcsPermissions: !Equals [!Ref Product, ecs]
+  InstallServerlessPermissions: !Equals [!Ref Product, serverless]
+Resources:
+  DatadogBioEcsPermissions:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: InstallEcsPermissions
+    Properties:
+      Description: Permissions used by Datadog Bits Infrastructure Operations to manage ECS workloads.
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ManageEcsTaskDefinitionsAndServices
+            Effect: Allow
+            Action:
+              - ecs:DescribeTaskDefinition
+              - ecs:RegisterTaskDefinition
+              - ecs:UpdateService
+            Resource: "*"
+          - Sid: TagNewEcsTaskDefinitions
+            Effect: Allow
+            Action: ecs:TagResource
+            Resource: "*"
+            Condition:
+              StringEquals:
+                ecs:CreateAction: RegisterTaskDefinition
+          - Sid: PassRolesToEcsTasks
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: "*"
+            Condition:
+              StringEquals:
+                iam:PassedToService: ecs-tasks.amazonaws.com
+  DatadogBioServerlessPermissions:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: InstallServerlessPermissions
+    Properties:
+      Description: Permissions used by Datadog Bits Infrastructure Operations to manage Serverless workloads.
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ManageLambdaConfigurationAndConcurrency
+            Effect: Allow
+            Action:
+              - lambda:UpdateFunctionConfiguration
+              - lambda:GetFunctionConfiguration
+              - lambda:PutFunctionConcurrency
+            Resource: "*"
