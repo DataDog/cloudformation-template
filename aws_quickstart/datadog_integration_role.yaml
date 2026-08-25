@@ -19,7 +19,7 @@ Parameters:
     Description: >-
       Set this value to "true" to add permissions for Datadog to collect resource configuration data.
   InstrumentationResourceTypes:
-    Type: String
+    Type: CommaDelimitedList
     Default: ""
     Description: >-
       Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster,
@@ -85,7 +85,7 @@ Resources:
       Parameters:
         IAMRoleName: !Ref IAMRoleName
         ResourceCollectionPermissions: !Ref ResourceCollectionPermissions
-        InstrumentationResourceTypes: !Ref InstrumentationResourceTypes
+        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
         DatadogSite: !Ref DatadogSite
         ManageBasePermissions: true
 Metadata:
