@@ -10,7 +10,7 @@ from botocore.config import Config
 import cfnresponse
 
 from cfn_common import send_cfn_response
-
+from marketplace_agreement_compat import apply_marketplace_agreement_compatibility
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
@@ -125,21 +125,18 @@ def find_active_agreement(agreement_client, *, deadline=None):
         },
         {"name": "Status", "values": ["ACTIVE"]},
     ]
-    agreements = []
-    request = {"catalog": MARKETPLACE_CATALOG, "filters": filters}
-    while True:
-        response = _api_call(
-            "agreement_discovery",
-            "Failed to search for an active Datadog Operator Marketplace agreement",
-            agreement_client.search_agreements,
+    agreements = list(
+        _pages(
+            agreement_client,
+            "search_agreements",
+            "agreementViewSummaries",
+            error_stage="agreement_discovery",
+            error_message="Failed to search for an active Datadog Operator Marketplace agreement",
             deadline=deadline,
-            **request,
+            catalog=MARKETPLACE_CATALOG,
+            filters=filters,
         )
-        agreements.extend(response.get("agreementViewSummaries", []))
-        next_token = response.get("nextToken")
-        if not next_token:
-            break
-        request["nextToken"] = next_token
+    )
     if not agreements:
         return None
     if len(agreements) != 1:
@@ -615,6 +612,7 @@ def wait_for_entitlement(
 def ensure_subscription(event, *, deadline=None):
     try:
         session = boto3.Session()
+        compatibility_applied = apply_marketplace_agreement_compatibility(session)
         discovery_client = session.client(
             "marketplace-discovery",
             region_name=MARKETPLACE_REGION,
@@ -637,6 +635,7 @@ def ensure_subscription(event, *, deadline=None):
         "succeeded",
         "clients_created",
         boto3_version=getattr(boto3, "__version__", "unknown"),
+        marketplace_compatibility_model_applied=compatibility_applied,
     )
 
     agreement_id = find_active_agreement(agreement_client, deadline=deadline)

@@ -1,6 +1,6 @@
 # 4.19.1 (August 25, 2026)
 
-- Fix Datadog Operator Marketplace agreement discovery for Lambda runtimes that do not provide a `SearchAgreements` paginator.
+- Fix Datadog Operator Marketplace agreement discovery and acceptance for Lambda runtimes that lack required agreement operations or paginators.
 
 # 4.19.0 (August 21, 2026)
 
