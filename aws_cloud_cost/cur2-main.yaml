@@ -1,4 +1,4 @@
-# version: 0.0.2
+# version: 0.0.3
 AWSTemplateFormatVersion: 2010-09-09
 Description: Datadog Cloud Cost Management Setup (CUR 2.0 / BCM Data Exports)
 Parameters:
@@ -53,7 +53,15 @@ Resources:
   DatadogCCMIAMPolicy:
     Type: AWS::IAM::RolePolicy
     Properties:
-      PolicyName: !Sub "datadog-ccm-iam-policy--${CloudCostBucketName}-${CloudCostReportPrefix}-${CloudCostReportName}"
+      PolicyName:
+        Fn::Sub:
+          - "datadog-ccm-iam-policy--${CloudCostBucketName}-${SanitizedCloudCostReportPrefix}-${CloudCostReportName}"
+          - SanitizedCloudCostReportPrefix:
+              Fn::Join:
+                - "_"
+                - Fn::Split:
+                    - "/"
+                    - Ref: CloudCostReportPrefix
       RoleName: !Ref DatadogIntegrationRole
       PolicyDocument:
         Version: "2012-10-17"

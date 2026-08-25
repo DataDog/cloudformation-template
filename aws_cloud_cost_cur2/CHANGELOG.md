@@ -1,3 +1,7 @@
+## 0.0.6
+
+Fix IAM policy creation by replacing `/` with `_` in the report prefix when building the policy name.
+
 ## 0.0.5
 
 Wait for CUR export to finish creating before calling Datadog API.
