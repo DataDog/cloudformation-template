@@ -125,18 +125,21 @@ def find_active_agreement(agreement_client, *, deadline=None):
         },
         {"name": "Status", "values": ["ACTIVE"]},
     ]
-    agreements = list(
-        _pages(
-            agreement_client,
-            "search_agreements",
-            "agreementViewSummaries",
-            error_stage="agreement_discovery",
-            error_message="Failed to search for an active Datadog Operator Marketplace agreement",
+    agreements = []
+    request = {"catalog": MARKETPLACE_CATALOG, "filters": filters}
+    while True:
+        response = _api_call(
+            "agreement_discovery",
+            "Failed to search for an active Datadog Operator Marketplace agreement",
+            agreement_client.search_agreements,
             deadline=deadline,
-            catalog=MARKETPLACE_CATALOG,
-            filters=filters,
+            **request,
         )
-    )
+        agreements.extend(response.get("agreementViewSummaries", []))
+        next_token = response.get("nextToken")
+        if not next_token:
+            break
+        request["nextToken"] = next_token
     if not agreements:
         return None
     if len(agreements) != 1:

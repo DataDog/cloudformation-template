@@ -173,14 +173,13 @@ class TestTemplate(unittest.TestCase):
 
 class TestAgreementDiscovery(unittest.TestCase):
     def test_returns_active_agreement(self):
-        client = paginator_client(
-            search_agreements=[
-                {"agreementViewSummaries": [{"agreementId": "agreement-1"}]}
-            ]
-        )
+        client = MagicMock()
+        client.search_agreements.return_value = {
+            "agreementViewSummaries": [{"agreementId": "agreement-1"}]
+        }
 
         self.assertEqual(find_active_agreement(client), "agreement-1")
-        client.paginators["search_agreements"].paginate.assert_called_once_with(
+        client.search_agreements.assert_called_once_with(
             catalog="AWSMarketplace",
             filters=[
                 {"name": "PartyType", "values": ["Acceptor"]},
@@ -192,28 +191,31 @@ class TestAgreementDiscovery(unittest.TestCase):
                 {"name": "Status", "values": ["ACTIVE"]},
             ],
         )
+        client.get_paginator.assert_not_called()
 
     def test_returns_none_when_no_active_agreement_exists(self):
-        client = paginator_client(
-            search_agreements=[{"agreementViewSummaries": []}]
-        )
+        client = MagicMock()
+        client.search_agreements.return_value = {"agreementViewSummaries": []}
 
         self.assertIsNone(find_active_agreement(client))
 
-    def test_rejects_multiple_active_agreements(self):
-        client = paginator_client(
-            search_agreements=[
-                {
-                    "agreementViewSummaries": [
-                        {"agreementId": "agreement-1"},
-                        {"agreementId": "agreement-2"},
-                    ]
-                }
-            ]
-        )
+    def test_rejects_multiple_active_agreements_across_pages(self):
+        client = MagicMock()
+        client.search_agreements.side_effect = [
+            {
+                "agreementViewSummaries": [{"agreementId": "agreement-1"}],
+                "nextToken": "page-2",
+            },
+            {"agreementViewSummaries": [{"agreementId": "agreement-2"}]},
+        ]
 
         with self.assertRaisesRegex(SubscriptionError, "Multiple active"):
             find_active_agreement(client)
+
+        self.assertEqual(client.search_agreements.call_count, 2)
+        self.assertEqual(
+            client.search_agreements.call_args_list[1].kwargs["nextToken"], "page-2"
+        )
 
 
 class TestOfferDiscovery(unittest.TestCase):
@@ -588,7 +590,7 @@ class TestAPIFailureStages(unittest.TestCase):
 
     def test_agreement_discovery_failure(self):
         client = MagicMock()
-        client.get_paginator.side_effect = RuntimeError("AccessDenied")
+        client.search_agreements.side_effect = RuntimeError("AccessDenied")
 
         self.assert_stage(
             "agreement_discovery", lambda: find_active_agreement(client)
@@ -596,12 +598,12 @@ class TestAPIFailureStages(unittest.TestCase):
 
     @patch("accept_operator_subscription.time.monotonic", return_value=90)
     def test_agreement_discovery_stops_near_deadline(self, _mock_monotonic):
-        client = paginator_client(
-            search_agreements=[{"agreementViewSummaries": []}]
-        )
+        client = MagicMock()
 
         with self.assertRaisesRegex(SubscriptionError, "deadline is near"):
             find_active_agreement(client, deadline=100)
+
+        client.search_agreements.assert_not_called()
 
     def test_offer_discovery_failure(self):
         client = MagicMock()
