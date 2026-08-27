@@ -1,3 +1,7 @@
+# 4.19.1 (August 25, 2026)
+
+- Fix Datadog Operator Marketplace agreement discovery and acceptance for Lambda runtimes that lack required agreement operations or paginators.
+
 # 4.19.0 (August 21, 2026)
 
 - Accept the free Datadog Operator AWS Marketplace agreement in the commercial AWS partition when EKS instrumentation is selected, allowing the managed add-on installation to proceed without Marketplace permissions on the Datadog integration role. GovCloud and China deployments skip automatic agreement acceptance.
