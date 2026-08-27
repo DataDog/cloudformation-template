@@ -1,6 +1,6 @@
 # 4.20.0 (August 27, 2026)
 
-- Add AWS Lambda as a managed instrumentation resource type and avoid provisioning EventBridge resources when only resource types without event forwarding are selected.
+- Add AWS Lambda as a managed instrumentation resource type and forward Lambda lifecycle, configuration, and tag changes for event-driven reconciliation.
 
 # 4.19.1 (August 25, 2026)
 

@@ -32,7 +32,7 @@ Parameters:
       Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:eks:cluster,
       aws:lambda:function) to enable Datadog instrumentation for. The integration role is granted the IAM
       permissions required to instrument these resources. CloudTrail update events are forwarded to Datadog
-      for aws:ec2:instance and aws:eks:cluster; other types receive IAM permissions but no event forwarding.
+      for supported resource types; other types receive IAM permissions but no event forwarding.
 Rules:
   ValidateAccountId:
     Assertions:
@@ -65,10 +65,24 @@ Conditions:
           - !Sub
             - ",${NormalizedResourceTypes},"
             - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  IncludeLambda:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join
+            - ""
+            - !Split
+              - ",aws:lambda:function,"
+              - !Sub
+                - ",${NormalizedResourceTypes},"
+                - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+          - !Sub
+            - ",${NormalizedResourceTypes},"
+            - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
   ShouldForwardEvents:
     Fn::Or:
       - Condition: IncludeEC2
       - Condition: IncludeEKS
+      - Condition: IncludeLambda
 Resources:
   # Attaches only the instrumentation IAM policies to the existing integration role. ManageBasePermissions
   # is false so the standard and resource-collection policies owned by the role stack are left untouched.

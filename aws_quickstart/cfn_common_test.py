@@ -73,7 +73,7 @@ class TestInlineComposition(unittest.TestCase):
 
 
 class TestForwardingConditions(unittest.TestCase):
-    def test_parent_templates_gate_forwarding_on_ec2_or_eks(self):
+    def test_parent_templates_gate_forwarding_on_supported_resource_types(self):
         directory = Path(__file__).parent
         condition = """  IncludeEC2:
     Fn::Not:
@@ -101,10 +101,24 @@ class TestForwardingConditions(unittest.TestCase):
           - !Sub
             - ",${NormalizedResourceTypes},"
             - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  IncludeLambda:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join
+            - ""
+            - !Split
+              - ",aws:lambda:function,"
+              - !Sub
+                - ",${NormalizedResourceTypes},"
+                - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+          - !Sub
+            - ",${NormalizedResourceTypes},"
+            - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
   ShouldForwardEvents:
     Fn::Or:
       - Condition: IncludeEC2
       - Condition: IncludeEKS
+      - Condition: IncludeLambda
 """
 
         for filename in (

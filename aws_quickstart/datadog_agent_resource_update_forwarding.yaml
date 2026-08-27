@@ -24,8 +24,8 @@ Parameters:
     Default: ""
     Description: >-
       Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance,
-      aws:eks:cluster) to forward CloudTrail events for. Only rules for the listed
-      types are deployed.
+      aws:eks:cluster, aws:lambda:function) to forward CloudTrail events for. Only
+      rules for the listed types are deployed.
 Conditions:
   IncludeEC2:
     Fn::Not:
@@ -37,14 +37,14 @@ Conditions:
       - Fn::Equals:
           - !Join ["", !Split [",aws:eks:cluster,", !Sub ",${InstrumentationResourceTypes},"]]
           - !Sub ",${InstrumentationResourceTypes},"
-  ShouldForwardEvents:
-    Fn::Or:
-      - Condition: IncludeEC2
-      - Condition: IncludeEKS
+  IncludeLAMBDA:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Split [",aws:lambda:function,", !Sub ",${InstrumentationResourceTypes},"]]
+          - !Sub ",${InstrumentationResourceTypes},"
 Resources:
   DDIntakeConnection:
     Type: AWS::Events::Connection
-    Condition: ShouldForwardEvents
     Properties:
       Name: datadog-agent-resource-update-intake-connection
       Description: Credentials for the Datadog resource update intake
@@ -60,7 +60,6 @@ Resources:
               IsValueSecret: true
   DDIntakeApiDestination:
     Type: AWS::Events::ApiDestination
-    Condition: ShouldForwardEvents
     Properties:
       Name: datadog-agent-resource-update-intake-destination
       ConnectionArn: !GetAtt DDIntakeConnection.Arn
@@ -69,7 +68,6 @@ Resources:
       InvocationRateLimitPerSecond: 10
   DDEventBridgeInvocationRole:
     Type: AWS::IAM::Role
-    Condition: ShouldForwardEvents
     Properties:
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -91,7 +89,6 @@ Resources:
                 Resource: !Sub "arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/*"
   DDEventBridgeCrossRegionRole:
     Type: AWS::IAM::Role
-    Condition: ShouldForwardEvents
     Properties:
       RoleName: datadog-eventbridge-cross-region-role
       AssumeRolePolicyDocument:
@@ -169,6 +166,35 @@ Resources:
               requestParameters:
                 resourceArn:
                   - wildcard: "*:cluster/*"
+      Targets:
+        - Id: datadog-intake
+          Arn: !GetAtt DDIntakeApiDestination.Arn
+          RoleArn: !GetAtt DDEventBridgeInvocationRole.Arn
+  DDEventForwardingRuleLAMBDA:
+    Type: AWS::Events::Rule
+    Condition: IncludeLAMBDA
+    Properties:
+      Name: datadog-agent-resource-update-rule-lambda
+      Description: Forward LAMBDA CloudTrail events to the Datadog resource update intake
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.lambda
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          errorCode:
+            - exists: false
+          $or:
+            - eventName:
+                - CreateFunction20150331
+                - UpdateFunctionConfiguration20150331v2
+            - eventName:
+                - TagResource20170331v2
+                - UntagResource20170331v2
+              requestParameters:
+                resource:
+                  - wildcard: "*:function:*"
       Targets:
         - Id: datadog-intake
           Arn: !GetAtt DDIntakeApiDestination.Arn
