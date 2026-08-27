@@ -283,8 +283,12 @@ def _role_arn_patterns_overlap(left, right):
 
 
 def _validate_permissions_boundary_policy_documents(boundary_documents, account_id, partition):
-    if not isinstance(boundary_documents, list) or not boundary_documents:
+    if boundary_documents is None:
         raise DatadogAPIError("Datadog API returned no permissions boundary policy documents")
+    if not isinstance(boundary_documents, list):
+        raise DatadogAPIError("Datadog API returned invalid permissions boundary policy documents")
+    if not boundary_documents:
+        return []
     if len(boundary_documents) > MAX_BOUNDARY_POLICIES:
         raise DatadogAPIError(
             f"Datadog API returned {len(boundary_documents)} permissions boundaries; "

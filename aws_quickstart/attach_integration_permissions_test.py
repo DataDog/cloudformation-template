@@ -479,6 +479,28 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.iam.create_policy.assert_not_called()
         self.iam.detach_role_policy.assert_not_called()
 
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_lambda_without_boundaries_attaches_instrumentation_policy(self, mock_urlopen):
+        document = {"Version": "2012-10-17", "Statement": []}
+        mock_urlopen.return_value = self._mock_response(
+            policy_documents=[document],
+            permissions_boundary_policy_documents=[],
+        )
+
+        self._attach(["aws:lambda:function"], fail_on_error=True)
+
+        self.assertEqual(self._created_policy_documents(), [document])
+        self.manage_boundaries.assert_called_once_with(
+            self.iam,
+            [],
+            self.owner_id,
+        )
+        self.cleanup_boundaries.assert_called_once_with(
+            self.iam,
+            self.owner_id,
+            retained_policy_arns=set(),
+        )
+
     @patch("attach_integration_permissions._replace_instrumentation_policies")
     @patch("attach_integration_permissions.urllib.request.urlopen")
     def test_manages_boundaries_before_replacing_instrumentation_policies(
@@ -837,6 +859,16 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         self.assertEqual(
             [document["policy_name"] for document in validated],
             sorted(BOUNDARY_POLICY_NAMES),
+        )
+
+    def test_accepts_explicit_empty_boundary_documents(self):
+        self.assertEqual(
+            _validate_permissions_boundary_policy_documents(
+                [],
+                "123456789012",
+                "aws",
+            ),
+            [],
         )
 
     def test_accepts_new_boundary_name_without_quickstart_change(self):
