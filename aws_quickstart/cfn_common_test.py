@@ -72,5 +72,50 @@ class TestInlineComposition(unittest.TestCase):
                 compile(source, filename, "exec")
 
 
+class TestForwardingConditions(unittest.TestCase):
+    def test_parent_templates_gate_forwarding_on_ec2_or_eks(self):
+        directory = Path(__file__).parent
+        condition = """  IncludeEC2:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join
+            - ""
+            - !Split
+              - ",aws:ec2:instance,"
+              - !Sub
+                - ",${NormalizedResourceTypes},"
+                - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+          - !Sub
+            - ",${NormalizedResourceTypes},"
+            - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  IncludeEKS:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join
+            - ""
+            - !Split
+              - ",aws:eks:cluster,"
+              - !Sub
+                - ",${NormalizedResourceTypes},"
+                - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+          - !Sub
+            - ",${NormalizedResourceTypes},"
+            - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  ShouldForwardEvents:
+    Fn::Or:
+      - Condition: IncludeEC2
+      - Condition: IncludeEKS
+"""
+
+        for filename in (
+            "main_agent_installation.yaml",
+            "main_workflow.yaml",
+            "main_extended_workflow.yaml",
+        ):
+            with self.subTest(filename=filename):
+                template = (directory / filename).read_text()
+                self.assertIn(condition, template)
+
+
 if __name__ == "__main__":
     unittest.main()

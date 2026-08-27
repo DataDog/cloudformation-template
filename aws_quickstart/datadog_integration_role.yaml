@@ -23,8 +23,8 @@ Parameters:
     Default: ""
     Description: >-
       Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster,
-      aws:eks:cluster) that the Datadog integration role should be granted the IAM permissions
-      required to instrument with the Datadog Agent. Leave blank to skip.
+      aws:eks:cluster, aws:lambda:function) that the Datadog integration role should be granted the IAM permissions
+      required to instrument. Leave blank to skip.
   DatadogSite:
     Type: String
     Default: "datadoghq.com"

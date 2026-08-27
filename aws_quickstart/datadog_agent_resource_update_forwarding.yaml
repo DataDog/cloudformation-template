@@ -37,9 +37,14 @@ Conditions:
       - Fn::Equals:
           - !Join ["", !Split [",aws:eks:cluster,", !Sub ",${InstrumentationResourceTypes},"]]
           - !Sub ",${InstrumentationResourceTypes},"
+  ShouldForwardEvents:
+    Fn::Or:
+      - Condition: IncludeEC2
+      - Condition: IncludeEKS
 Resources:
   DDIntakeConnection:
     Type: AWS::Events::Connection
+    Condition: ShouldForwardEvents
     Properties:
       Name: datadog-agent-resource-update-intake-connection
       Description: Credentials for the Datadog resource update intake
@@ -55,6 +60,7 @@ Resources:
               IsValueSecret: true
   DDIntakeApiDestination:
     Type: AWS::Events::ApiDestination
+    Condition: ShouldForwardEvents
     Properties:
       Name: datadog-agent-resource-update-intake-destination
       ConnectionArn: !GetAtt DDIntakeConnection.Arn
@@ -63,6 +69,7 @@ Resources:
       InvocationRateLimitPerSecond: 10
   DDEventBridgeInvocationRole:
     Type: AWS::IAM::Role
+    Condition: ShouldForwardEvents
     Properties:
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -84,6 +91,7 @@ Resources:
                 Resource: !Sub "arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/*"
   DDEventBridgeCrossRegionRole:
     Type: AWS::IAM::Role
+    Condition: ShouldForwardEvents
     Properties:
       RoleName: datadog-eventbridge-cross-region-role
       AssumeRolePolicyDocument:

@@ -1,3 +1,7 @@
+# 4.20.0 (August 27, 2026)
+
+- Add AWS Lambda as a managed instrumentation resource type and avoid provisioning EventBridge resources when only resource types without event forwarding are selected.
+
 # 4.19.1 (August 25, 2026)
 
 - Fix Datadog Operator Marketplace agreement discovery and acceptance for Lambda runtimes that lack required agreement operations or paginators.

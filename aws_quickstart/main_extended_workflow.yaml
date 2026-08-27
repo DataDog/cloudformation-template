@@ -95,9 +95,9 @@ Parameters:
   InstrumentationResourceTypes:
     Type: CommaDelimitedList
     Description: >-
-      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster, aws:eks:cluster)
-      that the Datadog integration role should be granted the IAM permissions required to instrument with the Datadog
-      Agent. Leave blank to skip granting any extra instrumentation permissions.
+      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster,
+      aws:eks:cluster, aws:lambda:function) that the Datadog integration role should be granted the IAM permissions
+      required to instrument. Leave blank to skip granting any extra instrumentation permissions.
     Default: ""
   AgentlessVulnerabilityScanning:
     Type: String
@@ -222,11 +222,36 @@ Conditions:
     Fn::Equals:
       - !Ref DisableResourceCollection
       - false
-  ShouldForwardEvents:
+  IncludeEC2:
     Fn::Not:
       - Fn::Equals:
-          - !Join ["", !Ref InstrumentationResourceTypes]
-          - ""
+          - !Join
+            - ""
+            - !Split
+              - ",aws:ec2:instance,"
+              - !Sub
+                - ",${NormalizedResourceTypes},"
+                - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+          - !Sub
+            - ",${NormalizedResourceTypes},"
+            - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  IncludeEKS:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join
+            - ""
+            - !Split
+              - ",aws:eks:cluster,"
+              - !Sub
+                - ",${NormalizedResourceTypes},"
+                - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+          - !Sub
+            - ",${NormalizedResourceTypes},"
+            - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  ShouldForwardEvents:
+    Fn::Or:
+      - Condition: IncludeEC2
+      - Condition: IncludeEKS
   EnableAgentlessScanning:
     Fn::And:
       - Fn::Not:
@@ -564,9 +589,6 @@ Resources:
         stack_id: !Ref AWS::StackId
         forwarder_arn: !GetAtt ForwarderStack.Outputs.DatadogForwarderArn
 
-  # EventBridge pipeline forwarding CloudTrail events to the Datadog resource update
-  # intake. Deployed only when at least one InstrumentationResourceTypes value is set;
-  # single-region (covers the region this stack is deployed in).
   DatadogAgentResourceUpdateForwardingStack:
     Type: AWS::CloudFormation::Stack
     Condition: ShouldForwardEvents
