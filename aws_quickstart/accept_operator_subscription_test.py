@@ -32,6 +32,7 @@ from accept_operator_subscription import (
     validate_zero_charge_summary,
     wait_for_entitlement,
 )
+from marketplace_agreement_compat import apply_marketplace_agreement_compatibility
 
 
 def paginator_client(**operation_pages):
@@ -166,9 +167,86 @@ class TestTemplate(unittest.TestCase):
 
         self.assertIn(
             "embed_python_source_with_common datadog_integration_permissions.yaml "
-            "accept_operator_subscription.py ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE",
+            "accept_operator_subscription.py ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE "
+            "marketplace_agreement_compat.py",
             release,
         )
+
+
+class TestMarketplaceAgreementCompatibility(unittest.TestCase):
+    def test_adds_missing_operations_and_paginators(self):
+        session = MagicMock()
+        runtime_shape = {"runtime": True}
+        service_data = {
+            "operations": {"SearchAgreements": {}},
+            "shapes": {"ResourceId": runtime_shape},
+        }
+        paginator_config = {}
+        session._session.get_service_data.return_value = service_data
+        session._session.get_paginator_model.return_value._paginator_config = (
+            paginator_config
+        )
+
+        applied = apply_marketplace_agreement_compatibility(session)
+
+        self.assertTrue(applied)
+        self.assertIn("CreateAgreementRequest", service_data["operations"])
+        self.assertIn("AcceptAgreementRequest", service_data["operations"])
+        self.assertIn("GetAgreementEntitlements", service_data["operations"])
+        self.assertIn("CreateAgreementRequestInput", service_data["shapes"])
+        self.assertIn("AcceptAgreementRequestOutput", service_data["shapes"])
+        self.assertIn("GetAgreementEntitlementsInput", service_data["shapes"])
+        self.assertIn("GetAgreementEntitlementsOutput", service_data["shapes"])
+        self.assertIs(service_data["shapes"]["ResourceId"], runtime_shape)
+        self.assertIn("GetAgreementEntitlements", paginator_config)
+        self.assertIn("SearchAgreements", paginator_config)
+
+    def test_preserves_runtime_model_when_definitions_are_available(self):
+        session = MagicMock()
+        operations = {
+            "CreateAgreementRequest": {"runtime": True},
+            "AcceptAgreementRequest": {"runtime": True},
+            "GetAgreementEntitlements": {"runtime": True},
+        }
+        paginator_config = {
+            "GetAgreementEntitlements": {"runtime": True},
+            "SearchAgreements": {"runtime": True},
+        }
+        service_data = {"operations": operations.copy(), "shapes": {}}
+        session._session.get_service_data.return_value = service_data
+        session._session.get_paginator_model.return_value._paginator_config = (
+            paginator_config.copy()
+        )
+
+        applied = apply_marketplace_agreement_compatibility(session)
+
+        self.assertFalse(applied)
+        self.assertEqual(service_data["operations"], operations)
+        self.assertEqual(service_data["shapes"], {})
+
+    def test_adds_only_missing_paginator_to_runtime_model(self):
+        session = MagicMock()
+        operations = {
+            "CreateAgreementRequest": {"runtime": True},
+            "AcceptAgreementRequest": {"runtime": True},
+            "GetAgreementEntitlements": {"runtime": True},
+        }
+        shapes = {"RuntimeShape": {"runtime": True}}
+        service_data = {"operations": operations.copy(), "shapes": shapes.copy()}
+        search_paginator = {"runtime": True}
+        paginator_config = {"SearchAgreements": search_paginator}
+        session._session.get_service_data.return_value = service_data
+        session._session.get_paginator_model.return_value._paginator_config = (
+            paginator_config
+        )
+
+        applied = apply_marketplace_agreement_compatibility(session)
+
+        self.assertTrue(applied)
+        self.assertEqual(service_data["operations"], operations)
+        self.assertEqual(service_data["shapes"], shapes)
+        self.assertIn("GetAgreementEntitlements", paginator_config)
+        self.assertIs(paginator_config["SearchAgreements"], search_paginator)
 
 
 class TestAgreementDiscovery(unittest.TestCase):
@@ -200,15 +278,11 @@ class TestAgreementDiscovery(unittest.TestCase):
 
         self.assertIsNone(find_active_agreement(client))
 
-    def test_rejects_multiple_active_agreements(self):
+    def test_rejects_multiple_active_agreements_across_pages(self):
         client = paginator_client(
             search_agreements=[
-                {
-                    "agreementViewSummaries": [
-                        {"agreementId": "agreement-1"},
-                        {"agreementId": "agreement-2"},
-                    ]
-                }
+                {"agreementViewSummaries": [{"agreementId": "agreement-1"}]},
+                {"agreementViewSummaries": [{"agreementId": "agreement-2"}]},
             ]
         )
 
@@ -667,8 +741,14 @@ class TestAPIFailureStages(unittest.TestCase):
 
 
 class TestClientInitialization(unittest.TestCase):
+    @patch(
+        "accept_operator_subscription.apply_marketplace_agreement_compatibility",
+        return_value=False,
+    )
     @patch("accept_operator_subscription.boto3.Session")
-    def test_reports_runtime_without_marketplace_discovery(self, mock_session):
+    def test_reports_runtime_without_marketplace_discovery(
+        self, mock_session, _mock_compatibility
+    ):
         mock_session.return_value.client.side_effect = RuntimeError("UnknownServiceError")
 
         with self.assertRaises(SubscriptionError) as raised:

@@ -10,7 +10,7 @@ from botocore.config import Config
 import cfnresponse
 
 from cfn_common import send_cfn_response
-
+from marketplace_agreement_compat import apply_marketplace_agreement_compatibility
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
@@ -612,6 +612,7 @@ def wait_for_entitlement(
 def ensure_subscription(event, *, deadline=None):
     try:
         session = boto3.Session()
+        compatibility_applied = apply_marketplace_agreement_compatibility(session)
         discovery_client = session.client(
             "marketplace-discovery",
             region_name=MARKETPLACE_REGION,
@@ -634,6 +635,7 @@ def ensure_subscription(event, *, deadline=None):
         "succeeded",
         "clients_created",
         boto3_version=getattr(boto3, "__version__", "unknown"),
+        marketplace_compatibility_model_applied=compatibility_applied,
     )
 
     agreement_id = find_active_agreement(agreement_client, deadline=deadline)

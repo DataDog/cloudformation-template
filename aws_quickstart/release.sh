@@ -61,14 +61,21 @@ embed_python_source_with_common() {
     local template="$1"
     local source="$2"
     local placeholder="$3"
+    local supplemental_source="${4:-}"
     local composed_source
     composed_source=$(mktemp)
 
-    # CloudFormation ZipFile Lambdas are single-file modules, so inline the shared
-    # helper and remove the local-development import from the handler source.
+    # CloudFormation ZipFile Lambdas are single-file modules, so inline shared
+    # sources and remove their local-development imports from the handler source.
     {
         sed -e '$a\' cfn_common.py
-        sed '/^from cfn_common import send_cfn_response$/d' "$source"
+        if [ -n "${supplemental_source}" ]; then
+            sed -e '$a\' "${supplemental_source}"
+        fi
+        sed \
+            -e '/^from cfn_common import send_cfn_response$/d' \
+            -e '/^from marketplace_agreement_compat import apply_marketplace_agreement_compatibility$/d' \
+            "$source"
     } > "${composed_source}"
     embed_python_source "$template" "${composed_source}" "$placeholder"
     rm -f "${composed_source}"
@@ -156,6 +163,7 @@ trap "rm -rf ${TEMP_DIR}" EXIT
 # Copy all YAML files to temp directory
 cp *.yaml "${TEMP_DIR}/"
 cp datadog_agentless_api_call.py cfn_common.py attach_integration_permissions.py accept_operator_subscription.py "${TEMP_DIR}/"
+cp marketplace_agreement_compat.py "${TEMP_DIR}/"
 
 # Change to temp directory for processing
 cd "${TEMP_DIR}"
@@ -183,7 +191,7 @@ for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main
 done
 
 embed_python_source_with_common datadog_integration_permissions.yaml attach_integration_permissions.py ATTACH_INTEGRATION_PERMISSIONS_SOURCE
-embed_python_source_with_common datadog_integration_permissions.yaml accept_operator_subscription.py ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE
+embed_python_source_with_common datadog_integration_permissions.yaml accept_operator_subscription.py ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE marketplace_agreement_compat.py
 
 # Process Agentless Scanning templates
 for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml datadog_agentless_delegate_role_stackset.yaml datadog_agentless_saas.yaml; do
