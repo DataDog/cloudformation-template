@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+from pathlib import Path
 import sys
 import unittest
 from unittest.mock import patch, Mock, MagicMock, call
@@ -22,6 +23,7 @@ from attach_integration_permissions import (
     cleanup_legacy_base_policies,
     handle_create_update,
     handle_delete,
+    handler,
     POLICY_NAME_STANDARD,
     BASE_POLICY_PREFIX_INSTRUMENTATION,
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
@@ -256,6 +258,27 @@ class TestCleanupLegacyBasePolicies(unittest.TestCase):
         cleanup_legacy_base_policies(self.iam, "MyRole", "123456789012", "aws", max_policies=3)
         arns = detached_arns(self.iam)
         self.assertTrue(all("instrumentation" not in a for a in arns))
+
+
+class TestHandlerLogging(unittest.TestCase):
+    @patch("attach_integration_permissions.handle_create_update")
+    @patch("attach_integration_permissions.LOGGER")
+    def test_handler_does_not_log_cloudformation_event(self, mock_logger, mock_create_update):
+        marker = "forged\r\nlog entry"
+        event = {
+            "RequestType": "Create",
+            "ResourceProperties": {"UntrustedValue": marker},
+        }
+
+        handler(event, None)
+
+        mock_create_update.assert_called_once_with(event, None)
+        self.assertNotIn(marker, str(mock_logger.method_calls))
+
+    def test_inline_handler_does_not_log_cloudformation_event(self):
+        template = Path(__file__).with_name("main_organizations.yaml").read_text()
+
+        self.assertNotIn('LOGGER.info("Event received: %s", json.dumps(event))', template)
 
 
 class TestManageBasePermissions(unittest.TestCase):
