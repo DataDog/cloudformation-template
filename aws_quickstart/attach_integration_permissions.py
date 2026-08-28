@@ -283,8 +283,14 @@ def _role_arn_patterns_overlap(left, right):
 
 
 def _validate_permissions_boundary_policy_documents(boundary_documents, account_id, partition):
+    # An absent field means a response predating the boundary contract, so it stays fatal.
+    # An explicit empty list is a valid answer: resource types with no helper role, such as
+    # aws:lambda:function, need no boundary, and any boundary left from a previous selection
+    # is then correctly cleaned up.
     if boundary_documents is None:
-        raise DatadogAPIError("Datadog API returned no permissions boundary policy documents")
+        raise DatadogAPIError(
+            "Datadog API response omitted permissions_boundary_policy_documents"
+        )
     if not isinstance(boundary_documents, list):
         raise DatadogAPIError("Datadog API returned invalid permissions boundary policy documents")
     if not boundary_documents:

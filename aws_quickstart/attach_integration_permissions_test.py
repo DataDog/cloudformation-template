@@ -15,6 +15,7 @@ if "cfnresponse" not in sys.modules:
     sys.modules["cfnresponse"] = MagicMock()
 
 from attach_integration_permissions import (
+    DatadogAPIError,
     parse_resource_types,
     build_instrumentation_permissions_url,
     attach_instrumentation_permissions,
@@ -860,6 +861,10 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
             [document["policy_name"] for document in validated],
             sorted(BOUNDARY_POLICY_NAMES),
         )
+
+    def test_rejects_omitted_boundary_documents(self):
+        with self.assertRaises(DatadogAPIError):
+            _validate_permissions_boundary_policy_documents(None, "123456789012", "aws")
 
     def test_accepts_explicit_empty_boundary_documents(self):
         self.assertEqual(
