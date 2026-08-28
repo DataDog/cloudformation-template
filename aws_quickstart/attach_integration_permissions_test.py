@@ -81,7 +81,7 @@ class TestLambdaSourceEmbedding(unittest.TestCase):
 
     def test_custom_resource_has_policy_attachment_schema_version(self):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
-        self.assertIn('      PolicyAttachmentSchemaVersion: "5"', template_path.read_text())
+        self.assertIn('      PolicyAttachmentSchemaVersion: "6"', template_path.read_text())
 
     def test_execution_role_scopes_boundary_lifecycle_to_namespace(self):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")

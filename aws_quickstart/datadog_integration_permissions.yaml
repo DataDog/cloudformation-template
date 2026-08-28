@@ -158,7 +158,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
       # Change only for migrations that must rerun policy attachment on existing stacks.
-      PolicyAttachmentSchemaVersion: "5"
+      PolicyAttachmentSchemaVersion: "6"
       DatadogIntegrationRole: !Ref IAMRoleName
       AccountId: !Ref AWS::AccountId
       Partition: !Sub "${AWS::Partition}"
