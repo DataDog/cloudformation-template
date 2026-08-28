@@ -85,9 +85,9 @@ Parameters:
   InstrumentationResourceTypes:
     Type: CommaDelimitedList
     Description: >-
-      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster, aws:eks:cluster)
-      that the Datadog integration role should be granted the IAM permissions required to instrument with the Datadog
-      Agent. Leave blank to skip granting any extra instrumentation permissions.
+      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster,
+      aws:eks:cluster, aws:lambda:function) that the Datadog integration role should be granted the IAM permissions
+      required to instrument. Leave blank to skip granting any extra instrumentation permissions.
     Default: ""
   AgentlessVulnerabilityScanning:
     Type: String

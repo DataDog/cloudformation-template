@@ -18,9 +18,9 @@ Parameters:
     Default: ""
     Description: >-
       Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:ecs:cluster,
-      aws:eks:cluster) that the Datadog integration role should be granted the IAM permissions
-      required to instrument with the Datadog Agent. In the commercial AWS partition, selecting
-      EKS also accepts the free Datadog Operator AWS Marketplace agreement. Leave blank to skip.
+      aws:eks:cluster, aws:lambda:function) that the Datadog integration role should be granted the
+      IAM permissions required to instrument. In the commercial AWS partition, selecting EKS also
+      accepts the free Datadog Operator AWS Marketplace agreement. Leave blank to skip.
   DatadogSite:
     Type: String
     Default: "datadoghq.com"
@@ -157,8 +157,8 @@ Resources:
     Type: Custom::DatadogAttachIntegrationPermissionsFunctionTrigger
     Properties:
       ServiceToken: !GetAtt DatadogAttachIntegrationPermissionsFunction.Arn
-      # Bump this value when Lambda behavior changes so existing stacks invoke the custom resource.
-      PolicyAttachmentSchemaVersion: "5"
+      # Change only for migrations that must rerun policy attachment on existing stacks.
+      PolicyAttachmentSchemaVersion: "6"
       DatadogIntegrationRole: !Ref IAMRoleName
       AccountId: !Ref AWS::AccountId
       Partition: !Sub "${AWS::Partition}"

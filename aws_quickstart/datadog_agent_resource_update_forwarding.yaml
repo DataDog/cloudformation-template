@@ -24,8 +24,8 @@ Parameters:
     Default: ""
     Description: >-
       Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance,
-      aws:eks:cluster) to forward CloudTrail events for. Only rules for the listed
-      types are deployed.
+      aws:eks:cluster, aws:lambda:function) to forward CloudTrail events for. Only
+      rules for the listed types are deployed.
 Conditions:
   IncludeEC2:
     Fn::Not:
@@ -36,6 +36,11 @@ Conditions:
     Fn::Not:
       - Fn::Equals:
           - !Join ["", !Split [",aws:eks:cluster,", !Sub ",${InstrumentationResourceTypes},"]]
+          - !Sub ",${InstrumentationResourceTypes},"
+  IncludeLAMBDA:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Split [",aws:lambda:function,", !Sub ",${InstrumentationResourceTypes},"]]
           - !Sub ",${InstrumentationResourceTypes},"
 Resources:
   DDIntakeConnection:
@@ -161,6 +166,35 @@ Resources:
               requestParameters:
                 resourceArn:
                   - wildcard: "*:cluster/*"
+      Targets:
+        - Id: datadog-intake
+          Arn: !GetAtt DDIntakeApiDestination.Arn
+          RoleArn: !GetAtt DDEventBridgeInvocationRole.Arn
+  DDEventForwardingRuleLAMBDA:
+    Type: AWS::Events::Rule
+    Condition: IncludeLAMBDA
+    Properties:
+      Name: datadog-agent-resource-update-rule-lambda
+      Description: Forward LAMBDA CloudTrail events to the Datadog resource update intake
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.lambda
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          errorCode:
+            - exists: false
+          $or:
+            - eventName:
+                - CreateFunction20150331
+                - UpdateFunctionConfiguration20150331v2
+            - eventName:
+                - TagResource20170331v2
+                - UntagResource20170331v2
+              requestParameters:
+                resource:
+                  - wildcard: "*:function:*"
       Targets:
         - Id: datadog-intake
           Arn: !GetAtt DDIntakeApiDestination.Arn

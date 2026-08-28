@@ -1,12 +1,6 @@
 # version: <VERSION_PLACEHOLDER>
-#
-# Post-setup Agent installation add-on. Lets customers who declined the Agent installation option
-# during initial AWS integration setup enable it later, against an existing integration role: it
-# attaches the instrumentation IAM permissions and deploys the EventBridge forwarding pipeline,
-# without touching the standard or resource-collection policies owned by the role stack.
-#
 AWSTemplateFormatVersion: 2010-09-09
-Description: Datadog AWS Integration - Agent installation add-on
+Description: Datadog AWS Integration - instrumentation add-on
 Parameters:
   APIKey:
     Description: >-
@@ -35,21 +29,60 @@ Parameters:
   InstrumentationResourceTypes:
     Type: CommaDelimitedList
     Description: >-
-      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:eks:cluster) to enable
-      Datadog Agent installation for. The integration role is granted the IAM permissions required to instrument
-      these resources. CloudTrail update events are forwarded to Datadog for the supported resource types
-      (currently aws:ec2:instance and aws:eks:cluster); other types receive IAM permissions but no event forwarding.
+      Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:eks:cluster,
+      aws:lambda:function) to enable Datadog instrumentation for. The integration role is granted the IAM
+      permissions required to instrument these resources. CloudTrail update events are forwarded to Datadog
+      for supported resource types; other types receive IAM permissions but no event forwarding.
 Rules:
   ValidateAccountId:
     Assertions:
       - Assert: !Equals [!Ref AccountId, !Ref "AWS::AccountId"]
         AssertDescription: "The AWS Account Id of the account integrated in Datadog does not match the AWS Account Id of the account where this stack will be created."
 Conditions:
-  ShouldForwardEvents:
+  IncludeEC2:
     Fn::Not:
       - Fn::Equals:
-          - !Join ["", !Ref InstrumentationResourceTypes]
-          - ""
+          - !Join
+            - ""
+            - !Split
+              - ",aws:ec2:instance,"
+              - !Sub
+                - ",${NormalizedResourceTypes},"
+                - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+          - !Sub
+            - ",${NormalizedResourceTypes},"
+            - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  IncludeEKS:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join
+            - ""
+            - !Split
+              - ",aws:eks:cluster,"
+              - !Sub
+                - ",${NormalizedResourceTypes},"
+                - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+          - !Sub
+            - ",${NormalizedResourceTypes},"
+            - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  IncludeLambda:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join
+            - ""
+            - !Split
+              - ",aws:lambda:function,"
+              - !Sub
+                - ",${NormalizedResourceTypes},"
+                - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+          - !Sub
+            - ",${NormalizedResourceTypes},"
+            - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  ShouldForwardEvents:
+    Fn::Or:
+      - Condition: IncludeEC2
+      - Condition: IncludeEKS
+      - Condition: IncludeLambda
 Resources:
   # Attaches only the instrumentation IAM policies to the existing integration role. ManageBasePermissions
   # is false so the standard and resource-collection policies owned by the role stack are left untouched.
@@ -64,9 +97,6 @@ Resources:
         DatadogSite: !Ref DatadogSite
         ManageBasePermissions: false
         FailOnInstrumentationError: true
-  # EventBridge pipeline forwarding CloudTrail events to the Datadog resource update intake.
-  # Deployed only when at least one InstrumentationResourceTypes value is set; single-region
-  # (covers the region this stack is deployed in).
   DatadogAgentResourceUpdateForwardingStack:
     Type: AWS::CloudFormation::Stack
     Condition: ShouldForwardEvents
