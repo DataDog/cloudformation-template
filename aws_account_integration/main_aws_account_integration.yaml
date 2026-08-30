@@ -1,0 +1,311 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Datadog AWS Account Auto Integration
+Parameters:
+  DdApiKey:
+    Description: Datadog API Key
+    Type: String
+    NoEcho: true
+  DdAppKey:
+    Description: Datadog Application Key
+    Type: String
+    NoEcho: true
+  DdSite:
+    Description: Datadog Site
+    Type: String
+    Default: datadoghq.com
+    AllowedValues:
+      - datadoghq.com
+      - datadoghq.eu
+      - us3.datadoghq.com
+      - us5.datadoghq.com
+      - ap1.datadoghq.com
+      - ddog-gov.com
+  DdInstallLambdaLogForwarder:
+    Description: Install Lambda Log Forwarder
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+  DdEnableCspm:
+    Description: Enable Cloud Security Posture Management
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  DdDisableMetricCollection:
+    Description: Disable Metric Collection
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  DdDisableResourceCollection:
+    Description: Disable Resource Collection
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  DdIamIntegrationRoleName:
+    Description: Datadog IAM Integration Role Name
+    Type: String
+    Default: DatadogIntegrationRole
+Resources:
+  DatadogKeysSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: "DatadogKeysSecret"
+      Description: "Datadog API and Application Keys"
+      SecretString: 
+        !Sub |
+          {
+            "DD_API_KEY": "${DdApiKey}",
+            "DD_APP_KEY": "${DdAppKey}"
+          }
+  DatadogAccountIntegrationLambdaFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+      ManagedPolicyArns:
+        -  Fn::Sub: "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: DatadogAccountIntegrationLambdaFunctionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource:
+                  - Fn::Sub: "arn:${AWS::Partition}:iam::*:role/OrganizationAccountAccessRole"
+              - Effect: Allow
+                Action:
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                Resource: 
+                  - !Ref DatadogKeysSecret
+  DatadogAccountIntegrationTrailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Join:
+          - "-"
+          - - "datadog-account-integration"
+            - !Select
+              - 0
+              - !Split
+                - "-"
+                - !Select
+                  - 2
+                  - !Split
+                    - "/"
+                    - !Ref "AWS::StackId"
+  DatadogAccountIntegrationTrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref "DatadogAccountIntegrationTrailBucket"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "cloudtrail.amazonaws.com"
+            Action: "s3:GetBucketAcl"
+            Resource: 
+              - Fn::GetAtt: ["DatadogAccountIntegrationTrailBucket", "Arn"]
+            Condition:
+              StringEquals:
+                "aws:SourceArn": 
+                  - Fn::Sub: "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/DatadogAccountIntegrationTrail"
+          - Effect: Allow
+            Principal:
+              Service: "cloudtrail.amazonaws.com"
+            Action: "s3:PutObject"
+            Resource: 
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt: ["DatadogAccountIntegrationTrailBucket", "Arn"]
+                    - "/datadog-account-integration/*"
+            Condition:
+              StringEquals:
+                "s3:x-amz-acl": "bucket-owner-full-control"
+                "aws:SourceArn": 
+                  - Fn::Sub: "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/DatadogAccountIntegrationTrail"
+  DatadogAccountIntegrationTrail:
+    DependsOn:
+      - DatadogAccountIntegrationTrailBucketPolicy
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      TrailName: "DatadogAccountIntegrationTrail"
+      IsLogging: true
+      IsMultiRegionTrail: true
+      IncludeGlobalServiceEvents: true
+      EventSelectors:
+        - IncludeManagementEvents: true
+          ReadWriteType: WriteOnly
+      S3BucketName: !Ref "DatadogAccountIntegrationTrailBucket"
+      S3KeyPrefix: "datadog-account-integration"
+  DatadogAccountIntegrationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.13
+      Timeout: 600
+      Code:
+        ZipFile: |
+          import os
+          import time
+          import boto3
+          import json
+
+          def handler(event, context):
+              if event.get("source") != "aws.organizations":
+                  return
+
+              if event.get("detail").get("eventName") != "CreateAccountResult":
+                  return
+
+              if event.get("detail").get("serviceEventDetails").get("createAccountStatus").get("state") != "SUCCEEDED":
+                  return
+
+              # We need to add a sleep here, to allow AWS finish provisioning of a new AWS account.
+              print(f"Sleep for 3 minutes to allow AWS finish provisioning of a new AWS account")
+              time.sleep(180)
+
+              newAccountId = event.get("detail").get("serviceEventDetails").get("createAccountStatus").get("accountId")
+              role = f"arn:aws:iam::{newAccountId}:role/OrganizationAccountAccessRole"
+              session = boto3.Session()
+
+              sts = session.client("sts")
+              assumeRoleResponse = sts.assume_role(RoleArn=role, RoleSessionName="datadog-aws-provisioning")
+
+              secrets = session.client("secretsmanager")
+              response = secrets.get_secret_value(SecretId=os.environ["DD_SECRET_ID"])
+              secret = json.loads(response["SecretString"])
+              dd_api_key = secret.get("DD_API_KEY")
+              dd_app_key = secret.get("DD_APP_KEY")
+
+              new_session = boto3.Session(
+                  aws_access_key_id=assumeRoleResponse["Credentials"]["AccessKeyId"],
+                  aws_secret_access_key=assumeRoleResponse["Credentials"]["SecretAccessKey"],
+                  aws_session_token=assumeRoleResponse["Credentials"]["SessionToken"],
+              )
+
+              cloudformation = new_session.client("cloudformation")
+              response = cloudformation.create_stack(
+                  StackName="Datadog-Integration-New-AWS-Account-cf-stack",
+                  TemplateURL="https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/v2.0.5/main_v2.yaml",
+                  Parameters=[
+                      {
+                          "ParameterKey": "APIKey",
+                          "ParameterValue": dd_api_key,
+                      },
+                      {
+                          "ParameterKey": "APPKey",
+                          "ParameterValue": dd_app_key,
+                      },
+                      {
+                          "ParameterKey": "DatadogSite",
+                          "ParameterValue": os.environ["DD_SITE"],
+                      },
+                      {
+                          "ParameterKey": "InstallLambdaLogForwarder",
+                          "ParameterValue": os.environ["DD_INSTALL_LAMBDA_LOG_FORWARDER"],
+                      },
+                      {
+                          "ParameterKey": "DisableMetricCollection",
+                          "ParameterValue": os.environ["DD_DISABLE_METRIC_COLLECTION"],
+                      },
+                      {
+                          "ParameterKey": "DisableResourceCollection",
+                          "ParameterValue": os.environ["DD_DISABLE_RESOURCE_COLLECTION"],
+                      },
+                      {
+                          "ParameterKey": "CloudSecurityPostureManagement",
+                          "ParameterValue": os.environ["DD_ENABLE_CSPM"],
+                      },
+                      {
+                          "ParameterKey": "IAMRoleName",
+                          "ParameterValue": os.environ["DD_IAM_INTEGRATION_ROLE_NAME"],
+                      },
+                  ],
+                  Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM", "CAPABILITY_AUTO_EXPAND"],
+                  EnableTerminationProtection=False,
+                  TimeoutInMinutes=10,
+              )
+
+              stack_id = response["StackId"]
+              
+              print(f"Wait for Datadog Integration for account {newAccountId} to be created")
+              
+              while True:
+                  response = cloudformation.describe_stacks(StackName=stack_id)
+                  if response["Stacks"][0]["StackStatus"] == "CREATE_IN_PROGRESS":
+                      time.sleep(10)
+                      continue
+
+                  if response["Stacks"][0]["StackStatus"] == "CREATE_COMPLETE":
+                      print(f"Datadog Integration for account {newAccountId} has been successfully created")
+                      break
+
+                  print(f"Datadog Integration for account {newAccountId} failed to create")
+                  RuntimeError(f"Datadog Integration for account {newAccountId} failed to create")
+      Environment:
+        Variables:
+          DD_SECRET_ID: !Ref DatadogKeysSecret
+          DD_SITE: !Ref DdSite
+          DD_INSTALL_LAMBDA_LOG_FORWARDER: !Ref DdInstallLambdaLogForwarder
+          DD_ENABLE_CSPM: !Ref DdEnableCspm
+          DD_DISABLE_METRIC_COLLECTION: !Ref DdDisableMetricCollection
+          DD_DISABLE_RESOURCE_COLLECTION: !Ref DdDisableResourceCollection
+          DD_IAM_INTEGRATION_ROLE_NAME: !Ref DdIamIntegrationRoleName
+      Role:
+        Fn::GetAtt:
+          - "DatadogAccountIntegrationLambdaFunctionRole"
+          - "Arn"
+  DatadogAccountIntegrationEventLambdaPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Fn::GetAtt: 
+          - "DatadogAccountIntegrationLambdaFunction"
+          - "Arn"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "DatadogAccountIntegrationEventRule"
+          - "Arn"
+  DatadogAccountIntegrationEventRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      Name: 'DatadogAccountIntegrationEventBridgeRule'
+      Description: 'Datadog Account Integration EventBridge Rule'
+      EventPattern:
+        source:
+          - aws.organizations
+        detail:
+          eventName:
+            - CreateAccountResult
+          serviceEventDetails:
+            createAccountStatus:
+              state:
+                - SUCCEEDED
+      State: ENABLED
+      Targets:
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "DatadogAccountIntegrationLambdaFunction"
+              - "Arn"
+          Id: 'DatadogAccountIntegration'
