@@ -18,3 +18,6 @@
 
 # BIO (Bits Infrastructure Operations) permissions template
 /aws_bio_permissions/ @DataDog/bits-infrastructure-operations
+
+# LLM Observability template
+/aws_llm/ @DataDog/ai-platform @DataDog/ml-observability @DataDog/aws-integrations
