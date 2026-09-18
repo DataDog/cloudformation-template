@@ -1,3 +1,7 @@
+## 0.0.4
+
+Add optional CUR 2.0 table configurations for including capacity reservation and IAM principal data.
+
 ## 0.0.3
 
 Fix IAM policy creation by replacing `/` with `_` in the report prefix when building the policy name.
