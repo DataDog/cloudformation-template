@@ -1,4 +1,4 @@
-# version: 0.0.3
+# version: 0.0.4
 AWSTemplateFormatVersion: 2010-09-09
 Description: Datadog Cloud Cost Management Setup (CUR 2.0 / BCM Data Exports)
 Parameters:
@@ -36,6 +36,20 @@ Parameters:
       - true
       - false
     Description: Whether the S3 bucket for storing the Cost and Usage Report is created, or an existing one is used. Ignored if CreateCloudCostReport is false.
+  IncludeCapacityReservationData:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: Whether capacity reservation data is included in the Cost and Usage Report. Ignored if CreateCloudCostReport is false.
+  IncludeIAMPrincipalData:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: Whether IAM principal data is included in the Cost and Usage Report. Ignored if CreateCloudCostReport is false.
 
 Conditions:
   ShouldCreateCloudCostReport:
@@ -48,6 +62,14 @@ Conditions:
           - Ref: CreateCloudCostBucket
           - true
       - !Condition ShouldCreateCloudCostReport # If CUR already exists, we don't need to create the bucket
+  ShouldIncludeCapacityReservationData:
+    Fn::Equals:
+      - Ref: IncludeCapacityReservationData
+      - true
+  ShouldIncludeIAMPrincipalData:
+    Fn::Equals:
+      - Ref: IncludeIAMPrincipalData
+      - true
 
 Resources:
   DatadogCCMIAMPolicy:
@@ -200,6 +222,8 @@ Resources:
               INCLUDE_RESOURCES: "TRUE"
               INCLUDE_SPLIT_COST_ALLOCATION_DATA: "FALSE"
               INCLUDE_MANUAL_DISCOUNT_COMPATIBILITY: "FALSE"
+              INCLUDE_CAPACITY_RESERVATION_DATA: !If [ShouldIncludeCapacityReservationData, "TRUE", "FALSE"]
+              INCLUDE_IAM_PRINCIPAL_DATA: !If [ShouldIncludeIAMPrincipalData, "TRUE", "FALSE"]
               BILLING_VIEW_ARN: !Sub "arn:${AWS::Partition}:billing::${AWS::AccountId}:billingview/primary"
         DestinationConfigurations:
           S3Destination:
