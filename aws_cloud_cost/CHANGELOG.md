@@ -1,3 +1,7 @@
+## 0.0.5
+
+Conditionally add capacity reservation and IAM principal columns to the CUR 2.0 query when the corresponding table configurations are enabled.
+
 ## 0.0.4
 
 Add optional CUR 2.0 table configurations for including capacity reservation and IAM principal data.
