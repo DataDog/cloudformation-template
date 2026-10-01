@@ -604,7 +604,6 @@ Resources:
               - 'lakeformation:ListPermissions'
               - 'lambda:GetFunction'
               - 'lambda:GetMicrovmImageVersion'
-              - 'lambda:ListMicrovmImages'
               - 'launchwizard:GetDeployment'
               - 'launchwizard:ListDeployments'
               - 'lightsail:GetAlarms'
