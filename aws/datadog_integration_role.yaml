@@ -603,6 +603,7 @@ Resources:
               - 'lakeformation:GetDataLakeSettings'
               - 'lakeformation:ListPermissions'
               - 'lambda:GetFunction'
+              - 'lambda:GetMicrovmImageVersion'
               - 'launchwizard:GetDeployment'
               - 'launchwizard:ListDeployments'
               - 'lightsail:GetAlarms'
