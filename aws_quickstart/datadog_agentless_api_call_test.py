@@ -17,6 +17,8 @@ from datadog_agentless_api_call import (
     call_datadog_agentless_api,
     is_agentless_scanning_enabled,
     ensure_security_audit_policy,
+    handler,
+    send_response,
 )
 
 
@@ -345,6 +347,78 @@ class TestEnsureSecurityAuditPolicy(unittest.TestCase):
             RoleName=self.role_name,
             PolicyArn="arn:aws-us-gov:iam::aws:policy/SecurityAudit",
         )
+
+
+class TestSafeLogging(unittest.TestCase):
+    @patch("boto3.client")
+    def test_role_name_is_logged_only_when_valid(self, mock_client):
+        mock_client.return_value.get_paginator.return_value.paginate.return_value = [
+            {"AttachedPolicies": []}
+        ]
+        for role_name, expected in (
+            ("DatadogIntegrationRole", "DatadogIntegrationRole"),
+            ("forged\r\nlog entry", "<invalid IAM role name>"),
+        ):
+            with self.subTest(role_name=repr(role_name)):
+                with self.assertLogs(level="INFO") as logs:
+                    ensure_security_audit_policy(role_name, "aws")
+                self.assertIn(expected, "\n".join(logs.output))
+                self.assertNotIn("forged", "\n".join(logs.output))
+
+    @patch("datadog_agentless_api_call.send_response")
+    def test_unexpected_request_type_is_not_logged(self, mock_send_response):
+        marker = "forged\r\nlog entry fake-credential"
+        event = {"RequestType": marker}
+
+        with self.assertLogs(level="ERROR") as logs:
+            handler(event, None)
+
+        mock_send_response.assert_called_once_with(
+            event, None, "FAILED", {"Message": "Unexpected event received from CloudFormation"}
+        )
+        self.assertNotIn("fake-credential", "\n".join(logs.output))
+
+    @patch("datadog_agentless_api_call.call_datadog_agentless_api")
+    @patch("datadog_agentless_api_call.send_response")
+    def test_exception_message_is_not_logged_or_returned(self, mock_send_response, mock_api):
+        marker = "forged\r\nlog entry fake-credential"
+        mock_api.side_effect = RuntimeError(marker)
+        event = {"RequestType": "Delete"}
+
+        with self.assertLogs(level="ERROR") as logs:
+            handler(event, None)
+
+        self.assertNotIn("fake-credential", "\n".join(logs.output))
+        self.assertNotIn("fake-credential", str(mock_send_response.call_args))
+        self.assertEqual(mock_send_response.call_args.args[2], "FAILED")
+
+    @patch("datadog_agentless_api_call.build_opener")
+    def test_response_url_body_and_status_message_are_not_logged(self, mock_opener):
+        marker = "forged\r\nlog entry fake-credential"
+        event = {
+            "ResponseURL": f"https://example.invalid/{marker}",
+            "StackId": "stack-id",
+            "RequestId": "request-id",
+            "LogicalResourceId": "logical-id",
+        }
+        context = SimpleNamespace(invoked_function_arn="function-arn", log_stream_name="stream")
+        mock_opener.return_value.open.return_value.status = 200
+        mock_opener.return_value.open.return_value.msg = marker
+
+        with self.assertLogs(level="INFO") as logs:
+            send_response(event, context, "SUCCESS", {"Message": marker})
+
+        request = mock_opener.return_value.open.call_args.args[0]
+        self.assertEqual(request.full_url, event["ResponseURL"])
+        self.assertEqual(json.loads(request.data)["Data"]["Message"], marker)
+        self.assertIn("HTTP 200", "\n".join(logs.output))
+        self.assertNotIn("fake-credential", "\n".join(logs.output))
+
+        mock_opener.return_value.open.return_value.status = marker
+        with self.assertLogs(level="INFO") as logs:
+            send_response(event, context, "SUCCESS", {"Message": marker})
+        self.assertIn("CloudFormation response sent", "\n".join(logs.output))
+        self.assertNotIn("fake-credential", "\n".join(logs.output))
 
 
 if __name__ == "__main__":

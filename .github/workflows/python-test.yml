@@ -29,6 +29,10 @@ jobs:
         run: |
           cd aws_quickstart
           python -B -S -m unittest cfn_common_test.py -v
+      - name: Run workflow status logging unit tests
+        run: |
+          cd aws_quickstart
+          python -B -S -m unittest workflow_status_logging_test.py -v
       - name: Run Operator subscription unit tests
         run: |
           cd aws_quickstart
