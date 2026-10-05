@@ -44,11 +44,12 @@ Parameters:
       - true
       - false
     Description: >-
-      Set this value to "true" to fail the stack when the instrumentation permissions cannot be fetched
-      or attached. Defaults to "false" (best-effort) for the role-creation case, where instrumentation is
-      an optional add-on to the broader install. The post-setup add-on sets this to "true" because
-      attaching the instrumentation permissions is the stack's only purpose. Updates that replace existing
-      instrumentation permissions still fail atomically so stale policies are not accepted.
+      Set this value to "true" to fail the stack when instrumentation permissions cannot be fetched or
+      attached. QuickStart and the standalone Agent installation template explicitly pass "true".
+      When this parameter is omitted by a direct caller of this template, it defaults to "false"
+      (best-effort). No instrumentation permissions are attached for an empty resource-type selection.
+      Updates that replace existing instrumentation permissions use strict error handling regardless
+      of this setting.
 Conditions:
   IncludeEKS:
     Fn::And:

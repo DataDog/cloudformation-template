@@ -74,9 +74,6 @@ Resources:
           [!Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"],
           !Ref AWS::NoValue,
         ]
-  # Attaches the standard, resource-collection, and instrumentation IAM policies to the role
-  # above. Extracted into a nested template so the same custom resource can be reused by the
-  # post-setup Agent installation add-on (main_agent_installation.yaml).
   DatadogIntegrationPermissionsStack:
     Type: AWS::CloudFormation::Stack
     DependsOn: DatadogIntegrationRole
@@ -88,6 +85,7 @@ Resources:
         InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
         DatadogSite: !Ref DatadogSite
         ManageBasePermissions: true
+        FailOnInstrumentationError: true
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:

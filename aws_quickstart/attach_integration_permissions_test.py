@@ -90,6 +90,15 @@ class TestLambdaSourceEmbedding(unittest.TestCase):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
         self.assertIn('      PolicyAttachmentSchemaVersion: "6"', template_path.read_text())
 
+    def test_quickstart_requires_instrumentation_permissions(self):
+        template = Path(__file__).with_name("datadog_integration_role.yaml").read_text()
+
+        self.assertIn(
+            "        ManageBasePermissions: true\n"
+            "        FailOnInstrumentationError: true\n",
+            template,
+        )
+
     def test_execution_role_scopes_boundary_lifecycle_to_namespace(self):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
         template = template_path.read_text()
@@ -2028,6 +2037,123 @@ class TestManageBasePermissions(unittest.TestCase):
         handle_create_update(event, None)
 
         mock_instr.assert_not_called()
+
+
+class TestQuickStartPermissions(unittest.TestCase):
+    def setUp(self):
+        self.iam = make_iam_mock()
+        self.iam.create_policy.return_value = {
+            "Policy": {"Arn": "arn:aws:iam::123456789012:policy/instrumentation"}
+        }
+        self.iam.list_attached_role_policies.return_value = {"AttachedPolicies": []}
+        self.iam.get_account_summary.return_value = {
+            "SummaryMap": {"AttachedPoliciesPerRoleQuota": 10}
+        }
+        self.enterContext(
+            patch("attach_integration_permissions.boto3.client", return_value=self.iam)
+        )
+        self.cfn = self.enterContext(patch("attach_integration_permissions.cfnresponse"))
+        self.fetch_base_permissions = self.enterContext(
+            patch(
+                "attach_integration_permissions.fetch_permissions_from_datadog",
+                return_value=["ec2:Describe*"],
+            )
+        )
+        policy_document = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": ["ssm:GetDocument", "iam:GetInstanceProfile"],
+                    "Resource": ["*"],
+                }
+            ],
+        }
+        self.fetch_instrumentation = self.enterContext(
+            patch(
+                "attach_integration_permissions._fetch_instrumentation_permissions_for_resource_types",
+                return_value=([policy_document], []),
+            )
+        )
+        self.event = {
+            "RequestType": "Create",
+            "StackId": "arn:aws:cloudformation:us-east-1:123456789012:stack/test-stack/id",
+            "LogicalResourceId": "DatadogAttachIntegrationPermissionsFunctionTrigger",
+            "ResourceProperties": {
+                "DatadogIntegrationRole": "DatadogIntegrationRole",
+                "AccountId": "123456789012",
+                "ManageBasePermissions": "true",
+                "ResourceCollectionPermissions": "false",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
+                "FailOnInstrumentationError": "true",
+            },
+        }
+
+    def test_successful_instrumentation_setup(self):
+        handle_create_update(self.event, None)
+
+        self.iam.put_role_policy.assert_called_once()
+        self.iam.attach_role_policy.assert_called_once()
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.SUCCESS)
+
+    def test_instrumentation_fetch_failure_fails_setup(self):
+        self.fetch_instrumentation.side_effect = DatadogAPIError("fetch failed")
+
+        handle_create_update(self.event, None)
+
+        self.iam.put_role_policy.assert_called_once()
+        self.iam.create_policy.assert_not_called()
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.FAILED)
+
+    def test_instrumentation_policy_creation_failure_fails_setup(self):
+        self.iam.create_policy.side_effect = RuntimeError("create failed")
+
+        handle_create_update(self.event, None)
+
+        self.iam.put_role_policy.assert_called_once()
+        self.iam.attach_role_policy.assert_not_called()
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.FAILED)
+
+    def test_instrumentation_policy_attachment_failure_fails_setup(self):
+        self.iam.attach_role_policy.side_effect = RuntimeError("attach failed")
+
+        handle_create_update(self.event, None)
+
+        self.iam.put_role_policy.assert_called_once()
+        self.iam.attach_role_policy.assert_called_once()
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.FAILED)
+
+    def test_empty_instrumentation_selection_succeeds(self):
+        self.event["ResourceProperties"]["InstrumentationResourceTypes"] = ""
+
+        handle_create_update(self.event, None)
+
+        self.iam.put_role_policy.assert_called_once()
+        self.fetch_instrumentation.assert_not_called()
+        self.iam.create_policy.assert_not_called()
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.SUCCESS)
+
+    def test_standard_policy_failure_fails_without_instrumentation(self):
+        self.event["ResourceProperties"]["InstrumentationResourceTypes"] = ""
+        self.iam.put_role_policy.side_effect = RuntimeError("put failed")
+
+        handle_create_update(self.event, None)
+
+        self.fetch_instrumentation.assert_not_called()
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.FAILED)
+
+    def test_resource_collection_failure_prevents_instrumentation(self):
+        self.event["ResourceProperties"]["ResourceCollectionPermissions"] = "true"
+        self.fetch_base_permissions.side_effect = [
+            ["ec2:Describe*"],
+            DatadogAPIError("fetch failed"),
+        ]
+
+        handle_create_update(self.event, None)
+
+        self.iam.put_role_policy.assert_called_once()
+        self.fetch_instrumentation.assert_not_called()
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.FAILED)
 
 
 class TestUpgradeSafePolicyNames(unittest.TestCase):

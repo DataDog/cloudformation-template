@@ -1,3 +1,7 @@
+# 4.20.2 (October 5, 2026)
+
+- Fail QuickStart setup when permissions for selected instrumentation workloads cannot be fetched or attached, matching the standalone Agent installation template. Setup without instrumentation remains unchanged.
+
 # 4.20.1 (October 5, 2026)
 
 - Stop logging CloudFormation events, response URLs and bodies, and unsanitized error details in AWS integration permission, Agentless Scanning, and workflow status Lambdas. Retain validated IAM identifiers and allowlisted error codes for troubleshooting.
