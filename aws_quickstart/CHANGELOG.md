@@ -1,3 +1,7 @@
+# 4.20.1 (October 5, 2026)
+
+- Stop logging CloudFormation events, response URLs and bodies, and unsanitized error details in AWS integration permission, Agentless Scanning, and workflow status Lambdas. Retain validated IAM identifiers and allowlisted error codes for troubleshooting.
+
 # 4.20.0 (August 27, 2026)
 
 - Add AWS Lambda as a managed instrumentation resource type and forward Lambda lifecycle, configuration, and tag changes for event-driven reconciliation.

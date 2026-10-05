@@ -61,11 +61,52 @@ BOUNDARY_POLICY_MANAGED_TAG_KEY = "DatadogInstrumenterBoundaryManaged"
 BOUNDARY_POLICY_MANAGED_TAG_VALUE = "true"
 BOUNDARY_POLICY_OWNER_TAG_PREFIX = "DatadogCloudFormationOwner/"
 IAM_POLICY_NAME_PATTERN = re.compile(r"[\w+=,.@-]{1,128}", re.ASCII)
+IAM_POLICY_ARN_PATTERN = re.compile(
+    r"arn:(?:aws|aws-us-gov|aws-cn):iam::[0-9]{12}:policy/(?:[\w+=,.@-]+/)*[\w+=,.@-]+",
+    re.ASCII,
+)
 FORBIDDEN_BOUNDARY_ACTION_PREFIXES = ("iam:", "sts:", "organizations:")
 
 
 class DatadogAPIError(Exception):
     pass
+
+
+class PermissionsBoundaryInUseError(RuntimeError):
+    pass
+
+
+# Only known AWS error codes may be included in logs or CloudFormation responses.
+SAFE_AWS_ERROR_CODES = {
+    "AccessDenied",
+    "AccessDeniedException",
+    "DeleteConflict",
+    "EntityAlreadyExists",
+    "LimitExceeded",
+    "MalformedPolicyDocument",
+    "NoSuchEntity",
+    "ServiceFailure",
+    "Throttling",
+}
+
+
+def safe_policy_identifier(value, pattern):
+    if isinstance(value, str) and len(value) <= 512 and pattern.fullmatch(value):
+        return value
+    return "<invalid IAM identifier>"
+
+
+def safe_error_category(error):
+    if isinstance(error, PermissionsBoundaryInUseError):
+        return "PermissionsBoundaryInUse"
+    response = getattr(error, "response", None)
+    if isinstance(response, dict):
+        details = response.get("Error")
+        if isinstance(details, dict):
+            code = details.get("Code")
+            if isinstance(code, str) and code in SAFE_AWS_ERROR_CODES:
+                return code
+    return type(error).__name__
 
 
 def fetch_permissions_attributes_from_datadog(api_url):
@@ -168,7 +209,7 @@ def _fetch_instrumentation_permissions_for_resource_types(
         account_id,
         partition,
     )
-    LOGGER.info("Fetching instrumentation permissions for %s from %s", resource_types, url)
+    LOGGER.info("Fetching instrumentation permissions")
     return fetch_instrumentation_permissions(url, account_id, partition)
 
 
@@ -415,7 +456,7 @@ def _ensure_permissions_boundary_policy(iam_client, boundary, owner_id):
             LOGGER.warning(
                 "Using permissions boundary %s without claiming ownership because it lacks "
                 "the Datadog management tag",
-                policy_arn,
+                safe_policy_identifier(policy_arn, IAM_POLICY_ARN_PATTERN),
             )
 
         default_version_id = policy.get("DefaultVersionId")
@@ -547,7 +588,7 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
     if not is_managed:
         LOGGER.warning(
             "Preserving permissions boundary %s because it lacks the Datadog management tag",
-            policy_arn,
+            safe_policy_identifier(policy_arn, IAM_POLICY_ARN_PATTERN),
         )
         return False
 
@@ -557,7 +598,7 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
             LOGGER.warning(
                 "Preserving permissions boundary %s because it is owned by another "
                 "CloudFormation stack",
-                policy_arn,
+                safe_policy_identifier(policy_arn, IAM_POLICY_ARN_PATTERN),
             )
             return False
         _claim_boundary_ownership(iam_client, policy_arn, owner_id)
@@ -575,14 +616,14 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
             LOGGER.warning(
                 "Preserving permissions boundary %s because it remains owned by another "
                 "CloudFormation stack",
-                policy_arn,
+                safe_policy_identifier(policy_arn, IAM_POLICY_ARN_PATTERN),
             )
             return False
         _claim_boundary_ownership(iam_client, policy_arn, owner_id)
 
     entities = _list_policy_entities(iam_client, policy_arn)
     if any(entities.values()):
-        raise RuntimeError(
+        raise PermissionsBoundaryInUseError(
             f"Permissions boundary {policy_arn} is still in use by "
             f"{_format_policy_entities(entities)}"
         )
@@ -594,7 +635,7 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
         LOGGER.warning(
             "Preserving permissions boundary %s because it became owned by another "
             "CloudFormation stack during cleanup",
-            policy_arn,
+            safe_policy_identifier(policy_arn, IAM_POLICY_ARN_PATTERN),
         )
         return False
     if (
@@ -619,7 +660,7 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
     except iam_client.exceptions.DeleteConflictException as error:
         entities = _list_policy_entities(iam_client, policy_arn)
         blockers = _format_policy_entities(entities) or "entities IAM did not enumerate"
-        raise RuntimeError(
+        raise PermissionsBoundaryInUseError(
             f"Permissions boundary {policy_arn} is still in use by {blockers}"
         ) from error
     return True
@@ -636,10 +677,16 @@ def cleanup_permissions_boundaries(iam_client, owner_id, retained_policy_arns=()
             if not _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
                 preserved.append(boundary["policy_arn"])
         except Exception as error:
-            failures.append(f"{boundary['policy_arn']}: {error}")
+            failures.append((boundary["policy_arn"], error))
     if failures:
-        raise RuntimeError(
-            "Failed to clean up permissions boundaries: " + "; ".join(failures)
+        error_type = (
+            PermissionsBoundaryInUseError
+            if all(isinstance(error, PermissionsBoundaryInUseError) for _, error in failures)
+            else RuntimeError
+        )
+        raise error_type(
+            "Failed to clean up permissions boundaries: "
+            + "; ".join(f"{arn}: {error}" for arn, error in failures)
         )
     return preserved
 
@@ -656,7 +703,11 @@ def _detach_and_delete_policy(
     except Exception as e:
         if fail_on_error:
             raise
-        LOGGER.error(f"Error detaching policy {policy_name}: {str(e)}")
+        LOGGER.error(
+            "Error detaching policy %s (%s)",
+            safe_policy_identifier(policy_name, IAM_POLICY_NAME_PATTERN),
+            safe_error_category(e),
+        )
 
     try:
         iam_client.delete_policy(PolicyArn=policy_arn)
@@ -665,11 +716,18 @@ def _detach_and_delete_policy(
     except iam_client.exceptions.DeleteConflictException:
         if fail_on_error:
             raise
-        LOGGER.warning(f"Policy {policy_name} still attached, skipping delete")
+        LOGGER.warning(
+            "Policy %s still attached, skipping delete",
+            safe_policy_identifier(policy_name, IAM_POLICY_NAME_PATTERN),
+        )
     except Exception as e:
         if fail_on_error:
             raise
-        LOGGER.error(f"Error deleting policy {policy_name}: {str(e)}")
+        LOGGER.error(
+            "Error deleting policy %s (%s)",
+            safe_policy_identifier(policy_name, IAM_POLICY_NAME_PATTERN),
+            safe_error_category(e),
+        )
 
 
 def _cleanup_chunked_policies(
@@ -719,7 +777,11 @@ def _cleanup_base_policies(
     except Exception as e:
         if fail_on_error:
             raise
-        LOGGER.error(f"Error deleting inline policy {standard_name}: {str(e)}")
+        LOGGER.error(
+            "Error deleting inline policy %s (%s)",
+            safe_policy_identifier(standard_name, IAM_POLICY_NAME_PATTERN),
+            safe_error_category(e),
+        )
 
 
 def cleanup_existing_policies(
@@ -836,14 +898,23 @@ def _create_and_attach_policy(iam_client, role_name, policy_name, actions):
         },
         separators=(',', ':'),
     )
-    LOGGER.info(f"Creating policy {policy_name} with {len(actions)} permissions ({len(policy_json)} characters)")
+    LOGGER.info(
+        "Creating policy %s with %d permissions (%d characters)",
+        safe_policy_identifier(policy_name, IAM_POLICY_NAME_PATTERN),
+        len(actions),
+        len(policy_json),
+    )
     policy = iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
     iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy['Policy']['Arn'])
 
 
 def _create_policy_document(iam_client, policy_name, policy_document):
     policy_json = json.dumps(policy_document, separators=(',', ':'))
-    LOGGER.info(f"Creating policy {policy_name} ({len(policy_json)} characters)")
+    LOGGER.info(
+        "Creating policy %s (%d characters)",
+        safe_policy_identifier(policy_name, IAM_POLICY_NAME_PATTERN),
+        len(policy_json),
+    )
     policy = iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
     return policy['Policy']['Arn']
 
@@ -982,14 +1053,22 @@ def _restore_instrumentation_policies(
             detached_replacements.append(policy)
         except Exception as e:
             restored = False
-            LOGGER.error(f"Error detaching staged policy {policy['name']}: {str(e)}")
+            LOGGER.error(
+                "Error detaching staged policy %s (%s)",
+                safe_policy_identifier(policy["name"], IAM_POLICY_NAME_PATTERN),
+                safe_error_category(e),
+            )
 
     for policy in detached_previous:
         try:
             iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy["arn"])
         except Exception as e:
             restored = False
-            LOGGER.error(f"Error restoring policy {policy['name']}: {str(e)}")
+            LOGGER.error(
+                "Error restoring policy %s (%s)",
+                safe_policy_identifier(policy["name"], IAM_POLICY_NAME_PATTERN),
+                safe_error_category(e),
+            )
     if restored:
         return True
 
@@ -997,7 +1076,11 @@ def _restore_instrumentation_policies(
         try:
             iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy["arn"])
         except Exception as e:
-            LOGGER.error(f"Error reattaching staged policy {policy['name']}: {str(e)}")
+            LOGGER.error(
+                "Error reattaching staged policy %s (%s)",
+                safe_policy_identifier(policy["name"], IAM_POLICY_NAME_PATTERN),
+                safe_error_category(e),
+            )
     return restored
 
 
@@ -1149,8 +1232,9 @@ def attach_instrumentation_permissions(
         if mutation_must_succeed:
             raise
         LOGGER.warning(
-            f"Failed to prepare instrumentation permissions for {resource_types}: {e}. "
-            "Leaving any previously-attached instrumentation policies in place."
+            "Failed to prepare instrumentation permissions (%s). "
+            "Leaving any previously-attached instrumentation policies in place.",
+            safe_error_category(e),
         )
         return
 
@@ -1184,7 +1268,7 @@ def attach_instrumentation_permissions(
         if mutation_must_succeed:
             raise
         LOGGER.warning(
-            f"Failed to reconcile instrumentation permissions for {resource_types}: {e}."
+            "Failed to reconcile instrumentation permissions (%s)", safe_error_category(e)
         )
 
 
@@ -1211,9 +1295,16 @@ def handle_delete(event, context):
             cfnresponse, event, context, cfnresponse.SUCCESS, response_data
         )
     except Exception as e:
-        LOGGER.error(f"Error deleting policy: {str(e)}")
+        category = safe_error_category(e)
+        LOGGER.error("Error deleting policy (%s)", category)
+        # cfnresponse prints response data to CloudWatch; never echo exception text.
+        message = (
+            "Permissions boundary is still in use; detach it before retrying."
+            if isinstance(e, PermissionsBoundaryInUseError)
+            else f"Policy deletion failed ({category})."
+        )
         send_cfn_response(
-            cfnresponse, event, context, cfnresponse.FAILED, {"Message": str(e)}
+            cfnresponse, event, context, cfnresponse.FAILED, {"Message": message}
         )
 
 
@@ -1267,14 +1358,18 @@ def handle_create_update(event, context):
             _cleanup_previous_target_policies(iam_client, previous_props)
         send_cfn_response(cfnresponse, event, context, cfnresponse.SUCCESS, {})
     except Exception as e:
-        LOGGER.error(f"Error creating/attaching policy: {str(e)}")
+        category = safe_error_category(e)
+        LOGGER.error("Error creating/attaching policy (%s)", category)
         send_cfn_response(
-            cfnresponse, event, context, cfnresponse.FAILED, {"Message": str(e)}
+            cfnresponse,
+            event,
+            context,
+            cfnresponse.FAILED,
+            {"Message": f"Policy attachment failed ({category})."},
         )
 
 
 def handler(event, context):
-    LOGGER.info("Event received: %s", json.dumps(event))
     if event['RequestType'] == 'Delete':
         handle_delete(event, context)
     else:

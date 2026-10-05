@@ -250,24 +250,30 @@ Resources:
               data = json.dumps(body).encode("utf-8")
               request = Request(url, data=data, headers=headers, method="POST")
 
-              LOGGER.info(f"Sending workflow status: workflow_id={workflow_id}, step={step}, status={status}")
+              LOGGER.info("Sending workflow status")
 
               try:
                   response = urlopen(request, timeout=25)
                   response_data = response.read().decode('utf-8')
-                  LOGGER.info(f"Workflow status reported successfully: {response.getcode()}")
+                  status_code = response.getcode()
+                  if isinstance(status_code, int) and 100 <= status_code <= 599:
+                      LOGGER.info("Workflow status reported successfully (HTTP %d)", status_code)
+                  else:
+                      LOGGER.info("Workflow status reported successfully")
                   return True
               except HTTPError as e:
-                  error_body = e.read().decode('utf-8') if e.fp else "No error body"
-                  LOGGER.error(f"HTTP error reporting workflow status: {e.code} - {error_body}")
+                  if isinstance(e.code, int) and 100 <= e.code <= 599:
+                      LOGGER.error("HTTP error reporting workflow status (HTTP %d)", e.code)
+                  else:
+                      LOGGER.error("HTTP error reporting workflow status")
                   return False
               except Exception as e:
-                  LOGGER.error(f"Exception reporting workflow status: {str(e)}")
+                  LOGGER.error("Exception reporting workflow status (%s)", type(e).__name__)
                   return False
 
           def handler(event, context):
               """Handle Lambda event from CloudFormation"""
-              LOGGER.info(f"Received event: {event['RequestType']}")
+              LOGGER.info("Received CloudFormation event")
 
               # Handle Delete - stack is being deleted (rollback or manual deletion)
               if event["RequestType"] == "Delete":
@@ -289,7 +295,7 @@ Resources:
                           metadata={"stack_id": event['StackId']}
                       )
                   except Exception as e:
-                      LOGGER.error(f"Error reporting stack deletion: {str(e)}")
+                      LOGGER.error("Error reporting stack deletion (%s)", type(e).__name__)
 
                   # Always succeed deletion so CloudFormation can clean up
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
@@ -297,7 +303,7 @@ Resources:
 
               # Ignore Update events
               if event["RequestType"] != "Create":
-                  LOGGER.info(f"Skipping {event['RequestType']} - only reporting on Create and Delete")
+                  LOGGER.info("Skipping event - only reporting on Create and Delete")
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
                   return
 
@@ -332,13 +338,13 @@ Resources:
                   )
 
               except Exception as e:
-                  LOGGER.error(f"Exception in Create handler: {str(e)}")
+                  LOGGER.error("Exception in Create handler (%s)", type(e).__name__)
                   # Don't fail the stack for workflow status issues
                   cfnresponse.send(
                       event,
                       context,
                       cfnresponse.SUCCESS,
-                      {"Message": f"Exception occurred but continuing: {str(e)}"}
+                      {"Message": "Exception occurred but continuing"}
                   )
 
   # Step 1: Notify stack started

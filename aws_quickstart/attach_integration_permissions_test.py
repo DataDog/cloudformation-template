@@ -16,6 +16,11 @@ if "cfnresponse" not in sys.modules:
 
 from attach_integration_permissions import (
     DatadogAPIError,
+    PermissionsBoundaryInUseError,
+    safe_error_category,
+    safe_policy_identifier,
+    IAM_POLICY_NAME_PATTERN,
+    IAM_POLICY_ARN_PATTERN,
     parse_resource_types,
     build_instrumentation_permissions_url,
     attach_instrumentation_permissions,
@@ -24,6 +29,8 @@ from attach_integration_permissions import (
     cleanup_legacy_base_policies,
     handle_create_update,
     handle_delete,
+    handler,
+    _fetch_instrumentation_permissions_for_resource_types,
     POLICY_NAME_STANDARD,
     BASE_POLICY_PREFIX_INSTRUMENTATION,
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
@@ -1391,6 +1398,14 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
             ],
         )
 
+    @patch("attach_integration_permissions._delete_permissions_boundary_policy")
+    def test_cleanup_preserves_in_use_failure_category(self, mock_delete):
+        self.iam.list_policies.return_value = self._policy_listing()
+        mock_delete.side_effect = PermissionsBoundaryInUseError("role still attached")
+
+        with self.assertRaises(PermissionsBoundaryInUseError):
+            cleanup_permissions_boundaries(self.iam, self.owner_id)
+
     def test_in_use_boundary_identifies_blocking_entities(self):
         self._mock_owned_boundary(
             entities={
@@ -1649,7 +1664,7 @@ class TestManageBasePermissions(unittest.TestCase):
         boundaries = permissions_boundary_documents(
             policy_names=(BOUNDARY_POLICY_NAMES[0],)
         )
-        mock_cleanup_boundaries.side_effect = RuntimeError(
+        mock_cleanup_boundaries.side_effect = PermissionsBoundaryInUseError(
             f"Permissions boundary {boundaries[0]['policy_arn']} is still in use by "
             "roles=[datadog-ssm-i-123]"
         )
@@ -1662,9 +1677,9 @@ class TestManageBasePermissions(unittest.TestCase):
         handle_delete(event, None)
 
         self.assertEqual(mock_cfn.send.call_args.args[2], mock_cfn.FAILED)
-        self.assertIn(
-            "datadog-ssm-i-123",
+        self.assertEqual(
             mock_cfn.send.call_args.kwargs["responseData"]["Message"],
+            "Permissions boundary is still in use; detach it before retrying.",
         )
 
     @patch("attach_integration_permissions.cfnresponse")
@@ -2038,6 +2053,134 @@ class TestUpgradeSafePolicyNames(unittest.TestCase):
                 self._names(self.LEGACY_PREFIX_INSTRUMENTATION)
             )
         )
+
+
+class TestSafeLogging(unittest.TestCase):
+    def test_only_valid_iam_identifiers_are_logged(self):
+        name = "datadog-instrumentation-policy-v2"
+        arn = f"arn:aws:iam::123456789012:policy/datadog/instrumenter-boundaries/{name}"
+        self.assertEqual(safe_policy_identifier(name, IAM_POLICY_NAME_PATTERN), name)
+        self.assertEqual(safe_policy_identifier(arn, IAM_POLICY_ARN_PATTERN), arn)
+
+        for marker in ("fake\r\nlog entry", "fake\u2028log entry", "fake\x1blog entry"):
+            with self.subTest(marker=repr(marker)):
+                self.assertEqual(
+                    safe_policy_identifier(marker, IAM_POLICY_NAME_PATTERN),
+                    "<invalid IAM identifier>",
+                )
+                self.assertEqual(
+                    safe_policy_identifier(arn + marker, IAM_POLICY_ARN_PATTERN),
+                    "<invalid IAM identifier>",
+                )
+
+    @patch("attach_integration_permissions._policy_tags_by_key", return_value={})
+    @patch("attach_integration_permissions._get_policy", return_value={"Policy": {}})
+    def test_boundary_warning_retains_valid_arn_without_logging_malformed_arn(
+        self, _mock_get_policy, _mock_tags
+    ):
+        arn = "arn:aws:iam::123456789012:policy/datadog/instrumenter-boundaries/example"
+        for value, expected in ((arn, arn), (arn + "\r\nforged", "<invalid IAM identifier>")):
+            with self.subTest(value=repr(value)):
+                with self.assertLogs(level="WARNING") as logs:
+                    _delete_permissions_boundary_policy(
+                        Mock(), {"policy_arn": value}, "stack-id"
+                    )
+                self.assertIn(expected, "\n".join(logs.output))
+                self.assertNotIn("forged", "\n".join(logs.output))
+
+    def test_only_known_aws_codes_are_reported(self):
+        marker = "forged\r\nlog entry fake-credential"
+        error = RuntimeError(marker)
+        error.response = {"Error": {"Code": "AccessDenied", "Message": marker}}
+        self.assertEqual(safe_error_category(error), "AccessDenied")
+
+        error.response["Error"]["Code"] = "AccessDenied\r\n" + marker
+        self.assertEqual(safe_error_category(error), "RuntimeError")
+        self.assertNotIn("fake-credential", safe_error_category(error))
+
+    @patch("attach_integration_permissions.handle_create_update")
+    @patch("attach_integration_permissions.LOGGER")
+    def test_handler_does_not_log_event(self, mock_logger, mock_create_update):
+        marker = "forged\r\nlog entry fake-credential"
+        event = {"RequestType": "Create", "ResourceProperties": {"APIKey": marker}}
+
+        handler(event, None)
+
+        mock_create_update.assert_called_once_with(event, None)
+        self.assertNotIn(marker, str(mock_logger.method_calls))
+
+    @patch("attach_integration_permissions.fetch_instrumentation_permissions")
+    def test_fetch_does_not_log_event_derived_url(self, mock_fetch):
+        marker = "forged\r\nlog entry fake-credential"
+        with self.assertLogs(level="INFO") as logs:
+            _fetch_instrumentation_permissions_for_resource_types(
+                "datadoghq.com", [marker], "123456789012", "aws"
+            )
+
+        mock_fetch.assert_called_once()
+        self.assertNotIn(marker, "\n".join(logs.output))
+        self.assertNotIn("fake-credential", "\n".join(logs.output))
+
+    @patch("attach_integration_permissions.cleanup_instrumentation_policies")
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.cfnresponse")
+    def test_delete_error_does_not_log_or_return_exception_message(
+        self, mock_cfn, mock_client, mock_cleanup
+    ):
+        marker = "forged\r\nlog entry fake-credential"
+        mock_cleanup.side_effect = RuntimeError(marker)
+        event = {
+            "StackId": "stack-id",
+            "LogicalResourceId": "Permissions",
+            "ResourceProperties": {
+                "DatadogIntegrationRole": "test-role",
+                "AccountId": "123456789012",
+                "ManageBasePermissions": "false",
+            },
+        }
+
+        with self.assertLogs(level="ERROR") as logs:
+            handle_delete(event, None)
+
+        mock_client.assert_called_once_with("iam")
+        self.assertEqual(mock_cfn.send.call_args.args[2], mock_cfn.FAILED)
+        self.assertNotIn("fake-credential", "\n".join(logs.output))
+        self.assertNotIn("fake-credential", str(mock_cfn.send.call_args.kwargs["responseData"]))
+
+    @patch("attach_integration_permissions.boto3.client")
+    @patch("attach_integration_permissions.cfnresponse")
+    def test_policy_error_does_not_log_exception_message(self, mock_cfn, mock_client):
+        marker = "forged\r\nlog entry fake-credential"
+        event = {
+            "StackId": "stack-id",
+            "LogicalResourceId": "Permissions",
+            "ResourceProperties": {
+                "DatadogIntegrationRole": "test-role",
+                "AccountId": "123456789012",
+                "ResourceCollectionPermissions": "false",
+            },
+        }
+
+        for code, category in (("AccessDenied", "AccessDenied"), (marker, "RuntimeError")):
+            with self.subTest(code=code):
+                error = RuntimeError(marker)
+                error.response = {"Error": {"Code": code, "Message": marker}}
+                mock_client.side_effect = error
+                mock_cfn.send.reset_mock()
+
+                with self.assertLogs(level="ERROR") as logs:
+                    handle_create_update(event, None)
+
+                self.assertEqual(mock_cfn.send.call_args.args[2], mock_cfn.FAILED)
+                self.assertIn(category, "\n".join(logs.output))
+                self.assertEqual(
+                    mock_cfn.send.call_args.kwargs["responseData"]["Message"],
+                    f"Policy attachment failed ({category}).",
+                )
+                self.assertNotIn("fake-credential", "\n".join(logs.output))
+                self.assertNotIn(
+                    "fake-credential", str(mock_cfn.send.call_args.kwargs["responseData"])
+                )
 
 
 if __name__ == "__main__":

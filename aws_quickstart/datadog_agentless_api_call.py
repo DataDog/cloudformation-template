@@ -2,11 +2,19 @@
 
 import json
 import logging
+import re
 import signal
 from urllib.request import build_opener, HTTPHandler, HTTPError, Request
 import urllib.parse
 
 LOGGER = logging.getLogger()
+IAM_ROLE_NAME_PATTERN = re.compile(r"[\w+=,.@-]{1,64}", re.ASCII)
+
+
+def safe_role_name(value):
+    if isinstance(value, str) and IAM_ROLE_NAME_PATTERN.fullmatch(value):
+        return value
+    return "<invalid IAM role name>"
 
 
 def call_datadog_agentless_api(context, event, method):
@@ -129,10 +137,13 @@ def ensure_security_audit_policy(role_name, partition):
     for page in paginator.paginate(RoleName=role_name):
         for policy in page["AttachedPolicies"]:
             if policy["PolicyArn"] == policy_arn:
-                LOGGER.info("SecurityAudit policy is already attached to role %s.", role_name)
+                LOGGER.info(
+                    "SecurityAudit policy is already attached to role %s.",
+                    safe_role_name(role_name),
+                )
                 return
 
-    LOGGER.info("Attaching SecurityAudit policy to role %s.", role_name)
+    LOGGER.info("Attaching SecurityAudit policy to role %s.", safe_role_name(role_name))
     iam.attach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
 
 
@@ -173,9 +184,7 @@ def handler(event, context):
                 },
             )
         else:
-            LOGGER.error(
-                "Failed - received unexpected request: %s", event["RequestType"]
-            )
+            LOGGER.error("Failed - received unexpected request type.")
             send_response(
                 event,
                 context,
@@ -183,12 +192,12 @@ def handler(event, context):
                 {"Message": "Unexpected event received from CloudFormation"},
             )
     except Exception as e:  # pylint: disable=W0702
-        LOGGER.exception("Failed - exception thrown during processing.")
+        LOGGER.error("Failed - exception thrown during processing (%s).", type(e).__name__)
         send_response(
             event,
             context,
             "FAILED",
-            {"Message": f"Exception during processing: {e}"},
+            {"Message": f"Exception during processing ({type(e).__name__})."},
         )
 
 
@@ -210,16 +219,15 @@ def send_response(event, context, response_status, response_data):
     )
     formatted_response = response_body.encode("utf-8")
 
-    LOGGER.info("ResponseURL: %s", event["ResponseURL"])
-    LOGGER.info("ResponseBody: %s", response_body)
-
     opener = build_opener(HTTPHandler)
     request = Request(event["ResponseURL"], data=formatted_response, method="PUT")
     request.add_header("Content-Type", "application/json; charset=utf-8")
     request.add_header("Content-Length", len(formatted_response))
     response = opener.open(request)
-    LOGGER.info("Status code: %s", response.status)
-    LOGGER.info("Status message: %s", response.msg)
+    if isinstance(response.status, int) and 100 <= response.status <= 599:
+        LOGGER.info("CloudFormation response sent (HTTP %d)", response.status)
+    else:
+        LOGGER.info("CloudFormation response sent")
 
 
 def timeout_handler(_signal, _frame):
