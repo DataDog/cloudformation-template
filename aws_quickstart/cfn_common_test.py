@@ -73,7 +73,13 @@ class TestInlineComposition(unittest.TestCase):
 
 
 class TestForwardingConditions(unittest.TestCase):
-    def test_parent_templates_gate_forwarding_on_supported_resource_types(self):
+    TEMPLATES = (
+        "main_agent_installation.yaml",
+        "main_workflow.yaml",
+        "main_extended_workflow.yaml",
+    )
+
+    def test_parent_templates_gate_forwarding_on_supported_resource_types_and_regions(self):
         directory = Path(__file__).parent
         condition = """  IncludeEC2:
     Fn::Not:
@@ -114,21 +120,66 @@ class TestForwardingConditions(unittest.TestCase):
           - !Sub
             - ",${NormalizedResourceTypes},"
             - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  # Regions without public EventBridge API destinations. Keep in sync with:
+  # https://docs.aws.amazon.com/eventbridge/latest/userguide/feature-availability.html
+  SupportsEventBridgeApiDestinations:
+    Fn::Not:
+      - Fn::Or:
+          - !Equals [!Ref AWS::Region, ap-east-2]
+          - !Equals [!Ref AWS::Region, ap-southeast-5]
+          - !Equals [!Ref AWS::Region, ca-west-1]
+          - !Equals [!Ref AWS::Region, il-central-1]
+          - !Equals [!Ref AWS::Region, mx-central-1]
+          - !Equals [!Ref AWS::Region, us-gov-east-1]
+          - !Equals [!Ref AWS::Region, us-gov-west-1]
   ShouldForwardEvents:
-    Fn::Or:
-      - Condition: IncludeEC2
-      - Condition: IncludeEKS
-      - Condition: IncludeLambda
+    Fn::And:
+      - Condition: SupportsEventBridgeApiDestinations
+      - Fn::Or:
+          - Condition: IncludeEC2
+          - Condition: IncludeEKS
+          - Condition: IncludeLambda
 """
 
-        for filename in (
-            "main_agent_installation.yaml",
-            "main_workflow.yaml",
-            "main_extended_workflow.yaml",
-        ):
+        for filename in self.TEMPLATES:
             with self.subTest(filename=filename):
                 template = (directory / filename).read_text()
                 self.assertIn(condition, template)
+
+    def test_region_condition_only_gates_the_forwarding_stack(self):
+        directory = Path(__file__).parent
+        forwarding_stack = """  DatadogAgentResourceUpdateForwardingStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldForwardEvents
+"""
+        for filename in self.TEMPLATES:
+            with self.subTest(filename=filename):
+                template = (directory / filename).read_text()
+                self.assertIn(forwarding_stack, template)
+                self.assertEqual(template.count("Condition: ShouldForwardEvents"), 1)
+                self.assertEqual(template.count("Condition: SupportsEventBridgeApiDestinations"), 1)
+                # Instrumentation permissions remain independent of regional forwarding support.
+                permissions_stack = (
+                    "DatadogIntegrationPermissionsStack"
+                    if filename == "main_agent_installation.yaml"
+                    else "DatadogIntegrationRoleStack"
+                )
+                stack_lines = template.split(f"  {permissions_stack}:\n", 1)[1].splitlines()
+                block = []
+                for line in stack_lines:
+                    if line.strip() and not line.startswith("    "):
+                        break
+                    block.append(line)
+                self.assertNotIn("    Condition:", "\n".join(block))
+                self.assertIn(
+                    '        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]',
+                    block,
+                )
+                if filename != "main_agent_installation.yaml":
+                    self.assertIn(
+                        "        ResourceCollectionPermissions: !If [ResourceCollectionPermissions, true, false]",
+                        block,
+                    )
 
 
 if __name__ == "__main__":

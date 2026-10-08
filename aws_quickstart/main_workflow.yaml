@@ -161,11 +161,25 @@ Conditions:
           - !Sub
             - ",${NormalizedResourceTypes},"
             - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  # Regions without public EventBridge API destinations. Keep in sync with:
+  # https://docs.aws.amazon.com/eventbridge/latest/userguide/feature-availability.html
+  SupportsEventBridgeApiDestinations:
+    Fn::Not:
+      - Fn::Or:
+          - !Equals [!Ref AWS::Region, ap-east-2]
+          - !Equals [!Ref AWS::Region, ap-southeast-5]
+          - !Equals [!Ref AWS::Region, ca-west-1]
+          - !Equals [!Ref AWS::Region, il-central-1]
+          - !Equals [!Ref AWS::Region, mx-central-1]
+          - !Equals [!Ref AWS::Region, us-gov-east-1]
+          - !Equals [!Ref AWS::Region, us-gov-west-1]
   ShouldForwardEvents:
-    Fn::Or:
-      - Condition: IncludeEC2
-      - Condition: IncludeEKS
-      - Condition: IncludeLambda
+    Fn::And:
+      - Condition: SupportsEventBridgeApiDestinations
+      - Fn::Or:
+          - Condition: IncludeEC2
+          - Condition: IncludeEKS
+          - Condition: IncludeLambda
   IsGov:
     Fn::Or:
       - Fn::Equals:
