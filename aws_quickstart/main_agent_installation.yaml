@@ -32,7 +32,8 @@ Parameters:
       Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:eks:cluster,
       aws:lambda:function) to enable Datadog instrumentation for. The integration role is granted the IAM
       permissions required to instrument these resources. CloudTrail update events are forwarded to Datadog
-      for supported resource types; other types receive IAM permissions but no event forwarding.
+      for supported resource types in regions with public EventBridge API destinations; other resource types
+      and regions receive IAM permissions but no event forwarding.
 Rules:
   ValidateAccountId:
     Assertions:
@@ -78,11 +79,25 @@ Conditions:
           - !Sub
             - ",${NormalizedResourceTypes},"
             - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  # EventBridge API destinations are not supported in all AWS regions
+  # https://docs.aws.amazon.com/eventbridge/latest/userguide/feature-availability.html
+  SupportsEventBridgeApiDestinations:
+    Fn::Not:
+      - Fn::Or:
+          - !Equals [!Ref AWS::Region, ap-east-2]
+          - !Equals [!Ref AWS::Region, ap-southeast-5]
+          - !Equals [!Ref AWS::Region, ca-west-1]
+          - !Equals [!Ref AWS::Region, il-central-1]
+          - !Equals [!Ref AWS::Region, mx-central-1]
+          - !Equals [!Ref AWS::Region, us-gov-east-1]
+          - !Equals [!Ref AWS::Region, us-gov-west-1]
   ShouldForwardEvents:
-    Fn::Or:
-      - Condition: IncludeEC2
-      - Condition: IncludeEKS
-      - Condition: IncludeLambda
+    Fn::And:
+      - Condition: SupportsEventBridgeApiDestinations
+      - Fn::Or:
+          - Condition: IncludeEC2
+          - Condition: IncludeEKS
+          - Condition: IncludeLambda
 Resources:
   # Attaches only the instrumentation IAM policies to the existing integration role. ManageBasePermissions
   # is false so the standard and resource-collection policies owned by the role stack are left untouched.
