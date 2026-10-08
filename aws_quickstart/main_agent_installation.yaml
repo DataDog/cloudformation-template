@@ -79,7 +79,7 @@ Conditions:
           - !Sub
             - ",${NormalizedResourceTypes},"
             - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
-  # Regions without public EventBridge API destinations. Keep in sync with:
+  # EventBridge API destinations are not supported in all AWS regions
   # https://docs.aws.amazon.com/eventbridge/latest/userguide/feature-availability.html
   SupportsEventBridgeApiDestinations:
     Fn::Not:
