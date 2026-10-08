@@ -1,3 +1,7 @@
+# 4.20.2 (October 8, 2026)
+
+- Skip resource-update forwarding in AWS regions without public EventBridge API destinations so AWS integration setup and Agent installation add-ons do not fail on unsupported resource types. Instrumentation IAM permissions and resource collection remain unchanged.
+
 # 4.20.1 (October 5, 2026)
 
 - Stop logging CloudFormation events, response URLs and bodies, and unsanitized error details in AWS integration permission, Agentless Scanning, and workflow status Lambdas. Retain validated IAM identifiers and allowlisted error codes for troubleshooting.
