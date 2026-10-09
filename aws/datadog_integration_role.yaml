@@ -160,7 +160,6 @@ Resources:
                     - 'logs:DescribeLogGroups'
                     - 'logs:DescribeLogStreams'
                     - 'logs:DescribeSubscriptionFilters'
-                    - 'logs:FilterLogEvents'
                     - 'logs:GetDeliveryDestination'
                     - 'logs:PutSubscriptionFilter'
                     - 'logs:TestMetricFilter'
