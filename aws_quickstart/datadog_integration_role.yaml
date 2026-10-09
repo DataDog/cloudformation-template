@@ -10,6 +10,13 @@ Parameters:
     Description: Customize the name of IAM role for Datadog AWS integration
     Type: String
     Default: DatadogIntegrationRole
+  AgentlessScanning:
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Enable Datadog-hosted Agentless Scanning for this AWS account.
+    Default: "false"
   ResourceCollectionPermissions:
     Type: String
     Default: false
@@ -37,6 +44,7 @@ Parameters:
     Type: String
     Default: "464622532012"
 Conditions:
+  ShouldInstallAgentlessSaaSPolicy: !Equals [!Ref AgentlessScanning, "true"]
   ShouldInstallSecurityAuditPolicy:
     Fn::Equals:
       - Ref: ResourceCollectionPermissions
@@ -74,6 +82,15 @@ Resources:
           [!Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"],
           !Ref AWS::NoValue,
         ]
+  DatadogAgentlessSaaSScanningPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: ShouldInstallAgentlessSaaSPolicy
+    Properties:
+      Description: Policy for Datadog Agentless Scanning in SaaS mode.
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument: !Rain::Include datadog_agentless_saas_policy.json
+
   # Attaches the standard, resource-collection, and instrumentation IAM policies to the role
   # above. Extracted into a nested template so the same custom resource can be reused by the
   # post-setup Agent installation add-on (main_agent_installation.yaml).
@@ -100,4 +117,5 @@ Metadata:
           default: Optional
         Parameters:
           - CloudSecurityPostureManagementPermissions
+          - AgentlessScanning
           - DdAWSAccountId

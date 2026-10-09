@@ -4,9 +4,13 @@ on:
   push:
     paths:
       - "**.py"
+      - "aws_quickstart/main_workflow.yaml"
+      - "aws_quickstart/datadog_integration_role.yaml"
   pull_request:
     paths:
       - "**.py"
+      - "aws_quickstart/main_workflow.yaml"
+      - "aws_quickstart/datadog_integration_role.yaml"
 
 jobs:
   agentless_api_call_test:
@@ -37,3 +41,8 @@ jobs:
         run: |
           cd aws_quickstart
           python -B -S -m unittest accept_operator_subscription_test.py -v
+      - name: Run Agentless workflow template tests
+        run: |
+          python -m pip install PyYAML
+          cd aws_quickstart
+          python -B -m unittest agentless_workflow_test.py -v

@@ -195,6 +195,7 @@ embed_python_source_with_common datadog_integration_permissions.yaml attach_inte
 embed_python_source_with_common datadog_integration_permissions.yaml accept_operator_subscription.py ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE marketplace_agreement_compat.py
 
 yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_agentless_saas.yaml
+yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_integration_role.yaml
 
 # Process Agentless Scanning templates
 for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml datadog_agentless_delegate_role_stackset.yaml datadog_agentless_saas.yaml; do
