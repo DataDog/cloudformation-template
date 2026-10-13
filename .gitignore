@@ -4,3 +4,5 @@
 **/.taskcat/
 **/taskcat_outputs/
 **/tmp/
+__pycache__/
+*.pyc
