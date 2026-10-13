@@ -24,9 +24,9 @@ def get_policy_arn(partition, account_id, policy_name):
     """Generate a policy ARN."""
     return f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
 
-def fetch_permissions_from_datadog():
+def fetch_permissions_from_datadog(datadog_site):
     """Fetch permissions from Datadog API."""
-    api_url = f"https://api.datadoghq.com/api/v2/integration/aws/iam_permissions"
+    api_url = f"https://api.{datadog_site}/api/v2/integration/aws/iam_permissions"
     headers = {
         "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
     }
@@ -81,7 +81,7 @@ def handle_create_update(event, context, role_name, account_id, base_policy_name
     """Handle stack creation or update."""
     try:
         # Fetch and chunk permissions
-        permissions = fetch_permissions_from_datadog()
+        permissions = fetch_permissions_from_datadog(event["ResourceProperties"].get("DatadogSite") or "datadoghq.com")
         permission_chunks = [permissions[i:i + CHUNK_SIZE] for i in range(0, len(permissions), CHUNK_SIZE)]
         
         # Clean up existing policies
