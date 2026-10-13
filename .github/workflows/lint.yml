@@ -14,8 +14,7 @@ jobs:
       with:
         cmd: >-
           cd aws_quickstart &&
-          yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_agentless_saas.yaml &&
-          yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_integration_role.yaml
+          yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_agentless_saas.yaml
 
     - name: cfn-lint
       uses: scottbrenner/cfn-lint-action@v2

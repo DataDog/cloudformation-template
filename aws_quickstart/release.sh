@@ -141,7 +141,7 @@ fi
 set -e
 
 # Confirm to proceed
-for i in *.yaml; do
+for i in *.yaml datadog_agentless_saas_policy.json; do
     [ -f "$i" ] || break
     echo "About to upload $i to s3://${BUCKET}/aws/${VERSION}/$i"
 done
@@ -181,7 +181,7 @@ if [ "$GOV" = true ]; then
 fi
 
 # Update placeholder
-for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main_extended.yaml datadog_integration_role.yaml main_agent_installation.yaml; do
+for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main_extended.yaml datadog_integration_role.yaml datadog_integration_permissions.yaml main_agent_installation.yaml; do
     perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" $template
     perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" $template
     if [ "$GOV" = true ]; then
@@ -195,7 +195,6 @@ embed_python_source_with_common datadog_integration_permissions.yaml attach_inte
 embed_python_source_with_common datadog_integration_permissions.yaml accept_operator_subscription.py ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE marketplace_agreement_compat.py
 
 yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_agentless_saas.yaml
-yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_integration_role.yaml
 
 # Process Agentless Scanning templates
 for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml datadog_agentless_delegate_role_stackset.yaml datadog_agentless_saas.yaml; do
@@ -204,6 +203,9 @@ for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.
 
     embed_python_source "$template" datadog_agentless_api_call.py
 done
+
+# Publish the policy before the templates that reference it.
+aws s3 cp datadog_agentless_saas_policy.json "s3://${BUCKET}/aws/${VERSION}/datadog_agentless_saas_policy.json"
 
 # Upload from temp directory
 if [ "$PRIVATE_TEMPLATE" = true ] ; then

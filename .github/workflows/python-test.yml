@@ -6,11 +6,17 @@ on:
       - "**.py"
       - "aws_quickstart/main_workflow.yaml"
       - "aws_quickstart/datadog_integration_role.yaml"
+      - "aws_quickstart/datadog_integration_permissions.yaml"
+      - "aws_quickstart/datadog_agentless_saas_policy.json"
+      - "aws_quickstart/release.sh"
   pull_request:
     paths:
       - "**.py"
       - "aws_quickstart/main_workflow.yaml"
       - "aws_quickstart/datadog_integration_role.yaml"
+      - "aws_quickstart/datadog_integration_permissions.yaml"
+      - "aws_quickstart/datadog_agentless_saas_policy.json"
+      - "aws_quickstart/release.sh"
 
 jobs:
   agentless_api_call_test:

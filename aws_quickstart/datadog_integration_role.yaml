@@ -15,7 +15,7 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
-    Description: Enable Datadog-hosted Agentless Scanning for this AWS account.
+    Description: Enable Datadog-hosted agentless scanning (SaaS mode) for this AWS account.
     Default: "false"
   ResourceCollectionPermissions:
     Type: String
@@ -44,7 +44,6 @@ Parameters:
     Type: String
     Default: "464622532012"
 Conditions:
-  ShouldInstallAgentlessSaaSPolicy: !Equals [!Ref AgentlessScanning, "true"]
   ShouldInstallSecurityAuditPolicy:
     Fn::Equals:
       - Ref: ResourceCollectionPermissions
@@ -82,18 +81,9 @@ Resources:
           [!Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"],
           !Ref AWS::NoValue,
         ]
-  DatadogAgentlessSaaSScanningPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Condition: ShouldInstallAgentlessSaaSPolicy
-    Properties:
-      Description: Policy for Datadog Agentless Scanning in SaaS mode.
-      Roles:
-        - !Ref DatadogIntegrationRole
-      PolicyDocument: !Rain::Include datadog_agentless_saas_policy.json
-
-  # Attaches the standard, resource-collection, and instrumentation IAM policies to the role
-  # above. Extracted into a nested template so the same custom resource can be reused by the
-  # post-setup Agent installation add-on (main_agent_installation.yaml).
+  # Attaches the standard, resource-collection, agentless, and instrumentation IAM policies
+  # to the role above. Extracted into a nested template so the same custom resource can be
+  # reused by the post-setup Agent installation add-on (main_agent_installation.yaml).
   DatadogIntegrationPermissionsStack:
     Type: AWS::CloudFormation::Stack
     DependsOn: DatadogIntegrationRole
@@ -102,6 +92,7 @@ Resources:
       Parameters:
         IAMRoleName: !Ref IAMRoleName
         ResourceCollectionPermissions: !Ref ResourceCollectionPermissions
+        AgentlessScanning: !Ref AgentlessScanning
         InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
         DatadogSite: !Ref DatadogSite
         ManageBasePermissions: true
