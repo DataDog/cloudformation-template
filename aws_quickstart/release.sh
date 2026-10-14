@@ -162,6 +162,7 @@ trap "rm -rf ${TEMP_DIR}" EXIT
 
 # Copy all YAML files to temp directory
 cp *.yaml "${TEMP_DIR}/"
+cp datadog_agentless_saas_policy.json "${TEMP_DIR}/"
 cp datadog_agentless_api_call.py cfn_common.py attach_integration_permissions.py accept_operator_subscription.py "${TEMP_DIR}/"
 cp marketplace_agreement_compat.py "${TEMP_DIR}/"
 
@@ -192,6 +193,8 @@ done
 
 embed_python_source_with_common datadog_integration_permissions.yaml attach_integration_permissions.py ATTACH_INTEGRATION_PERMISSIONS_SOURCE
 embed_python_source_with_common datadog_integration_permissions.yaml accept_operator_subscription.py ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE marketplace_agreement_compat.py
+
+yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_agentless_saas.yaml
 
 # Process Agentless Scanning templates
 for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml datadog_agentless_delegate_role_stackset.yaml datadog_agentless_saas.yaml; do
