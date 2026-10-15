@@ -1,8 +1,22 @@
 #!/usr/bin/env python3
 
+"""Test attach_integration_permissions.py and its CloudFormation packaging.
+
+Handler and helper tests exercise policy installation, replacement, cleanup,
+ownership, and failure reporting with mocked IAM, HTTP, and CloudFormation
+responses. Fixtures represent instrumentation, permissions-boundary, and
+Agentless SaaS policies.
+
+Template checks inspect datadog_integration_permissions.yaml. The packaging test
+runs release.sh with a fake AWS CLI that copies uploads into a local directory.
+"""
+
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch, Mock, MagicMock, call
 from urllib.error import HTTPError
@@ -34,6 +48,7 @@ from attach_integration_permissions import (
     POLICY_NAME_STANDARD,
     BASE_POLICY_PREFIX_INSTRUMENTATION,
     BASE_POLICY_PREFIX_RESOURCE_COLLECTION,
+    POLICY_PREFIX_AGENTLESS_SAAS,
     LEGACY_POLICY_NAME_STANDARD,
     LEGACY_PREFIX_RESOURCE_COLLECTION,
     BOUNDARY_POLICY_PATH,
@@ -63,6 +78,56 @@ BOUNDARY_POLICY_NAMES = (
 
 
 class TestLambdaSourceEmbedding(unittest.TestCase):
+    """Check the Lambda's source embedding, template configuration, and release output."""
+
+    def test_release_publishes_saas_policy_before_templates_with_versioned_url(self):
+        """Run release packaging locally and capture the files it would upload.
+
+        The fake AWS CLI reports that the release does not exist and copies
+        uploads locally. It requires the policy JSON to arrive before templates;
+        the assertions then check its contents and the template's versioned URL.
+        """
+        quickstart = Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            aws = output / "aws"
+            aws.write_text(
+                f"#!{sys.executable}\n"
+                "import pathlib, shutil, sys\n"
+                "output = pathlib.Path(__file__).parent\n"
+                "if sys.argv[1] == 's3api':\n"
+                "    sys.exit(1)\n"
+                "assert sys.argv[1:3] == ['s3', 'cp']\n"
+                "source = pathlib.Path(sys.argv[3])\n"
+                "if source.is_dir():\n"
+                "    assert (output / 'datadog_agentless_saas_policy.json').is_file()\n"
+                "    for template in source.glob('*.yaml'):\n"
+                "        shutil.copy(template, output / template.name)\n"
+                "else:\n"
+                "    shutil.copy(source, output / source.name)\n"
+            )
+            aws.chmod(0o755)
+            subprocess.run(
+                ["bash", "release.sh", "test-quickstart-bucket", "--private", "--yes"],
+                cwd=quickstart,
+                env={**os.environ, "PATH": f"{output}{os.pathsep}{os.environ['PATH']}"},
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                (output / "datadog_agentless_saas_policy.json").read_bytes(),
+                (quickstart / "datadog_agentless_saas_policy.json").read_bytes(),
+            )
+            version = (quickstart / "version.txt").read_text().strip()
+            rendered = (output / "datadog_integration_permissions.yaml").read_text()
+            self.assertIn(
+                f"https://test-quickstart-bucket.s3.amazonaws.com/aws/{version}/"
+                "datadog_agentless_saas_policy.json",
+                rendered,
+            )
+            self.assertNotIn("<ATTACH_INTEGRATION_PERMISSIONS_SOURCE>", rendered)
+
     def test_cloudformation_template_uses_source_placeholder(self):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
         template = template_path.read_text()
@@ -130,6 +195,11 @@ class TestLambdaSourceEmbedding(unittest.TestCase):
 
 
 def make_iam_mock(cleanup_side_effects=True):
+    """Provide IAM responses and catchable exception classes for handler tests.
+
+    Cleanup defaults to reporting missing policies. Tests that need successful
+    detach/delete calls disable those side effects or override them explicitly.
+    """
     iam = MagicMock()
     iam.exceptions.NoSuchEntityException = type("NSE", (Exception,), {})
     iam.exceptions.DeleteConflictException = type("DCE", (Exception,), {})
@@ -148,6 +218,7 @@ def permissions_boundary_documents(
     partition="aws",
     policy_names=BOUNDARY_POLICY_NAMES,
 ):
+    """Build sample boundary documents in the Datadog instrumentation API format."""
     return [
         {
             "id": policy_name.removeprefix("datadog-instrumenter-").removesuffix("-boundary"),
@@ -180,6 +251,8 @@ def detached_arns(iam):
 
 
 class TestParseResourceTypes(unittest.TestCase):
+    """Check normalization of resource-type parameters received from CloudFormation."""
+
     def test_none(self):
         self.assertEqual(parse_resource_types(None), [])
 
@@ -206,6 +279,8 @@ class TestParseResourceTypes(unittest.TestCase):
 
 
 class TestBuildInstrumentationURL(unittest.TestCase):
+    """Check the Datadog API URL built from the site, account, and resource types."""
+
     def _query_pairs(self, url):
         return parse_qsl(urlparse(url).query)
 
@@ -240,6 +315,12 @@ class TestBuildInstrumentationURL(unittest.TestCase):
 
 
 class TestAttachInstrumentationPermissions(unittest.TestCase):
+    """Exercise instrumentation policy replacement with mocked Datadog and IAM calls.
+
+    Failure cases check that an incomplete replacement does not discard working
+    permissions. Boundary management is mocked here and tested separately below.
+    """
+
     def setUp(self):
         self.iam = make_iam_mock()
         self.manage_boundaries = self.enterContext(
@@ -806,7 +887,213 @@ class TestAttachInstrumentationPermissions(unittest.TestCase):
         self.assertEqual(self.iam.attach_role_policy.call_count, 2)
 
 
+class TestAgentlessSaaSPermissions(unittest.TestCase):
+    """Exercise SaaS policy lifecycle through the CloudFormation event handlers.
+
+    The HTTP mock returns datadog_agentless_saas_policy.json. Base-permission and
+    instrumentation operations are mocked so IAM calls reflect SaaS operations.
+    The third argument to the mocked cfnresponse.send records the status that
+    the handler would report to CloudFormation.
+    """
+
+    role_name = "DatadogIntegrationRole"
+    account_id = "123456789012"
+    policy_name = f"{POLICY_PREFIX_AGENTLESS_SAAS}-{role_name}"
+    policy_arn = f"arn:aws:iam::{account_id}:policy/{policy_name}"
+    policy_url = "https://test-quickstart-bucket.s3.amazonaws.com/aws/v1/datadog_agentless_saas_policy.json"
+
+    def setUp(self):
+        self.iam = make_iam_mock(cleanup_side_effects=False)
+        self.iam.get_policy.side_effect = self.iam.exceptions.NoSuchEntityException
+        self.iam.list_policy_versions.return_value = {"Versions": []}
+        self.policy = json.loads(
+            Path(__file__).with_name("datadog_agentless_saas_policy.json").read_text()
+        )
+        self.urlopen = self._patch(
+            "urllib.request.urlopen",
+            return_value=BytesIO(json.dumps(self.policy).encode()),
+        )
+        self._patch("boto3.client", return_value=self.iam)
+        self.cfn = self._patch("cfnresponse")
+        for name in (
+            "cleanup_legacy_base_policies",
+            "cleanup_existing_policies",
+            "attach_standard_permissions",
+            "attach_resource_collection_permissions",
+            "attach_instrumentation_permissions",
+            "cleanup_instrumentation_policies",
+            "cleanup_permissions_boundaries",
+        ):
+            self._patch(name)
+
+    def _patch(self, name, **kwargs):
+        """Patch a dependency in the Lambda module and restore it after the test."""
+        return self.enterContext(patch(f"attach_integration_permissions.{name}", **kwargs))
+
+    def _event(self, request_type="Create", **overrides):
+        """Build an event with SaaS enabled unless a property is overridden.
+
+        Updates start with matching old and current properties. Tests change
+        ResourceProperties afterward to model an opt-out or role replacement.
+        """
+        event = {
+            "RequestType": request_type,
+            "StackId": "test-stack",
+            "LogicalResourceId": "Permissions",
+            "ResourceProperties": {
+                "DatadogIntegrationRole": self.role_name,
+                "AccountId": self.account_id,
+                "ResourceCollectionPermissions": "true",
+                "ManageBasePermissions": "true",
+                "AgentlessScanning": "true",
+                "AgentlessSaaSPolicyURL": self.policy_url,
+                **overrides,
+            },
+        }
+        if request_type == "Update":
+            event["OldResourceProperties"] = dict(event["ResourceProperties"])
+        return event
+
+    def _existing_policy(self):
+        """Make IAM report an existing policy matching the downloaded document."""
+        self.iam.get_policy.side_effect = None
+        self.iam.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
+        self.iam.get_policy_version.return_value = {"PolicyVersion": {"Document": self.policy}}
+
+    def test_installs_complete_policy_before_reporting_success(self):
+        self.iam.attach_role_policy.side_effect = lambda **kwargs: self.cfn.send.assert_not_called()
+        handle_create_update(self._event(), None)
+        self.urlopen.assert_called_once_with(self.policy_url, timeout=30)
+        self.assertEqual(
+            json.loads(self.iam.create_policy.call_args.kwargs["PolicyDocument"]), self.policy
+        )
+        self.iam.attach_role_policy.assert_called_once_with(
+            RoleName=self.role_name, PolicyArn=self.policy_arn
+        )
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.SUCCESS)
+
+    def test_retry_reuses_matching_policy_without_creating_another_version(self):
+        self._existing_policy()
+        handle_create_update(self._event(), None)
+        self.iam.create_policy.assert_not_called()
+        self.iam.create_policy_version.assert_not_called()
+        self.iam.attach_role_policy.assert_called_once_with(
+            RoleName=self.role_name, PolicyArn=self.policy_arn
+        )
+
+    def test_concurrent_create_reuses_the_policy(self):
+        """Simulate another invocation creating the policy after the initial lookup."""
+        self._existing_policy()
+        self.iam.get_policy.side_effect = [
+            self.iam.exceptions.NoSuchEntityException(),
+            {"Policy": {"DefaultVersionId": "v1"}},
+        ]
+        self.iam.create_policy.side_effect = self.iam.exceptions.EntityAlreadyExistsException
+        handle_create_update(self._event(), None)
+        self.iam.create_policy_version.assert_not_called()
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.SUCCESS)
+
+    def test_update_or_rollback_reconciles_to_the_requested_document(self):
+        """Replace a differing installed policy with the downloaded document.
+
+        The same reconciliation applies when the requested release moves forward
+        or rolls back: the downloaded policy defines the desired permissions.
+        """
+        self._existing_policy()
+        self.iam.get_policy_version.return_value["PolicyVersion"]["Document"] = {
+            **self.policy,
+            "Statement": self.policy["Statement"][:-1],
+        }
+        handle_create_update(self._event("Update"), None)
+        version = self.iam.create_policy_version.call_args.kwargs
+        self.assertEqual(json.loads(version["PolicyDocument"]), self.policy)
+        self.assertTrue(version["SetAsDefault"])
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.SUCCESS)
+
+    def test_fetch_failure_fails_setup(self):
+        self.urlopen.side_effect = OSError("download failed")
+        handle_create_update(self._event(), None)
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.FAILED)
+        self.iam.create_policy.assert_not_called()
+
+    def test_invalid_document_fails_setup(self):
+        self.urlopen.return_value = BytesIO(b"{}")
+        handle_create_update(self._event(), None)
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.FAILED)
+        self.iam.create_policy.assert_not_called()
+
+    def test_attachment_failure_fails_setup(self):
+        self.iam.attach_role_policy.side_effect = RuntimeError("attachment failed")
+        handle_create_update(self._event(), None)
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.FAILED)
+
+    def test_opt_out_deletes_policy_and_versions_without_fetching(self):
+        self.iam.list_policy_versions.return_value = {
+            "Versions": [
+                {"VersionId": "v1", "IsDefaultVersion": False},
+                {"VersionId": "v2", "IsDefaultVersion": True},
+            ]
+        }
+        event = self._event("Update")
+        event["ResourceProperties"]["AgentlessScanning"] = "false"
+        handle_create_update(event, None)
+        self.urlopen.assert_not_called()
+        self.iam.delete_policy_version.assert_called_once_with(
+            PolicyArn=self.policy_arn, VersionId="v1"
+        )
+        self.iam.detach_role_policy.assert_called_once_with(
+            RoleName=self.role_name, PolicyArn=self.policy_arn
+        )
+        self.iam.delete_policy.assert_called_once_with(PolicyArn=self.policy_arn)
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.SUCCESS)
+
+    def test_delete_failure_is_retryable_and_missing_policy_is_success(self):
+        """Report a deletion failure, then accept absence on a subsequent invocation."""
+        self.iam.delete_policy.side_effect = RuntimeError("delete failed")
+        handle_delete(self._event("Delete"), None)
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.FAILED)
+        self.iam.list_policy_versions.side_effect = self.iam.exceptions.NoSuchEntityException
+        handle_delete(self._event("Delete"), None)
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.SUCCESS)
+        self.urlopen.assert_not_called()
+
+    def test_role_change_installs_new_before_removing_old(self):
+        event = self._event("Update")
+        event["ResourceProperties"]["DatadogIntegrationRole"] = "NewRole"
+        handle_create_update(event, None)
+        calls = self.iam.mock_calls
+        attach = call.attach_role_policy(
+            RoleName="NewRole",
+            PolicyArn=f"arn:aws:iam::{self.account_id}:policy/{POLICY_PREFIX_AGENTLESS_SAAS}-NewRole",
+        )
+        detach = call.detach_role_policy(RoleName=self.role_name, PolicyArn=self.policy_arn)
+        self.assertLess(calls.index(attach), calls.index(detach))
+        self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.SUCCESS)
+
+    def test_disabled_and_addon_flows_leave_saas_untouched(self):
+        """ManageBasePermissions=false is the Agent installation add-on path.
+
+        That path leaves SaaS alone, even when AgentlessScanning is true.
+        The disabled-scanning Update case has false in both current and previous
+        settings, distinguishing it from an opt-out that requires cleanup.
+        """
+        for request_type in ("Create", "Update", "Delete"):
+            for overrides in ({"AgentlessScanning": "false"}, {"ManageBasePermissions": "false"}):
+                with self.subTest(request_type=request_type, overrides=overrides):
+                    event = self._event(request_type, **overrides)
+                    handler(event, None)
+                    self.assertEqual(self.cfn.send.call_args.args[2], self.cfn.SUCCESS)
+        self.urlopen.assert_not_called()
+        self.assertEqual(self.iam.mock_calls, [])
+
+
 class TestPermissionsBoundaryPolicies(unittest.TestCase):
+    """Check boundary document validation, policy versions, and stack ownership.
+
+    Cleanup cases distinguish policies owned by this stack from untagged,
+    shared, or still-attached policies that must be preserved.
+    """
+
     def setUp(self):
         self.iam = make_iam_mock(cleanup_side_effects=False)
         self.boundary = permissions_boundary_documents()[0]
@@ -1469,6 +1756,8 @@ class TestPermissionsBoundaryPolicies(unittest.TestCase):
         )
 
 class TestCleanup(unittest.TestCase):
+    """Check that base and instrumentation cleanup target their respective policies."""
+
     def setUp(self):
         self.iam = make_iam_mock()
 
@@ -1504,6 +1793,8 @@ class TestCleanup(unittest.TestCase):
 
 
 class TestCleanupLegacyBasePolicies(unittest.TestCase):
+    """Check removal of legacy base policies without touching current policy names."""
+
     def setUp(self):
         self.iam = make_iam_mock()
 
@@ -1527,6 +1818,12 @@ class TestCleanupLegacyBasePolicies(unittest.TestCase):
 
 
 class TestManageBasePermissions(unittest.TestCase):
+    """Check handler orchestration for role creation and Agent installation add-ons.
+
+    Cases cover base-permission ownership, update triggers, role replacement,
+    and the status and physical resource ID returned to CloudFormation.
+    """
+
     stack_id = "arn:aws:cloudformation:us-east-1:123456789012:stack/test-stack/id"
     logical_resource_id = "DatadogAttachIntegrationPermissionsFunctionTrigger"
 
@@ -2031,6 +2328,8 @@ class TestManageBasePermissions(unittest.TestCase):
 
 
 class TestUpgradeSafePolicyNames(unittest.TestCase):
+    """Keep current policy names distinct from names targeted by legacy cleanup."""
+
     role = "DatadogIntegrationRole"
     LEGACY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions"
 
@@ -2056,6 +2355,8 @@ class TestUpgradeSafePolicyNames(unittest.TestCase):
 
 
 class TestSafeLogging(unittest.TestCase):
+    """Check that logs and failure responses omit events and raw exception details."""
+
     def test_only_valid_iam_identifiers_are_logged(self):
         name = "datadog-instrumentation-policy-v2"
         arn = f"arn:aws:iam::123456789012:policy/datadog/instrumenter-boundaries/{name}"
