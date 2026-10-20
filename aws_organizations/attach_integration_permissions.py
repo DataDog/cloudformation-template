@@ -251,7 +251,6 @@ def handle_create_update(event, context):
 
 
 def handler(event, context):
-    LOGGER.info("Event received: %s", json.dumps(event))
     if event['RequestType'] == 'Delete':
         handle_delete(event, context)
     else:
