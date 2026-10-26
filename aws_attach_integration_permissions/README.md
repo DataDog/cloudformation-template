@@ -13,6 +13,7 @@ This CloudFormation template manages IAM permissions for the Datadog AWS integra
 3. Provide the following parameters:
    - `DatadogIntegrationRole`: The name of your existing Datadog integration IAM role
    - `AccountId`: Your AWS account ID
+   - `DatadogSite`: The Datadog site your AWS integration is configured in (default: `datadoghq.com`)
 
 ## AWS Resources
 

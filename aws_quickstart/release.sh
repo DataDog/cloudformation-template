@@ -141,7 +141,7 @@ fi
 set -e
 
 # Confirm to proceed
-for i in *.yaml; do
+for i in *.yaml datadog_agentless_saas_policy.json; do
     [ -f "$i" ] || break
     echo "About to upload $i to s3://${BUCKET}/aws/${VERSION}/$i"
 done
@@ -162,6 +162,7 @@ trap "rm -rf ${TEMP_DIR}" EXIT
 
 # Copy all YAML files to temp directory
 cp *.yaml "${TEMP_DIR}/"
+cp datadog_agentless_saas_policy.json "${TEMP_DIR}/"
 cp datadog_agentless_api_call.py cfn_common.py attach_integration_permissions.py accept_operator_subscription.py "${TEMP_DIR}/"
 cp marketplace_agreement_compat.py "${TEMP_DIR}/"
 
@@ -180,7 +181,7 @@ if [ "$GOV" = true ]; then
 fi
 
 # Update placeholder
-for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main_extended.yaml datadog_integration_role.yaml main_agent_installation.yaml; do
+for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main_extended.yaml datadog_integration_role.yaml datadog_integration_permissions.yaml main_agent_installation.yaml; do
     perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" $template
     perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" $template
     if [ "$GOV" = true ]; then
@@ -193,6 +194,8 @@ done
 embed_python_source_with_common datadog_integration_permissions.yaml attach_integration_permissions.py ATTACH_INTEGRATION_PERMISSIONS_SOURCE
 embed_python_source_with_common datadog_integration_permissions.yaml accept_operator_subscription.py ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE marketplace_agreement_compat.py
 
+yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_agentless_saas.yaml
+
 # Process Agentless Scanning templates
 for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.yaml datadog_agentless_delegate_role_snapshot.yaml datadog_integration_autoscaling_policy.yaml datadog_integration_sds_policy.yaml datadog_agentless_delegate_role_stackset.yaml datadog_agentless_saas.yaml; do
     # Note: unlike above, here we remove the 'v' prefix from the version
@@ -200,6 +203,9 @@ for template in datadog_agentless_delegate_role.yaml datadog_agentless_scanning.
 
     embed_python_source "$template" datadog_agentless_api_call.py
 done
+
+# Publish the policy before the templates that reference it.
+aws s3 cp datadog_agentless_saas_policy.json "s3://${BUCKET}/aws/${VERSION}/datadog_agentless_saas_policy.json"
 
 # Upload from temp directory
 if [ "$PRIVATE_TEMPLATE" = true ] ; then

@@ -1,4 +1,4 @@
-# 4.20.2 (October 8, 2026)
+# 4.21.1 (October 26, 2026)
 
 - Skip resource update forwarding stack deployment in AWS regions without support for EventBridge API destinations so AWS integration setup and Agent installation add-ons do not fail on unsupported resource types.
 

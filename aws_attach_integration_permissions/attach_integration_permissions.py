@@ -20,13 +20,13 @@ def generate_policy_hash(role_name, account_id):
     unique_string = f"{role_name}-{account_id}"
     return hashlib.sha256(unique_string.encode()).hexdigest()[:8]
 
-def get_policy_arn(account_id, policy_name):
+def get_policy_arn(partition, account_id, policy_name):
     """Generate a policy ARN."""
-    return f"arn:aws:iam::{account_id}:policy/{policy_name}"
+    return f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
 
-def fetch_permissions_from_datadog():
+def fetch_permissions_from_datadog(datadog_site):
     """Fetch permissions from Datadog API."""
-    api_url = f"https://api.datadoghq.com/api/v2/integration/aws/iam_permissions"
+    api_url = f"https://api.{datadog_site}/api/v2/integration/aws/iam_permissions"
     headers = {
         "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
     }
@@ -41,11 +41,11 @@ def fetch_permissions_from_datadog():
     
     return json_response["data"]["attributes"]["permissions"]
 
-def cleanup_existing_policies(iam_client, role_name, account_id, base_policy_name, max_policies=10):
+def cleanup_existing_policies(iam_client, partition, role_name, account_id, base_policy_name, max_policies=10):
     """Clean up existing policies with the base_policy_name prefix"""
     for i in range(max_policies):
         policy_name = f"{base_policy_name}-part{i+1}"
-        policy_arn = get_policy_arn(account_id, policy_name)
+        policy_arn = get_policy_arn(partition, account_id, policy_name)
         try:
             iam_client.detach_role_policy(
                 RoleName=role_name,
@@ -71,7 +71,7 @@ def handle_delete(event, context, role_name, account_id, base_policy_name):
     """Handle stack deletion."""
     iam_client = boto3.client('iam')
     try:
-        cleanup_existing_policies(iam_client, role_name, account_id, base_policy_name)
+        cleanup_existing_policies(iam_client, event["ResourceProperties"]["Partition"], role_name, account_id, base_policy_name)
         cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={})
     except Exception as e:
         LOGGER.error(f"Error deleting policy: {str(e)}")
@@ -81,12 +81,12 @@ def handle_create_update(event, context, role_name, account_id, base_policy_name
     """Handle stack creation or update."""
     try:
         # Fetch and chunk permissions
-        permissions = fetch_permissions_from_datadog()
+        permissions = fetch_permissions_from_datadog(event["ResourceProperties"].get("DatadogSite") or "datadoghq.com")
         permission_chunks = [permissions[i:i + CHUNK_SIZE] for i in range(0, len(permissions), CHUNK_SIZE)]
         
         # Clean up existing policies
         iam_client = boto3.client('iam')
-        cleanup_existing_policies(iam_client, role_name, account_id, base_policy_name)
+        cleanup_existing_policies(iam_client, event["ResourceProperties"]["Partition"], role_name, account_id, base_policy_name)
 
         # Create and attach new policies
         for i, chunk in enumerate(permission_chunks):

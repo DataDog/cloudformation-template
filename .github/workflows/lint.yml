@@ -9,6 +9,13 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
 
+    - name: Resolve JSON includes
+      uses: mikefarah/yq@v4.54.1
+      with:
+        cmd: >-
+          cd aws_quickstart &&
+          yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_agentless_saas.yaml
+
     - name: cfn-lint
       uses: scottbrenner/cfn-lint-action@v2
       with:

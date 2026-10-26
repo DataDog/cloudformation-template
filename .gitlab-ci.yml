@@ -164,6 +164,8 @@ validate_versions:
   image: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.4.29
   before_script:
     - yum install -y perl jq
+    - curl -fsSL https://github.com/mikefarah/yq/releases/download/v4.54.1/yq_linux_amd64 -o /usr/local/bin/yq
+    - chmod +x /usr/local/bin/yq
 
 release_quickstart:
   extends: .release_template

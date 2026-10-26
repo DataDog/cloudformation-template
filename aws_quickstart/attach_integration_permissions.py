@@ -28,6 +28,7 @@ API_CALL_SOURCE_HEADER_VALUE = "cfn-quickstart"
 POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicyV2"
 BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions-v2"
 BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions-v2"
+POLICY_PREFIX_AGENTLESS_SAAS = "datadog-aws-integration-agentless-saas-permissions"
 # Un-suffixed standard/resource-collection names created by the pre-extraction inline trigger
 # (<= v4.13). The role-creation path cleans these up before attaching the v2 policies so the two
 # generations never sit attached at once (IAM caps managed policies per role, default 10); the
@@ -854,6 +855,8 @@ def _cleanup_previous_target_policies(iam_client, props):
     partition = props.get("Partition", "aws")
     manage_base_permissions = _is_enabled(props.get("ManageBasePermissions", "true"))
     if manage_base_permissions:
+        if _is_enabled(props.get("AgentlessScanning", "false")):
+            cleanup_agentless_saas_permissions(iam_client, role_name, account_id, partition)
         cleanup_legacy_base_policies(
             iam_client,
             role_name,
@@ -928,6 +931,63 @@ def attach_resource_collection_permissions(iam_client, role_name):
             f"{BASE_POLICY_PREFIX_RESOURCE_COLLECTION}-{role_name}-{i+1}",
             chunk,
         )
+
+
+def attach_agentless_saas_permissions(iam_client, role_name, account_id, partition, policy_url):
+    with urllib.request.urlopen(policy_url, timeout=30) as response:
+        policy_document = json.load(response)
+    if (
+        not isinstance(policy_document, dict)
+        or policy_document.get("Version") != "2012-10-17"
+        or not policy_document.get("Statement")
+    ):
+        raise ValueError("Invalid Agentless SaaS policy document")
+    policy_json = _canonical_policy_document(policy_document)
+    policy_name = f"{POLICY_PREFIX_AGENTLESS_SAAS}-{role_name}"
+    policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
+    policy = _get_policy(iam_client, policy_arn)
+    if policy is None:
+        try:
+            iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
+        except iam_client.exceptions.EntityAlreadyExistsException:
+            # A retried Create may race with the original invocation.
+            iam_client.get_waiter("policy_exists").wait(
+                PolicyArn=policy_arn,
+                WaiterConfig={"Delay": 1, "MaxAttempts": 20},
+            )
+            policy = _get_policy(iam_client, policy_arn)
+            if policy is None:
+                raise
+    if policy is not None:
+        current_document = iam_client.get_policy_version(
+            PolicyArn=policy_arn, VersionId=policy["DefaultVersionId"]
+        )["PolicyVersion"]["Document"]
+        if _canonical_policy_document(current_document) != policy_json:
+            _prune_oldest_policy_version_if_needed(iam_client, policy_arn)
+            iam_client.create_policy_version(
+                PolicyArn=policy_arn, PolicyDocument=policy_json, SetAsDefault=True
+            )
+    iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+
+
+def cleanup_agentless_saas_permissions(iam_client, role_name, account_id, partition):
+    policy_name = f"{POLICY_PREFIX_AGENTLESS_SAAS}-{role_name}"
+    policy_arn = f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
+    try:
+        versions = iam_client.list_policy_versions(PolicyArn=policy_arn)["Versions"]
+    except iam_client.exceptions.NoSuchEntityException:
+        return
+    for version in versions:
+        if not version["IsDefaultVersion"]:
+            try:
+                iam_client.delete_policy_version(
+                    PolicyArn=policy_arn, VersionId=version["VersionId"]
+                )
+            except iam_client.exceptions.NoSuchEntityException:
+                pass
+    _detach_and_delete_policy(
+        iam_client, role_name, policy_arn, policy_name, fail_on_error=True
+    )
 
 
 def _list_attached_role_policies(iam_client, role_name):
@@ -1281,6 +1341,8 @@ def handle_delete(event, context):
     iam_client = boto3.client('iam')
     try:
         if manage_base_permissions:
+            if _is_enabled(props.get("AgentlessScanning", "false")):
+                cleanup_agentless_saas_permissions(iam_client, role_name, account_id, partition)
             cleanup_existing_policies(iam_client, role_name, account_id, partition)
         cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
         # Fail on in-use boundaries so CloudFormation retains ownership for a cleanup retry.
@@ -1342,6 +1404,12 @@ def handle_create_update(event, context):
             attach_standard_permissions(iam_client, role_name)
             if should_attach_resource_collection_permissions:
                 attach_resource_collection_permissions(iam_client, role_name)
+            if _is_enabled(props.get("AgentlessScanning", "false")):
+                attach_agentless_saas_permissions(
+                    iam_client, role_name, account_id, partition, props["AgentlessSaaSPolicyURL"]
+                )
+            elif not target_changed and _is_enabled(previous_props.get("AgentlessScanning", "false")):
+                cleanup_agentless_saas_permissions(iam_client, role_name, account_id, partition)
         if _should_update_instrumentation_permissions(event):
             attach_instrumentation_permissions(
                 iam_client,
