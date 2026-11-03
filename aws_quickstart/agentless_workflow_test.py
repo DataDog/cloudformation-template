@@ -1,4 +1,4 @@
-"""Check AgentlessScanning references in the AWS account onboarding workflow.
+"""Check parameter wiring in the AWS account onboarding workflows.
 
 main_workflow.yaml passes AgentlessScanning through datadog_integration_role.yaml
 to the permissions Lambda custom resource in datadog_integration_permissions.yaml.
@@ -66,6 +66,25 @@ class TestAgentlessWorkflow(unittest.TestCase):
             with self.subTest(callback=name):
                 metadata = resources[name]["Properties"]["Metadata"]
                 self.assertEqual(metadata["agentless_scanning"], {"Ref": "AgentlessScanning"})
+
+
+class TestResourceUpdateForwardingContract(unittest.TestCase):
+    def test_parent_parameters_exist_in_forwarding_template(self):
+        child_parameters = template("datadog_agent_resource_update_forwarding.yaml")["Parameters"]
+        for filename in (
+            "main_workflow.yaml",
+            "main_extended_workflow.yaml",
+            "main_agent_installation.yaml",
+        ):
+            with self.subTest(parent=filename):
+                parent = template(filename)
+                forwarding = parent["Resources"]["DatadogAgentResourceUpdateForwardingStack"]
+                supplied = forwarding["Properties"]["Parameters"]
+                unknown = set(supplied) - set(child_parameters)
+                self.assertFalse(
+                    unknown,
+                    f"{filename} passes unknown forwarding parameters: {sorted(unknown)}",
+                )
 
 
 if __name__ == "__main__":
