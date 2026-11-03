@@ -8,12 +8,6 @@ Parameters:
     Type: String
     AllowedPattern: "([0-9a-f]{32})?"
     NoEcho: true
-  APPKey:
-    Description: >-
-      APP key for the Datadog account (find at https://app.datadoghq.com/organization-settings/application-keys).
-    Type: String
-    AllowedPattern: "(([0-9a-f]{40})|(ddapp_[a-zA-Z0-9]{34}))?"
-    NoEcho: true
   DatadogSite:
     Type: String
     Default: datadoghq.com
@@ -53,11 +47,6 @@ Resources:
         ApiKeyAuthParameters:
           ApiKeyName: DD-API-KEY
           ApiKeyValue: !Ref APIKey
-        InvocationHttpParameters:
-          HeaderParameters:
-            - Key: DD-APPLICATION-KEY
-              Value: !Ref APPKey
-              IsValueSecret: true
   DDIntakeApiDestination:
     Type: AWS::Events::ApiDestination
     Properties:
