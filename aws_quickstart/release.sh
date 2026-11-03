@@ -164,7 +164,7 @@ trap "rm -rf ${TEMP_DIR}" EXIT
 cp *.yaml "${TEMP_DIR}/"
 cp datadog_agentless_saas_policy.json "${TEMP_DIR}/"
 cp datadog_agentless_api_call.py cfn_common.py attach_integration_permissions.py accept_operator_subscription.py "${TEMP_DIR}/"
-cp marketplace_agreement_compat.py "${TEMP_DIR}/"
+cp marketplace_agreement_compat.py launch_agent_installation.py "${TEMP_DIR}/"
 
 # Change to temp directory for processing
 cd "${TEMP_DIR}"
@@ -181,7 +181,7 @@ if [ "$GOV" = true ]; then
 fi
 
 # Update placeholder
-for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main_extended.yaml datadog_integration_role.yaml datadog_integration_permissions.yaml main_agent_installation.yaml; do
+for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main_extended.yaml datadog_integration_role.yaml datadog_integration_permissions.yaml main_agent_installation.yaml main_agent_installation_launcher.yaml datadog_agent_supplementary_forwarding.yaml; do
     perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" $template
     perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" $template
     if [ "$GOV" = true ]; then
@@ -191,6 +191,7 @@ for template in main_workflow.yaml main_extended_workflow.yaml main_v2.yaml main
     fi
 done
 
+embed_python_source_with_common main_agent_installation_launcher.yaml launch_agent_installation.py LAUNCH_AGENT_INSTALLATION_SOURCE
 embed_python_source_with_common datadog_integration_permissions.yaml attach_integration_permissions.py ATTACH_INTEGRATION_PERMISSIONS_SOURCE
 embed_python_source_with_common datadog_integration_permissions.yaml accept_operator_subscription.py ACCEPT_OPERATOR_SUBSCRIPTION_SOURCE marketplace_agreement_compat.py
 

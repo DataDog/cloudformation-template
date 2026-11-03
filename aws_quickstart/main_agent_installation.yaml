@@ -10,19 +10,64 @@ Parameters:
   DatadogSite:
     Type: String
     Default: datadoghq.com
+    AllowedValues: [datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com, ap1.datadoghq.com, ap2.datadoghq.com, uk1.datadoghq.com, ddog-gov.com, us2.ddog-gov.com]
     Description: >-
       Define your Datadog Site to send data to.
-      Allowed values: datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com,
-      ap1.datadoghq.com, ap2.datadoghq.com, uk1.datadoghq.com, ddog-gov.com (GovCloud), us2.ddog-gov.com (GovCloud).
   IAMRoleName:
     Description: Name of the existing IAM role used by the Datadog AWS integration.
     Type: String
     Default: DatadogIntegrationRole
+    AllowedPattern: '[\w+=,.@-]+'
+    MaxLength: 64
+  ExternalId:
+    Type: String
+    Default: ""
+    AllowedPattern: '[\w+=,.@:/-]*'
+    MaxLength: 1224
+    Description: External ID of the Datadog AWS integration, used to bind this installation to its integration identity.
   AccountId:
     Type: String
+    AllowedPattern: '[0-9]{12}'
     Description: The AWS account ID of the account integrated in Datadog.
+  InstrumentationRefreshToken:
+    Type: String
+    Default: ""
+    AllowedPattern: '[A-Za-z0-9-]*'
+    MaxLength: 128
+    Description: Set by the launcher to refresh permissions even when resource types have not changed.
+  LegacyPermissionsTemplateVersion:
+    Type: String
+    Default: ""
+    AllowedValues: ["", "v4.21.1"]
+    Description: Set by the launcher when preserving a supported legacy permissions child.
+  LegacyInstrumentationResourceTypes:
+    Type: String
+    Default: ""
+    MaxLength: 1024
+    Description: Frozen resource types of the legacy permissions child; new requests use the stack-owned child.
+  CreateResourceUpdateForwarding:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >-
+      Automatically selected by the installation launcher. Set to "false" when reusing
+      an external forwarding pipeline. Supplementary rules can supply missing coverage;
+      existing resources are not adopted.
+  SupplementaryResourceTypes:
+    Type: String
+    Default: ""
+    AllowedPattern: '(aws:(ec2:instance|eks:cluster|lambda:function)(,aws:(ec2:instance|eks:cluster|lambda:function))*)?'
+    Description: Set by the launcher. Types covered by installation-owned supplementary rules targeting the existing intake.
+  ExistingApiDestinationArn:
+    Type: String
+    Default: ""
+    AllowedPattern: '(arn:aws(-[a-z]+)*:events:[a-z0-9-]+:[0-9]{12}:api-destination/datadog-agent-resource-update-intake-destination/[A-Za-z0-9-]+)?'
+    Description: Set by the launcher when supplementary rules reuse an external API destination.
   InstrumentationResourceTypes:
     Type: CommaDelimitedList
+    AllowedValues: ['aws:ec2:instance', 'aws:ecs:cluster', 'aws:eks:cluster', 'aws:lambda:function']
     Description: >-
       Comma-separated list of AWS resource types (UDM form, e.g. aws:ec2:instance, aws:eks:cluster,
       aws:lambda:function) to enable Datadog instrumentation for. The integration role is granted the IAM
@@ -34,7 +79,20 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref AccountId, !Ref "AWS::AccountId"]
         AssertDescription: "The AWS Account Id of the account integrated in Datadog does not match the AWS Account Id of the account where this stack will be created."
+  ValidateSupplementaryForwarding:
+    RuleCondition: !Not [!Equals [!Ref SupplementaryResourceTypes, ""]]
+    Assertions:
+      - Assert: !Equals [!Ref CreateResourceUpdateForwarding, "false"]
+        AssertDescription: Supplementary rules reuse an external pipeline and cannot accompany a new full pipeline.
+      - Assert: !Not [!Equals [!Ref ExistingApiDestinationArn, ""]]
+        AssertDescription: Supplementary rules require the existing API destination ARN.
 Conditions:
+  HasLegacyPermissions: !Not [!Equals [!Ref LegacyPermissionsTemplateVersion, ""]]
+  HasSupplementaryForwarding:
+    Fn::And:
+      - !Not [!Equals [!Ref SupplementaryResourceTypes, ""]]
+      - !Equals [!Ref CreateResourceUpdateForwarding, "false"]
+      - Condition: SupportsEventBridgeApiDestinations
   IncludeEC2:
     Fn::Not:
       - Fn::Equals:
@@ -88,6 +146,7 @@ Conditions:
           - !Equals [!Ref AWS::Region, us-gov-west-1]
   ShouldForwardEvents:
     Fn::And:
+      - !Equals [!Ref CreateResourceUpdateForwarding, "true"]
       - Condition: SupportsEventBridgeApiDestinations
       - Fn::Or:
           - Condition: IncludeEC2
@@ -99,6 +158,24 @@ Resources:
   DatadogIntegrationPermissionsStack:
     Type: AWS::CloudFormation::Stack
     Properties:
+      TemplateURL: !If
+        - HasLegacyPermissions
+        - !Sub "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/${LegacyPermissionsTemplateVersion}/datadog_integration_permissions.yaml"
+        - "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_permissions.yaml"
+      Parameters:
+        IAMRoleName: !Ref IAMRoleName
+        ResourceCollectionPermissions: false
+        InstrumentationResourceTypes: !If [HasLegacyPermissions, !Ref LegacyInstrumentationResourceTypes, !Join [",", !Ref InstrumentationResourceTypes]]
+        DatadogSite: !Ref DatadogSite
+        ManageBasePermissions: false
+        InstrumentationPolicyScope: !If [HasLegacyPermissions, !Ref AWS::NoValue, stack]
+        FailOnInstrumentationError: true
+        InstrumentationRefreshToken: !If [HasLegacyPermissions, !Ref AWS::NoValue, !Ref InstrumentationRefreshToken]
+  DatadogAgentInstallationPermissionsStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: HasLegacyPermissions
+    DependsOn: DatadogIntegrationPermissionsStack
+    Properties:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_permissions.yaml"
       Parameters:
         IAMRoleName: !Ref IAMRoleName
@@ -106,7 +183,9 @@ Resources:
         InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
         DatadogSite: !Ref DatadogSite
         ManageBasePermissions: false
+        InstrumentationPolicyScope: stack
         FailOnInstrumentationError: true
+        InstrumentationRefreshToken: !Ref InstrumentationRefreshToken
   DatadogAgentResourceUpdateForwardingStack:
     Type: AWS::CloudFormation::Stack
     Condition: ShouldForwardEvents
@@ -116,7 +195,25 @@ Resources:
         APIKey: !Ref APIKey
         DatadogSite: !Ref DatadogSite
         InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  DatadogAgentSupplementaryForwardingStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: HasSupplementaryForwarding
+    Properties:
+      TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agent_supplementary_forwarding.yaml"
+      Parameters:
+        ExistingApiDestinationArn: !Ref ExistingApiDestinationArn
+        InstrumentationResourceTypes: !Ref SupplementaryResourceTypes
 Outputs:
+  InstallationTemplateVersion:
+    Description: Template release managing this installation, including adopted legacy stacks.
+    Value: <VERSION_PLACEHOLDER>
+  ExternalId:
+    Description: External ID of the Datadog integration bound to this installation.
+    Value: !Ref ExternalId
+  LegacyPermissionsNotice:
+    Condition: HasLegacyPermissions
+    Description: Deletion behavior for an adopted legacy installation.
+    Value: Legacy permissions are preserved during updates. Deleting this installation can remove instrumentation permissions shared with QuickStart; treat deletion as offboarding.
   IAMRoleName:
     Description: AWS IAM Role named to be used with the DataDog AWS Integration
     Value: !Ref IAMRoleName
@@ -140,6 +237,10 @@ Metadata:
           default: Advanced
         Parameters:
           - IAMRoleName
+          - ExternalId
+          - CreateResourceUpdateForwarding
+          - SupplementaryResourceTypes
+          - ExistingApiDestinationArn
     ParameterLabels:
       APIKey:
         default: "DatadogApiKey *"

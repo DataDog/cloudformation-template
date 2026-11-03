@@ -36,6 +36,7 @@ from attach_integration_permissions import (
     IAM_POLICY_NAME_PATTERN,
     IAM_POLICY_ARN_PATTERN,
     parse_resource_types,
+    _should_update_instrumentation_permissions,
     build_instrumentation_permissions_url,
     attach_instrumentation_permissions,
     cleanup_existing_policies,
@@ -75,6 +76,62 @@ BOUNDARY_POLICY_NAMES = (
     "datadog-instrumenter-eks-ascp-boundary",
     "datadog-instrumenter-ecs-task-execution-boundary",
 )
+
+
+class TestInstrumentationRefresh(unittest.TestCase):
+    def test_unchanged_configuration_with_a_new_request_refreshes_permissions(self):
+        previous = {
+            "DatadogIntegrationRole": "DatadogIntegrationRole",
+            "AccountId": "123456789012",
+            "Partition": "aws",
+            "DatadogSite": "datadoghq.com",
+            "ResourceCollectionPermissions": "false",
+            "ManageBasePermissions": "false",
+            "FailOnInstrumentationError": "true",
+            "InstrumentationResourceTypes": "aws:ec2:instance",
+            "InstrumentationRefreshToken": "first-request",
+        }
+        event = {
+            "RequestType": "Update",
+            "StackId": "installation-permissions-stack",
+            "LogicalResourceId": "Permissions",
+            "OldResourceProperties": previous,
+            "ResourceProperties": {
+                **previous,
+                "InstrumentationRefreshToken": "second-request",
+            },
+        }
+        with (
+            patch("attach_integration_permissions.boto3.client"),
+            patch(
+                "attach_integration_permissions.attach_instrumentation_permissions"
+            ) as attach,
+        ):
+            handle_create_update(event, None)
+        attach.assert_called_once()
+
+    def test_empty_default_does_not_refresh_existing_quickstart_permissions(self):
+        self.assertFalse(
+            _should_update_instrumentation_permissions(
+                {
+                    "RequestType": "Update",
+                    "OldResourceProperties": {},
+                    "ResourceProperties": {"InstrumentationRefreshToken": ""},
+                }
+            )
+        )
+
+    def test_unchanged_request_token_does_not_force_another_refresh(self):
+        props = {"InstrumentationRefreshToken": "same-request"}
+        self.assertFalse(
+            _should_update_instrumentation_permissions(
+                {
+                    "RequestType": "Update",
+                    "OldResourceProperties": props,
+                    "ResourceProperties": dict(props),
+                }
+            )
+        )
 
 
 class TestLambdaSourceEmbedding(unittest.TestCase):
@@ -127,6 +184,15 @@ class TestLambdaSourceEmbedding(unittest.TestCase):
                 rendered,
             )
             self.assertNotIn("<ATTACH_INTEGRATION_PERMISSIONS_SOURCE>", rendered)
+            launcher = (output / "main_agent_installation_launcher.yaml").read_text()
+            self.assertNotIn("<LAUNCH_AGENT_INSTALLATION_SOURCE>", launcher)
+            self.assertNotIn("<BUCKET_PLACEHOLDER>", launcher)
+            self.assertNotIn("<VERSION_PLACEHOLDER>", launcher)
+            self.assertIn("class Launcher:", launcher)
+            self.assertIn(
+                f"https://test-quickstart-bucket.s3.amazonaws.com/aws/{version}/main_agent_installation.yaml",
+                launcher,
+            )
 
     def test_cloudformation_template_uses_source_placeholder(self):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
@@ -1898,7 +1964,7 @@ class TestManageBasePermissions(unittest.TestCase):
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.cleanup_instrumentation_policies")
     @patch("attach_integration_permissions.cleanup_existing_policies")
-    def test_delete_manage_base_false_preserves_base_policies(
+    def test_delete_empty_addon_preserves_base_and_instrumentation_policies(
         self, mock_cleanup_base, mock_cleanup_instr, mock_client, mock_cleanup_boundaries
     ):
         mock_client.return_value = self.iam
@@ -1906,14 +1972,14 @@ class TestManageBasePermissions(unittest.TestCase):
         event["RequestType"] = "Delete"
         handle_delete(event, None)
         mock_cleanup_base.assert_not_called()
-        mock_cleanup_instr.assert_called_once()
+        mock_cleanup_instr.assert_not_called()
         mock_cleanup_boundaries.assert_called_once_with(self.iam, self.stack_id)
 
     @patch("attach_integration_permissions.cleanup_permissions_boundaries")
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.cleanup_instrumentation_policies")
     @patch("attach_integration_permissions.cleanup_existing_policies")
-    def test_delete_manage_base_true_cleans_base_policies(
+    def test_delete_empty_role_stack_cleans_only_base_policies(
         self, mock_cleanup_base, mock_cleanup_instr, mock_client, mock_cleanup_boundaries
     ):
         mock_client.return_value = self.iam
@@ -1921,7 +1987,7 @@ class TestManageBasePermissions(unittest.TestCase):
         event["RequestType"] = "Delete"
         handle_delete(event, None)
         mock_cleanup_base.assert_called_once()
-        mock_cleanup_instr.assert_called_once()
+        mock_cleanup_instr.assert_not_called()
         mock_cleanup_boundaries.assert_called_once_with(self.iam, self.stack_id)
 
     @patch("attach_integration_permissions.cfnresponse")
@@ -2187,6 +2253,7 @@ class TestManageBasePermissions(unittest.TestCase):
             "123456789012",
             "aws",
             fail_on_error=True,
+            policy_owner=None,
         )
 
     @patch("attach_integration_permissions.cfnresponse")
@@ -2437,6 +2504,7 @@ class TestSafeLogging(unittest.TestCase):
                 "DatadogIntegrationRole": "test-role",
                 "AccountId": "123456789012",
                 "ManageBasePermissions": "false",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
             },
         }
 
@@ -2453,6 +2521,7 @@ class TestSafeLogging(unittest.TestCase):
     def test_policy_error_does_not_log_exception_message(self, mock_cfn, mock_client):
         marker = "forged\r\nlog entry fake-credential"
         event = {
+            "RequestType": "Create",
             "StackId": "stack-id",
             "LogicalResourceId": "Permissions",
             "ResourceProperties": {
