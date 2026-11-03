@@ -500,6 +500,7 @@ Resources:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agent_resource_update_forwarding.yaml"
       Parameters:
         APIKey: !Ref APIKey
+        APPKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
         InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
 
