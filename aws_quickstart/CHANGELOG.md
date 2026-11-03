@@ -1,4 +1,4 @@
-# 4.22.0 (Unreleased)
+# 4.23.0 (Unreleased)
 
 - Limit the Agent installation launcher to commercial AWS accounts. GovCloud and China create/update requests are rejected; existing launchers can still be deleted. Initial AWS integration QuickStart behavior is unchanged.
 - Add an Agent installation launcher that automatically creates or updates `DatadogAgentInstallation` after a single CloudFormation approval. The launcher preserves existing resource types, credentials, and tags, and waits for the installation result. Each request refreshes instrumentation permissions even when the selected types have not changed.

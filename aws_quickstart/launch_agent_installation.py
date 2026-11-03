@@ -146,16 +146,14 @@ def change_set_parameters(props, types, forwarding, refresh_token, previous, leg
         {"ParameterKey": key, "ParameterValue": value} for key, value in values.items()
     ]
     if previous is not None:
+        # v4.22.0 removed APPKey from the installation template.
         params.extend(
             {"ParameterKey": key, "UsePreviousValue": True}
             for key in previous
-            if key not in values
+            if key not in values and key != "APPKey"
         )
     else:
-        params.extend(
-            {"ParameterKey": key, "ParameterValue": props[key]}
-            for key in ("APIKey", "APPKey")
-        )
+        params.append({"ParameterKey": "APIKey", "ParameterValue": props["APIKey"]})
     return params
 
 
@@ -1155,11 +1153,12 @@ def handler(event, context):
             ):
                 message = f"AWS {operation} failed ({code}). Check the launcher's deployment permissions and the installation stack in CloudFormation."
         target_id = state["StackId"] if state else getattr(error, "stack_id", None)
-        if target_id:
-            message = f"{message} Stack: {stack_url(target_id)}"
+        target_url = stack_url(target_id) if target_id else None
+        if target_url:
+            message = f"{message} Stack: {target_url}"
         data = {"Message": message}
-        if target_id:
-            data["InstallationStackURL"] = stack_url(target_id)
+        if target_url:
+            data["InstallationStackURL"] = target_url
         send_cfn_response(
             cfnresponse, event, context, cfnresponse.FAILED, data, reason=message
         )

@@ -50,7 +50,14 @@ class LegacyAdoptionTest(unittest.TestCase):
         f = self.fixture
         f.existing(
             Parameters=stack_parameters(
-                {key: value for key, value in PROPS.items() if key != "ExternalId"}
+                {
+                    **{
+                        key: value
+                        for key, value in PROPS.items()
+                        if key != "ExternalId"
+                    },
+                    "APPKey": "legacy-app-secret",
+                }
             )
         )
         self.legacy_parameters = {
@@ -164,6 +171,7 @@ class LegacyAdoptionTest(unittest.TestCase):
 
     def adopted(self):
         previous = launcher.parameters(self.fixture.current_stack)
+        previous.pop("APPKey", None)
         previous.update(
             ExternalId=PROPS["ExternalId"],
             LegacyPermissionsTemplateVersion="v4.21.1",
@@ -208,10 +216,10 @@ class LegacyAdoptionTest(unittest.TestCase):
             "aws:ec2:instance,aws:eks:cluster",
         )
         self.assertEqual(values["ExternalId"]["ParameterValue"], PROPS["ExternalId"])
-        for secret in ("APIKey", "APPKey"):
-            self.assertEqual(
-                values[secret], {"ParameterKey": secret, "UsePreviousValue": True}
-            )
+        self.assertEqual(
+            values["APIKey"], {"ParameterKey": "APIKey", "UsePreviousValue": True}
+        )
+        self.assertNotIn("APPKey", values)
         self.fixture.iam.attach_role_policy.assert_not_called()
         self.fixture.iam.detach_role_policy.assert_not_called()
         self.fixture.cf.delete_stack.assert_not_called()
@@ -366,7 +374,7 @@ class LegacyAdoptionTest(unittest.TestCase):
     def test_adopted_stack_uses_version_output_to_reject_downgrades(self):
         self.adopted()
         self.fixture.current_stack["Outputs"] = [
-            {"OutputKey": "InstallationTemplateVersion", "OutputValue": "v4.23.0"}
+            {"OutputKey": "InstallationTemplateVersion", "OutputValue": "v4.24.0"}
         ]
         self.assert_rejected()
 
@@ -532,7 +540,7 @@ class LegacyTemplateTest(unittest.TestCase):
                     os.environ,
                     {
                         "INSTALLATION_TEMPLATE_URL": prefix
-                        + "/aws/v4.22.0/main_agent_installation.yaml"
+                        + "/aws/v4.23.0/main_agent_installation.yaml"
                     },
                 ),
             ):

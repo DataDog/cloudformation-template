@@ -11,10 +11,6 @@ Parameters:
     Type: String
     NoEcho: true
     Description: Datadog API key for a new installation. Existing installation keys are preserved.
-  APPKey:
-    Type: String
-    NoEcho: true
-    Description: Datadog application key for a new installation. Existing installation keys are preserved.
   DatadogSite:
     Type: String
     Default: datadoghq.com
@@ -301,7 +297,6 @@ Resources:
       ServiceToken: !GetAtt LauncherFunction.Arn
       ServiceTimeout: 3600
       APIKey: !Ref APIKey
-      APPKey: !Ref APPKey
       DatadogSite: !Ref DatadogSite
       IAMRoleName: !Ref IAMRoleName
       ExternalId: !Ref ExternalId
@@ -326,4 +321,4 @@ Metadata:
         Parameters: [AccountId, IAMRoleName, ExternalId, InstrumentationResourceTypes, DatadogSite]
       - Label:
           default: Credentials for a new installation
-        Parameters: [APIKey, APPKey]
+        Parameters: [APIKey]

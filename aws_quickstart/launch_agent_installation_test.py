@@ -40,7 +40,7 @@ QUICKSTART_FORWARDING = FORWARDING.replace(
     "DatadogAgentInstallation-", "DatadogIntegration-"
 )
 TEMPLATE_URL = (
-    "https://test-bucket.s3.amazonaws.com/aws/v4.22.0/main_agent_installation.yaml"
+    "https://test-bucket.s3.amazonaws.com/aws/v4.23.0/main_agent_installation.yaml"
 )
 PROPS = {
     "AccountId": ACCOUNT,
@@ -49,7 +49,6 @@ PROPS = {
     "ExternalId": "current-org-external-id",
     "InstrumentationResourceTypes": "aws:ec2:instance",
     "APIKey": "test-api-secret",
-    "APPKey": "test-app-secret",
 }
 
 
@@ -97,7 +96,7 @@ class LauncherTest(unittest.TestCase):
     def setUp(self):
         self.env = patch.dict(
             os.environ,
-            {"INSTALLATION_TEMPLATE_URL": TEMPLATE_URL, "TEMPLATE_VERSION": "v4.22.0"},
+            {"INSTALLATION_TEMPLATE_URL": TEMPLATE_URL, "TEMPLATE_VERSION": "v4.23.0"},
         )
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -348,8 +347,11 @@ class LauncherTest(unittest.TestCase):
 
     def test_update_merges_types_and_preserves_secrets_other_parameters_and_tags(self):
         current = stack(Tags=[{"Key": "owner", "Value": "customer"}])
-        current["Parameters"].append(
-            {"ParameterKey": "FutureSetting", "ParameterValue": "keep"}
+        current["Parameters"].extend(
+            [
+                {"ParameterKey": "FutureSetting", "ParameterValue": "keep"},
+                {"ParameterKey": "APPKey", "ParameterValue": "old-app-secret"},
+            ]
         )
         self.existing(**current)
         request = event()
@@ -363,7 +365,8 @@ class LauncherTest(unittest.TestCase):
             self.values()["InstrumentationResourceTypes"]["ParameterValue"],
             "aws:ec2:instance,aws:eks:cluster",
         )
-        for key in ("APIKey", "APPKey", "FutureSetting"):
+        self.assertNotIn("APPKey", self.values())
+        for key in ("APIKey", "FutureSetting"):
             self.assertEqual(
                 self.values()[key], {"ParameterKey": key, "UsePreviousValue": True}
             )
@@ -1090,7 +1093,7 @@ class LauncherTest(unittest.TestCase):
             Tags=[
                 {
                     "Key": "datadog:agent-installation-template-version",
-                    "Value": "v4.23.0",
+                    "Value": "v4.24.0",
                 }
             ]
         )
@@ -2325,7 +2328,7 @@ class TemplateTest(unittest.TestCase):
             "datadog_agent_resource_update_forwarding.yaml",
             "datadog_agent_supplementary_forwarding.yaml",
         ):
-            for version in ("v4.22.0", "v4.21.1"):
+            for version in ("v4.23.0", "v4.22.0", "v4.21.1"):
                 url = template_url.replace(
                     "main_agent_installation.yaml", filename
                 ).replace("<VERSION_PLACEHOLDER>", version)
@@ -2348,6 +2351,31 @@ class TemplateTest(unittest.TestCase):
         )
         self.assertIn("aws:CalledVia", nested["Condition"]["ForAnyValue:StringEquals"])
 
+    def test_launcher_parameters_match_api_key_only_installation_template(self):
+        target = self.load("main_agent_installation.yaml")
+        for previous in (
+            None,
+            {"APIKey": "previous-api-key", "APPKey": "obsolete-app-key"},
+        ):
+            with self.subTest(updating=previous is not None):
+                result = launcher.change_set_parameters(
+                    PROPS,
+                    {"aws:ec2:instance"},
+                    launcher.ForwardingPlan(),
+                    "request-token",
+                    previous,
+                    {},
+                )
+                values = {item["ParameterKey"]: item for item in result}
+                self.assertLessEqual(set(values), set(target["Parameters"]))
+                self.assertNotIn("APPKey", values)
+                self.assertEqual(
+                    values["APIKey"],
+                    {"ParameterKey": "APIKey", "ParameterValue": PROPS["APIKey"]}
+                    if previous is None
+                    else {"ParameterKey": "APIKey", "UsePreviousValue": True},
+                )
+
     def test_no_retained_or_coupled_installation_lifecycle(self):
         template = self.load("main_agent_installation_launcher.yaml")
         self.assertNotIn("DatadogAgentInstallation", template["Resources"])
@@ -2355,7 +2383,10 @@ class TemplateTest(unittest.TestCase):
         self.assertNotIn("delete_stack(", source)
         self.assertNotIn("RoleARN=", source)
         self.assertTrue(template["Parameters"]["APIKey"]["NoEcho"])
-        self.assertTrue(template["Parameters"]["APPKey"]["NoEcho"])
+        self.assertNotIn("APPKey", template["Parameters"])
+        self.assertNotIn(
+            "APPKey", template["Resources"]["LaunchInstallation"]["Properties"]
+        )
         self.assertEqual(
             template["Resources"]["LaunchInstallation"]["Properties"]["ServiceTimeout"],
             3600,
