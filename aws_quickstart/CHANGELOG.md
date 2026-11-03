@@ -1,6 +1,6 @@
 # 4.22.0 (November 3, 2026)
 
-- Remove the Datadog application key from EventBridge resource update forwarding, which now authenticates with the API key only. The Agent installation template no longer takes an `APPKey` parameter.
+- Remove the Datadog application key from EventBridge resource update forwarding, which now authenticates with the API key only. The `APPKey` parameter is removed from `datadog_agent_resource_update_forwarding.yaml` and `main_agent_installation.yaml`.
 
 # 4.21.1 (October 26, 2026)
 
