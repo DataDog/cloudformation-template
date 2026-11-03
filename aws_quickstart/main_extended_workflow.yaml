@@ -623,6 +623,8 @@ Resources:
         stack_id: !Ref AWS::StackId
         forwarder_arn: !GetAtt ForwarderStack.Outputs.DatadogForwarderArn
 
+  # Event forwarding uses only the API key; APPKey stays in this parent for
+  # workflow status callbacks and must not be passed to the forwarding template.
   DatadogAgentResourceUpdateForwardingStack:
     Type: AWS::CloudFormation::Stack
     Condition: ShouldForwardEvents
@@ -630,7 +632,6 @@ Resources:
       TemplateURL: "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_agent_resource_update_forwarding.yaml"
       Parameters:
         APIKey: !Ref APIKey
-        APPKey: !Ref APPKey
         DatadogSite: !Ref DatadogSite
         InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
 
@@ -821,6 +822,8 @@ Outputs:
       Name:
         Fn::Sub: ${AWS::StackName}-DatadogForwarderArn
 Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
   AWS::CloudFormation::Interface:
     ParameterGroups:
     - Label:
