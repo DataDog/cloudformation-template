@@ -1,10 +1,11 @@
 # version: <VERSION_PLACEHOLDER>
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  Datadog Agent installation launcher. Authorizes a helper to create or update
-  DatadogAgentInstallation, preserve its configured resource types, and avoid
-  recreating existing event forwarding. No separate approval is requested for
-  the installation update. Deleting this launcher does not uninstall Datadog.
+  Datadog Agent installation launcher for commercial AWS accounts. Authorizes a
+  helper to create or update DatadogAgentInstallation, preserve its configured
+  resource types, and avoid recreating existing event forwarding. No separate
+  approval is requested for the installation update. Deleting this launcher
+  does not uninstall Datadog.
 Parameters:
   APIKey:
     Type: String

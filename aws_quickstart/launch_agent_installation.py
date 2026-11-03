@@ -54,6 +54,7 @@ NO_API_DESTINATIONS = {
     "us-gov-east-1",
     "us-gov-west-1",
 }
+# Non-commercial endpoints remain available for launcher deletion and failed-create cleanup.
 HOME_REGIONS = {
     "aws": "us-east-1",
     "aws-us-gov": "us-gov-west-1",
@@ -1096,6 +1097,10 @@ def handler(event, context):
         if event["ResourceProperties"]["AccountId"] != account:
             raise InstallationError(
                 "Launch this template in the AWS account selected in Datadog."
+            )
+        if partition != "aws" and event["RequestType"] != "Delete":
+            raise InstallationError(
+                "This installation launcher supports only commercial AWS accounts. AWS GovCloud and China are not supported."
             )
         if not state:
             deadline = request_deadline(event)

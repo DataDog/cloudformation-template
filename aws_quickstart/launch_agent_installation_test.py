@@ -5,6 +5,7 @@ import unittest
 from datetime import UTC, datetime
 from fnmatch import fnmatchcase
 from importlib import import_module
+from itertools import product
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
@@ -1679,12 +1680,12 @@ class HandlerTest(unittest.TestCase):
         self.addCleanup(client_factory.stop)
         self.history()
 
-    def history(self, *statuses):
+    def history(self, *statuses, stack_id=REQUEST):
         self.client.get_paginator.return_value.paginate.return_value = [
             {
                 "StackEvents": [
                     {
-                        "PhysicalResourceId": REQUEST,
+                        "PhysicalResourceId": stack_id,
                         "ResourceType": "AWS::CloudFormation::Stack",
                         "ResourceStatus": status,
                     }
@@ -1834,6 +1835,165 @@ class HandlerTest(unittest.TestCase):
         launcher.handler(event(), Mock())
         self.assertIn(launcher.stack_url(ROOT), respond.call_args.kwargs["reason"])
         self.assertNotIn("test-api-secret", respond.call_args.kwargs["reason"])
+
+    @patch.object(launcher, "send_cfn_response")
+    @patch.object(launcher, "wait_for_result")
+    @patch.object(launcher.boto3, "Session")
+    @patch.object(launcher, "Launcher")
+    def test_noncommercial_operations_fail_before_discovery_or_continuation(
+        self, factory, session, wait, respond
+    ):
+        factory.return_value.prepare.return_value = state()
+        for partition, kind, phase in product(
+            ("aws-us-gov", "aws-cn"),
+            ("Create", "Update"),
+            (None, "change_set", "deployment"),
+        ):
+            with self.subTest(partition=partition, kind=kind, phase=phase):
+                region = launcher.HOME_REGIONS[partition]
+                for mock in (factory, session, wait, respond, self.client_factory):
+                    mock.reset_mock()
+                request = event(kind)
+                request["StackId"] = REQUEST.replace(
+                    "arn:aws:", f"arn:{partition}:"
+                ).replace("us-east-1", region)
+                request["ResourceProperties"]["InstrumentationResourceTypes"] = (
+                    "aws:ecs:cluster"
+                )
+                if phase:
+                    request["ResourceProperties"] = {"AccountId": ACCOUNT}
+                    request["LauncherState"] = {
+                        **state(phase=phase),
+                        "Region": region,
+                        "StackId": ROOT.replace(
+                            "arn:aws:", f"arn:{partition}:"
+                        ).replace("us-east-1", region),
+                    }
+                launcher.handler(request, Mock())
+                factory.assert_not_called()
+                session.assert_not_called()
+                self.client_factory.assert_not_called()
+                wait.assert_not_called()
+                respond.assert_called_once()
+                self.assertEqual(respond.call_args.args[3], launcher.cfnresponse.FAILED)
+                self.assertIn(
+                    "supports only commercial AWS accounts",
+                    respond.call_args.kwargs["reason"],
+                )
+
+    @patch.object(launcher, "send_cfn_response")
+    @patch.object(launcher, "wait_for_result")
+    @patch.object(launcher, "Launcher")
+    def test_commercial_create_and_update_still_prepare_installation(
+        self, factory, wait, respond
+    ):
+        for kind in ("Create", "Update"):
+            with self.subTest(kind=kind):
+                factory.reset_mock()
+                wait.reset_mock()
+                factory.return_value.prepare.return_value = state()
+                request = event(kind)
+                launcher.handler(request, Mock())
+                self.assertEqual(factory.call_args.args[1], "aws")
+                factory.return_value.prepare.assert_called_once_with(request)
+                wait.assert_called_once()
+        respond.assert_not_called()
+
+    @patch.object(launcher, "send_cfn_response")
+    @patch.object(launcher, "wait_for_result")
+    @patch.object(launcher, "Launcher")
+    def test_noncommercial_deletion_preserves_existing_installations(
+        self, factory, wait, respond
+    ):
+        for partition in ("aws-us-gov", "aws-cn"):
+            region = launcher.HOME_REGIONS[partition]
+            for has_target in (False, True):
+                with self.subTest(partition=partition, has_target=has_target):
+                    for mock in (factory, wait, respond, self.client_factory):
+                        mock.reset_mock()
+                    request = event("Delete")
+                    request["StackId"] = REQUEST.replace(
+                        "arn:aws:", f"arn:{partition}:"
+                    ).replace("us-east-1", region)
+                    target_id = ROOT.replace("arn:aws:", f"arn:{partition}:").replace(
+                        "us-east-1", region
+                    )
+                    factory.return_value.find_stack.return_value = (
+                        stack(StackId=target_id, StackStatus="UPDATE_IN_PROGRESS")
+                        if has_target
+                        else None
+                    )
+                    launcher.handler(request, Mock())
+                    self.assertEqual(factory.call_args.args[1], partition)
+                    factory.return_value.prepare.assert_not_called()
+                    self.client_factory.assert_called_once_with(
+                        "cloudformation", region_name=region, config=launcher.SDK_CONFIG
+                    )
+                    if has_target:
+                        wait.assert_called_once()
+                        self.assertEqual(wait.call_args.args[2]["Phase"], "delete")
+                        self.assertEqual(wait.call_args.args[2]["StackId"], target_id)
+                        respond.assert_not_called()
+                    else:
+                        wait.assert_not_called()
+                        self.assertEqual(
+                            respond.call_args.args[3], launcher.cfnresponse.SUCCESS
+                        )
+        self.client.delete_stack.assert_not_called()
+        self.client.execute_change_set.assert_not_called()
+
+    @patch.object(launcher, "send_cfn_response")
+    @patch.object(launcher, "wait_for_result")
+    @patch.object(launcher, "Launcher")
+    def test_completed_noncommercial_launcher_can_be_deleted(
+        self, factory, wait, respond
+    ):
+        for partition in ("aws-us-gov", "aws-cn"):
+            with self.subTest(partition=partition):
+                respond.reset_mock()
+                region = launcher.HOME_REGIONS[partition]
+                request = event("Delete")
+                request["StackId"] = REQUEST.replace(
+                    "arn:aws:", f"arn:{partition}:"
+                ).replace("us-east-1", region)
+                self.history(
+                    "DELETE_IN_PROGRESS", "CREATE_COMPLETE", stack_id=request["StackId"]
+                )
+                launcher.handler(request, Mock())
+                self.assertEqual(
+                    respond.call_args.args[3], launcher.cfnresponse.SUCCESS
+                )
+        factory.assert_not_called()
+        wait.assert_not_called()
+
+    @patch.object(launcher, "send_cfn_response")
+    @patch.object(launcher, "wait_for_result")
+    @patch.object(launcher, "Launcher")
+    def test_noncommercial_delete_continuations_remain_allowed(
+        self, factory, wait, respond
+    ):
+        for partition in ("aws-us-gov", "aws-cn"):
+            with self.subTest(partition=partition):
+                wait.reset_mock()
+                region = launcher.HOME_REGIONS[partition]
+                request = event("Delete")
+                request["StackId"] = REQUEST.replace(
+                    "arn:aws:", f"arn:{partition}:"
+                ).replace("us-east-1", region)
+                request["ResourceProperties"] = {"AccountId": ACCOUNT}
+                request["LauncherState"] = {
+                    **state(phase="delete"),
+                    "Region": region,
+                    "StackId": ROOT.replace("arn:aws:", f"arn:{partition}:").replace(
+                        "us-east-1", region
+                    ),
+                }
+                context = Mock()
+                launcher.handler(request, context)
+                wait.assert_called_once_with(request, context, request["LauncherState"])
+        factory.assert_not_called()
+        self.client_factory.assert_not_called()
+        respond.assert_not_called()
 
     @patch.object(launcher, "send_cfn_response")
     @patch.object(launcher, "Launcher")

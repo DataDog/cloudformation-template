@@ -1,5 +1,6 @@
 # 4.22.0 (Unreleased)
 
+- Limit the Agent installation launcher to commercial AWS accounts. GovCloud and China create/update requests are rejected; existing launchers can still be deleted. Initial AWS integration QuickStart behavior is unchanged.
 - Add an Agent installation launcher that automatically creates or updates `DatadogAgentInstallation` after a single CloudFormation approval. The launcher preserves existing resource types, credentials, and tags, and waits for the installation result. Each request refreshes instrumentation permissions even when the selected types have not changed.
 - Discover forwarding using the launcher's AWS role rather than requiring additional permissions on the Datadog integration role. Reuse compatible external forwarding without taking ownership; preserve forwarding already owned by the installation stack.
 - Add installation-owned supplementary EventBridge rules when a verified external pipeline lacks resource-type coverage. The supplementary template is nested under `DatadogAgentInstallation` and uses the same approval, without modifying QuickStart's shared pipeline or backend-managed regional rules. Existing supplementary rules are preserved if QuickStart later adds overlapping coverage.

@@ -687,23 +687,30 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id, strict_o
     return True
 
 
-def cleanup_permissions_boundaries(iam_client, owner_id, retained_policy_arns=(), strict_ownership=False):
+def cleanup_permissions_boundaries(
+    iam_client, owner_id, retained_policy_arns=(), strict_ownership=False
+):
     retained_policy_arns = set(retained_policy_arns)
+    options = {"strict_ownership": True} if strict_ownership else {}
     preserved = []
     failures = []
     for boundary in _list_boundary_policies(iam_client):
         if boundary["policy_arn"] in retained_policy_arns:
             continue
         try:
-            options = {"strict_ownership": True} if strict_ownership else {}
-            if not _delete_permissions_boundary_policy(iam_client, boundary, owner_id, **options):
+            if not _delete_permissions_boundary_policy(
+                iam_client, boundary, owner_id, **options
+            ):
                 preserved.append(boundary["policy_arn"])
         except Exception as error:
             failures.append((boundary["policy_arn"], error))
     if failures:
         error_type = (
             PermissionsBoundaryInUseError
-            if all(isinstance(error, PermissionsBoundaryInUseError) for _, error in failures)
+            if all(
+                isinstance(error, PermissionsBoundaryInUseError)
+                for _, error in failures
+            )
             else RuntimeError
         )
         raise error_type(
