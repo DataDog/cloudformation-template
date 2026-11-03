@@ -820,8 +820,6 @@ Outputs:
       Name:
         Fn::Sub: ${AWS::StackName}-DatadogForwarderArn
 Metadata:
-  AWSToolsMetrics:
-    AWSAgentToolkit: aws-cloudformation@3
   AWS::CloudFormation::Interface:
     ParameterGroups:
     - Label:
