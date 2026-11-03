@@ -5,6 +5,9 @@ on:
     paths:
       - "**.py"
       - "aws_quickstart/main_workflow.yaml"
+      - "aws_quickstart/main_extended_workflow.yaml"
+      - "aws_quickstart/main_agent_installation.yaml"
+      - "aws_quickstart/datadog_agent_resource_update_forwarding.yaml"
       - "aws_quickstart/datadog_integration_role.yaml"
       - "aws_quickstart/datadog_integration_permissions.yaml"
       - "aws_quickstart/datadog_agentless_saas_policy.json"
@@ -13,6 +16,9 @@ on:
     paths:
       - "**.py"
       - "aws_quickstart/main_workflow.yaml"
+      - "aws_quickstart/main_extended_workflow.yaml"
+      - "aws_quickstart/main_agent_installation.yaml"
+      - "aws_quickstart/datadog_agent_resource_update_forwarding.yaml"
       - "aws_quickstart/datadog_integration_role.yaml"
       - "aws_quickstart/datadog_integration_permissions.yaml"
       - "aws_quickstart/datadog_agentless_saas_policy.json"
