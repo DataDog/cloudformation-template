@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -eo pipefail
+
 if [ -z "$AWS_SSO_PROFILE_NAME" ]; then
     echo "Missing AWS_SSO_PROFILE_NAME - Must specify an AWS profile name"
     exit 1
@@ -28,7 +30,7 @@ fi
 mkdir -p ./tmp
 
 for f in ../*.yaml; do
-   cp "$f" "./tmp/$(basename "$f")"
+   (cd .. && yq '(.. | select(tag == "!Rain::Include")) |=c load(.)' "$(basename "$f")") > "./tmp/$(basename "$f")"
 done
 
 sed "s|<REPLACE_DD_API_KEY>|${DD_API_KEY}|g ; s|<REPLACE_DD_APP_KEY>|${DD_APP_KEY}|g ; s|<REPLACE_AWS_PROFILE>|${AWS_SSO_PROFILE_NAME}|g" ./.taskcat.yml > ./tmp/.taskcat.yml

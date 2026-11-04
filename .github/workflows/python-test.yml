@@ -12,6 +12,9 @@ on:
       - "aws_quickstart/datadog_integration_permissions.yaml"
       - "aws_quickstart/datadog_agentless_saas_policy.json"
       - "aws_quickstart/release.sh"
+      - "aws_organizations/main_organizations.yaml"
+      - "aws_organizations/release.sh"
+      - "aws_organizations/version.txt"
   pull_request:
     paths:
       - "**.py"
@@ -23,6 +26,9 @@ on:
       - "aws_quickstart/datadog_integration_permissions.yaml"
       - "aws_quickstart/datadog_agentless_saas_policy.json"
       - "aws_quickstart/release.sh"
+      - "aws_organizations/main_organizations.yaml"
+      - "aws_organizations/release.sh"
+      - "aws_organizations/version.txt"
 
 jobs:
   agentless_api_call_test:
@@ -58,3 +64,7 @@ jobs:
           python -m pip install PyYAML
           cd aws_quickstart
           python -B -m unittest agentless_workflow_test.py -v
+      - name: Run Organizations tests
+        run: |
+          cd aws_organizations
+          python -B -m unittest agentless_saas_test.py packaging_test.py attach_integration_permissions_test.py -v
