@@ -11,8 +11,14 @@ jobs:
 
     - name: Resolve JSON includes
       run: |
-        cd aws_quickstart
-        yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_agentless_saas.yaml
+        (
+          cd aws_quickstart
+          yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' datadog_agentless_saas.yaml
+        )
+        (
+          cd aws_organizations
+          yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' main_organizations.yaml
+        )
 
     - name: cfn-lint
       uses: scottbrenner/cfn-lint-action@v2

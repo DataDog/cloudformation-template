@@ -64,7 +64,38 @@ Parameters:
       Datadog CSPM is a product that automatically detects resource misconfigurations in your AWS account according to
       industry benchmarks. More info: https://www.datadoghq.com/product/security-platform/cloud-security-posture-management/
     Default: false
+  AgentlessScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Install Agentless SaaS permissions and initialize vulnerability and host compliance scanning.
+      Enabling this option overwrites existing scan settings. Later changes are managed in Datadog.
+      Requires resource collection and a commercial AWS partition and Datadog site.
+    Default: false
+  AgentlessSensitiveDataScanning:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Enable sensitive data scanning when Agentless scanning is first enabled or re-enabled.
+      Ignored when AgentlessScanning is false. Changing this option alone does not update existing scan settings.
+    Default: false
 Rules:
+  AgentlessConfiguration:
+    RuleCondition: !Equals [!Ref AgentlessScanning, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref DisableResourceCollection, "false"]
+        AssertDescription: Agentless scanning requires resource collection.
+      - Assert: !Equals [!Ref AWS::Partition, "aws"]
+        AssertDescription: Agentless SaaS scanning requires the commercial AWS partition.
+      - Assert: !Not
+          - !Or
+            - !Equals [!Ref DatadogSite, "ddog-gov.com"]
+            - !Equals [!Ref DatadogSite, "us2.ddog-gov.com"]
+        AssertDescription: Agentless SaaS scanning is not supported on GovCloud Datadog sites.
   ResourceCollectionValidState:
     Assertions:
       - Assert:
@@ -110,6 +141,7 @@ Mappings:
       AccountId: "117348461845"
       AccountIdGovCloud: "NOT_APPLICABLE"
 Conditions:
+  AgentlessScanningEnabled: !Equals [!Ref AgentlessScanning, "true"]
   ResourceCollectionPermissions:
     Fn::Equals:
       - !Ref DisableResourceCollection
@@ -191,6 +223,27 @@ Resources:
       CloudSecurityPostureManagement: !Ref CloudSecurityPostureManagement
       DisableMetricCollection: !Ref DisableMetricCollection
       DisableResourceCollection: !Ref DisableResourceCollection
+  DatadogAgentlessSaaSScanningPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: AgentlessScanningEnabled
+    Properties:
+      Description: Policy for Datadog Agentless Scanning in SaaS mode.
+      Roles:
+        - !Ref DatadogIntegrationRole
+      PolicyDocument: !Rain::Include ../aws_quickstart/datadog_agentless_saas_policy.json
+  DatadogAgentlessActivation:
+    Type: Custom::DatadogAgentlessActivation
+    Condition: AgentlessScanningEnabled
+    DependsOn: DatadogAttachIntegrationPermissionsFunctionTrigger
+    Properties:
+      ServiceToken: !GetAtt DatadogAPICallFunction.Arn
+      APIKey: !Ref DatadogApiKey
+      APPKey: !Ref DatadogAppKey
+      ApiURL: !Ref DatadogSite
+      AccountId: !Ref AWS::AccountId
+      SensitiveData: !Ref AgentlessSensitiveDataScanning
+      TemplateVersion: "<VERSION_PLACEHOLDER>"
+      SaaSScanningPolicyArn: !Ref DatadogAgentlessSaaSScanningPolicy
   DatadogAPICallFunction:
     Type: "AWS::Lambda::Function"
     Properties:
@@ -204,6 +257,7 @@ Resources:
           import json
           import logging
           import signal
+          from urllib.error import HTTPError
           from urllib.request import Request
           import urllib.parse
           import cfnresponse
@@ -306,8 +360,81 @@ Resources:
               return response
 
 
+          def activate_agentless(event, context):
+              properties = event["ResourceProperties"]
+              account_id = properties["AccountId"]
+              url = f"https://api.{properties['ApiURL']}/api/v2/agentless_scanning/accounts/aws"
+              headers = {
+                  "DD-API-KEY": properties["APIKey"],
+                  "DD-APPLICATION-KEY": properties["APPKey"],
+                  "Dd-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
+                  "Dd-Installation-Version": properties["TemplateVersion"],
+                  "Content-Type": "application/vnd.api+json; charset=utf-8",
+              }
+              values = {
+                  "data": {
+                      "id": account_id,
+                      "type": "aws_scan_options",
+                      "attributes": {
+                          "vuln_host_os": True,
+                          "vuln_containers_os": True,
+                          "lambda": True,
+                          "compliance_host": True,
+                          "sensitive_data": properties["SensitiveData"] == "true",
+                      },
+                  },
+                  "meta": {
+                      "installation_mode": "cloudformation",
+                      "installation_version": properties["TemplateVersion"],
+                      "cloudformation_stack_id": event["StackId"],
+                      "resources": {
+                          "saas_scanning_policy_arn": properties["SaaSScanningPolicyArn"],
+                          "invoked_function_arn": context.invoked_function_arn,
+                      },
+                  },
+              }
+              data = json.dumps(values).encode("utf-8")
+              try:
+                  with urllib.request.urlopen(Request(url, data=data, headers=headers, method="POST"), timeout=10):
+                      return
+              except HTTPError as error:
+                  if error.code != 409:
+                      raise
+                  error.close()
+
+              # Existing settings are overwritten only during initialization.
+              with urllib.request.urlopen(Request(f"{url}/{account_id}", data=data, headers=headers, method="PATCH"), timeout=10):
+                  pass
+
+          def handle_agentless(event, context):
+              message = "Agentless scan settings unchanged."
+              if event["RequestType"] == "Create":
+                  try:
+                      activate_agentless(event, context)
+                      message = "Agentless scan settings initialized."
+                      LOGGER.info(message)
+                  except Exception as error:
+                      # Activation is best effort. Do not log response bodies or credentials.
+                      if isinstance(error, HTTPError):
+                          LOGGER.warning("Agentless activation failed (HTTP %d); continuing stack creation.", error.code)
+                      else:
+                          LOGGER.warning("Agentless activation failed (%s); continuing stack creation.", type(error).__name__)
+                      message = "Agentless activation failed; see CloudWatch logs. Continuing stack creation."
+
+              cfnresponse.send(
+                  event,
+                  context,
+                  responseStatus="SUCCESS",
+                  responseData={"Message": message},
+                  physicalResourceId=event.get("PhysicalResourceId") or f"{event['StackId']}/{event['LogicalResourceId']}",
+              )
+
           def handler(event, context):
               """Handle Lambda event from AWS"""
+              if event.get("ResourceType") == "Custom::DatadogAgentlessActivation":
+                  handle_agentless(event, context)
+                  return
+
               if event["RequestType"] == "Create":
                   LOGGER.info("Received Create request.")
                   method = "POST"
@@ -759,6 +886,11 @@ Metadata:
           - DatadogAppKey
           - DatadogSite
           - CloudSecurityPostureManagement
+      - Label:
+          default: "Agentless scanning"
+        Parameters:
+          - AgentlessScanning
+          - AgentlessSensitiveDataScanning
       - Label:
           default: "Advanced"
         Parameters:
