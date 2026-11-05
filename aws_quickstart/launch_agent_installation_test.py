@@ -19,6 +19,8 @@ launcher = import_module("launch_agent_installation")
 
 
 ACCOUNT = "123456789012"
+ROLE_CREATED = datetime(2026, 1, 1, tzinfo=UTC)
+ROLE_RECORDED = datetime(2026, 1, 2, tzinfo=UTC)
 ROOT = (
     f"arn:aws:cloudformation:us-east-1:{ACCOUNT}:stack/DatadogAgentInstallation/target"
 )
@@ -126,6 +128,7 @@ class LauncherTest(unittest.TestCase):
         self.supplementary_resources = []
         self.permissions_scope = "stack"
         self.owner_identity = dict(PROPS)
+        self.role_owners = {}
         self.cf.describe_stacks.side_effect = self.describe_stacks
         self.cf.describe_change_set.side_effect = MissingResource()
         self.cf.create_change_set.return_value = {"StackId": ROOT}
@@ -145,7 +148,25 @@ class LauncherTest(unittest.TestCase):
         self.events.list_rules.return_value = {"Rules": []}
         self.events.get_paginator.return_value.paginate.return_value = [{"Rules": []}]
 
-    def describe_stack_resources(self, *, StackName):
+    def describe_stack_resources(
+        self, *, StackName=None, PhysicalResourceId=None, LogicalResourceId=None
+    ):
+        if PhysicalResourceId is not None:
+            owner = self.role_owners.get(PhysicalResourceId)
+            return {
+                "StackResources": [
+                    {
+                        "StackId": owner,
+                        "LogicalResourceId": LogicalResourceId,
+                        "PhysicalResourceId": PhysicalResourceId,
+                        "ResourceType": "AWS::IAM::Role",
+                        "ResourceStatus": "CREATE_COMPLETE",
+                        "Timestamp": ROLE_RECORDED,
+                    }
+                ]
+                if owner
+                else []
+            }
         if StackName == QUICKSTART_ROOT:
             return {
                 "StackResources": [{"LogicalResourceId": "DatadogIntegrationRoleStack"}]
@@ -157,6 +178,8 @@ class LauncherTest(unittest.TestCase):
     def describe_stacks(self, *, StackName):
         if StackName == SUPPLEMENTARY:
             return {"Stacks": [self.supplementary_stack]}
+        if StackName == FORWARDING:
+            return {"Stacks": [stack(StackId=FORWARDING, RootId=ROOT, ParentId=ROOT)]}
         if StackName in {QUICKSTART_ROOT, QUICKSTART_FORWARDING}:
             return {
                 "Stacks": [
@@ -202,10 +225,15 @@ class LauncherTest(unittest.TestCase):
 
     def forwarding(self, owner=QUICKSTART_FORWARDING):
         tags = [{"Key": "datadog:primary-region", "Value": "us-east-1"}]
-        if owner:
-            tags.append({"Key": "aws:cloudformation:stack-id", "Value": owner})
+        self.role_owners[launcher.FORWARDING_ROLE] = owner
         self.iam.get_role.side_effect = None
-        self.iam.get_role.return_value = {"Role": {"Tags": tags}}
+        self.iam.get_role.return_value = {
+            "Role": {
+                "RoleName": launcher.FORWARDING_ROLE,
+                "CreateDate": ROLE_CREATED,
+                "Tags": tags,
+            }
+        }
         self.events.describe_connection.side_effect = None
         self.events.describe_connection.return_value = {
             "ConnectionState": "AUTHORIZED",
@@ -424,7 +452,7 @@ class LauncherTest(unittest.TestCase):
 
     def test_forwarding_owner_must_match(self):
         self.existing()
-        self.forwarding("different-stack")
+        self.forwarding(QUICKSTART_FORWARDING)
         self.cf.describe_stack_resources.return_value["StackResources"].append(
             {
                 "LogicalResourceId": launcher.FORWARDING_RESOURCE,
@@ -442,7 +470,7 @@ class LauncherTest(unittest.TestCase):
         )
         self.cf.describe_stacks.side_effect = None
         self.cf.describe_stacks.return_value = {
-            "Stacks": [{"StackId": owner, "RootId": "renamed-installation-root"}]
+            "Stacks": [stack(StackId=owner, RootId="renamed-installation-root")]
         }
         with self.assertRaisesRegex(
             launcher.InstallationError, "Another installation stack"
@@ -992,7 +1020,7 @@ class LauncherTest(unittest.TestCase):
         self.forwarding(owner)
         self.cf.describe_stacks.side_effect = None
         self.cf.describe_stacks.return_value = {
-            "Stacks": [{"StackId": owner, "RootId": "renamed-root"}]
+            "Stacks": [stack(StackId=owner, RootId="renamed-root")]
         }
         request = event()
         request["ResourceProperties"]["InstrumentationResourceTypes"] = (
@@ -1011,7 +1039,7 @@ class LauncherTest(unittest.TestCase):
         self.forwarding(owner)
         self.cf.describe_stacks.side_effect = None
         self.cf.describe_stacks.return_value = {
-            "Stacks": [{"StackId": owner, "RootId": "quickstart-root"}]
+            "Stacks": [stack(StackId=owner, RootId="quickstart-root")]
         }
         self.cf.describe_stack_resources.return_value = {
             "StackResources": [{"LogicalResourceId": "DatadogIntegrationRoleStack"}]
@@ -1022,8 +1050,10 @@ class LauncherTest(unittest.TestCase):
         )
         with patch.object(self.subject, "find_stack", return_value=None):
             self.subject.prepare(request)
-        self.cf.describe_stack_resources.assert_called_once_with(
-            StackName="quickstart-root"
+        self.cf.describe_stack_resources.assert_any_call(StackName="quickstart-root")
+        self.cf.describe_stack_resources.assert_any_call(
+            PhysicalResourceId=launcher.FORWARDING_ROLE,
+            LogicalResourceId="DDEventBridgeCrossRegionRole",
         )
         self.assertEqual(self.events.mock_calls, [])
 
@@ -1121,7 +1151,7 @@ class LauncherTest(unittest.TestCase):
                         self.subject.prepare(event())
         self.cf.create_change_set.assert_not_called()
 
-    def test_untagged_external_forwarding_is_not_assumed_compatible(self):
+    def test_untracked_external_forwarding_is_not_assumed_compatible(self):
         self.forwarding(owner=None)
         with self.assertRaisesRegex(
             launcher.InstallationError, "no verifiable integration owner"
@@ -1199,6 +1229,252 @@ class LauncherTest(unittest.TestCase):
         self.existing()
         with self.assertRaisesRegex(launcher.InstallationError, "Multiple"):
             self.subject.find_stack()
+
+
+class RoleOwnershipTest(unittest.TestCase):
+    def setUp(self):
+        self.fixture = LauncherTest()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.fixture.forwarding()
+        self.subject = self.fixture.subject
+        self.role = self.fixture.iam.get_role.return_value["Role"]
+        self.record = self.fixture.describe_stack_resources(
+            PhysicalResourceId=launcher.FORWARDING_ROLE,
+            LogicalResourceId="DDEventBridgeCrossRegionRole",
+        )["StackResources"][0]
+
+    def owner(self):
+        return self.subject.role_owner(
+            self.role, "DDEventBridgeCrossRegionRole", ACCOUNT
+        )
+
+    def response(self, records):
+        original = self.fixture.describe_stack_resources
+
+        def describe(**kwargs):
+            if "PhysicalResourceId" in kwargs:
+                return {"StackResources": records}
+            return original(**kwargs)
+
+        self.fixture.cf.describe_stack_resources.side_effect = describe
+
+    def test_untagged_quickstart_uses_exact_resource_lookup(self):
+        self.fixture.subject.prepare(event())
+        self.fixture.cf.describe_stack_resources.assert_any_call(
+            PhysicalResourceId=launcher.FORWARDING_ROLE,
+            LogicalResourceId="DDEventBridgeCrossRegionRole",
+        )
+        self.assertEqual(
+            self.fixture.values()["CreateResourceUpdateForwarding"]["ParameterValue"],
+            "false",
+        )
+        self.fixture.iam.tag_role.assert_not_called()
+        self.fixture.events.put_rule.assert_not_called()
+
+    def test_tags_cannot_override_a_conflicting_resource_owner(self):
+        self.fixture.existing()
+        self.fixture.cf.describe_stack_resources.return_value["StackResources"].append(
+            {
+                "LogicalResourceId": launcher.FORWARDING_RESOURCE,
+                "PhysicalResourceId": FORWARDING,
+                "ResourceType": "AWS::CloudFormation::Stack",
+            }
+        )
+        self.role["Tags"].append(
+            {"Key": "aws:cloudformation:stack-id", "Value": FORWARDING}
+        )
+        with self.assertRaisesRegex(launcher.InstallationError, "ownership"):
+            self.subject.prepare(event())
+        self.fixture.cf.create_change_set.assert_not_called()
+
+    def test_resource_record_must_match_role_type_name_logical_id_and_account(self):
+        for key, value in (
+            ("ResourceType", "AWS::IAM::InstanceProfile"),
+            ("PhysicalResourceId", "another-role"),
+            ("LogicalResourceId", "AnotherRole"),
+            ("StackId", QUICKSTART_FORWARDING.replace(ACCOUNT, "999999999999")),
+            ("StackId", QUICKSTART_FORWARDING.replace("us-east-1", "us-west-2")),
+            ("StackId", ""),
+        ):
+            with self.subTest(key=key, value=value):
+                self.response([{**self.record, key: value}])
+                with self.assertRaisesRegex(launcher.InstallationError, "ownership"):
+                    self.subject.prepare(event())
+        self.fixture.cf.create_change_set.assert_not_called()
+
+    def test_multiple_matching_resource_records_are_rejected(self):
+        self.response([self.record, self.record])
+        with self.assertRaisesRegex(launcher.InstallationError, "ambiguous"):
+            self.owner()
+
+    def test_unstable_resource_or_owner_is_rejected(self):
+        for status in (
+            "CREATE_IN_PROGRESS",
+            "UPDATE_IN_PROGRESS",
+            "DELETE_IN_PROGRESS",
+            "DELETE_FAILED",
+            "ROLLBACK_COMPLETE",
+        ):
+            with self.subTest(resource_status=status):
+                self.response([{**self.record, "ResourceStatus": status}])
+                with self.assertRaisesRegex(launcher.InstallationError, "not stable"):
+                    self.owner()
+            with self.subTest(stack_status=status):
+                self.response([self.record])
+                self.fixture.cf.describe_stacks.side_effect = None
+                self.fixture.cf.describe_stacks.return_value = {
+                    "Stacks": [stack(StackId=QUICKSTART_FORWARDING, StackStatus=status)]
+                }
+                with self.assertRaisesRegex(launcher.InstallationError, "not stable"):
+                    self.owner()
+                self.fixture.cf.describe_stacks.side_effect = (
+                    self.fixture.describe_stacks
+                )
+
+    def test_deleted_resource_or_retained_resource_in_deleted_stack_is_not_an_owner(
+        self,
+    ):
+        self.response([{**self.record, "ResourceStatus": "DELETE_COMPLETE"}])
+        with self.assertRaisesRegex(launcher.InstallationError, "no verifiable"):
+            self.owner()
+        self.response([{**self.record, "ResourceStatus": "DELETE_SKIPPED"}])
+        self.fixture.cf.describe_stacks.side_effect = None
+        self.fixture.cf.describe_stacks.return_value = {
+            "Stacks": [
+                stack(StackId=QUICKSTART_FORWARDING, StackStatus="DELETE_COMPLETE")
+            ]
+        }
+        with self.assertRaisesRegex(launcher.InstallationError, "no verifiable"):
+            self.owner()
+
+    def test_recreated_role_cannot_use_a_stale_resource_record(self):
+        self.role["CreateDate"] = datetime(2026, 1, 3, tzinfo=UTC)
+        with self.assertRaisesRegex(launcher.InstallationError, "recreated"):
+            self.subject.prepare(event())
+        self.fixture.cf.create_change_set.assert_not_called()
+
+    def test_matching_resource_must_resolve_to_the_same_stack(self):
+        self.fixture.cf.describe_stacks.side_effect = None
+        self.fixture.cf.describe_stacks.return_value = {"Stacks": [stack()]}
+        with self.assertRaisesRegex(launcher.InstallationError, "does not match"):
+            self.owner()
+
+    def test_unstable_quickstart_root_blocks_preparation(self):
+        def describe(**kwargs):
+            result = self.fixture.describe_stacks(**kwargs)
+            if kwargs["StackName"] == QUICKSTART_ROOT:
+                result["Stacks"][0]["StackStatus"] = "UPDATE_IN_PROGRESS"
+            return result
+
+        self.fixture.cf.describe_stacks.side_effect = describe
+        with self.assertRaisesRegex(launcher.InstallationError, "not stable"):
+            self.subject.prepare(event())
+        self.fixture.cf.create_change_set.assert_not_called()
+
+    def test_other_region_errors_are_not_treated_as_absence(self):
+        other = Mock()
+        self.subject.regions.append("us-west-2")
+        self.subject.cloudformation["us-west-2"] = other
+        for code, message in (
+            ("AccessDenied", "denied"),
+            ("Throttling", "slow down"),
+            ("ValidationError", "invalid request"),
+            ("ValidationError", "Stack for another-role does not exist"),
+        ):
+            with self.subTest(code=code, message=message):
+                other.describe_stack_resources.side_effect = ClientError(
+                    {"Error": {"Code": code, "Message": message}},
+                    "DescribeStackResources",
+                )
+                with (
+                    patch.object(self.subject, "find_stack", return_value=None),
+                    self.assertRaises(ClientError),
+                ):
+                    self.subject.prepare(event())
+        self.fixture.cf.create_change_set.assert_not_called()
+
+    def test_multiple_regions_claiming_same_role_are_rejected(self):
+        other = Mock()
+        owner = QUICKSTART_FORWARDING.replace("us-east-1", "us-west-2")
+        other.describe_stack_resources.return_value = {
+            "StackResources": [{**self.record, "StackId": owner}]
+        }
+        other.describe_stacks.return_value = {"Stacks": [stack(StackId=owner)]}
+        self.subject.regions.append("us-west-2")
+        self.subject.cloudformation["us-west-2"] = other
+        with (
+            patch.object(self.subject, "find_stack", return_value=None),
+            self.assertRaisesRegex(launcher.InstallationError, "ambiguous"),
+        ):
+            self.subject.prepare(event())
+        self.fixture.cf.create_change_set.assert_not_called()
+
+    def test_sdk_reverse_lookup_ignores_only_exact_absence_and_deleted_history(self):
+        session = launcher.boto3.Session(
+            aws_access_key_id="test", aws_secret_access_key="test"
+        )
+        for old_state in ("absent", "deleted"):
+            with self.subTest(old_state=old_state):
+                home = session.client("cloudformation", region_name="us-east-1")
+                remote = session.client("cloudformation", region_name="us-west-2")
+                owner = QUICKSTART_FORWARDING.replace("us-east-1", "us-west-2")
+                request = {
+                    "PhysicalResourceId": launcher.FORWARDING_ROLE,
+                    "LogicalResourceId": "DDEventBridgeCrossRegionRole",
+                }
+                self.subject.regions = ["us-east-1", "us-west-2"]
+                self.subject.cloudformation = {"us-east-1": home, "us-west-2": remote}
+                with Stubber(home) as home_stub, Stubber(remote) as remote_stub:
+                    if old_state == "absent":
+                        home_stub.add_client_error(
+                            "describe_stack_resources",
+                            "ValidationError",
+                            f"Stack for {launcher.FORWARDING_ROLE} does not exist",
+                            expected_params=request,
+                        )
+                    else:
+                        home_stub.add_response(
+                            "describe_stack_resources",
+                            {"StackResources": [self.record]},
+                            request,
+                        )
+                        home_stub.add_response(
+                            "describe_stacks",
+                            {
+                                "Stacks": [
+                                    {
+                                        "StackId": QUICKSTART_FORWARDING,
+                                        "StackName": "old",
+                                        "CreationTime": ROLE_CREATED,
+                                        "StackStatus": "DELETE_COMPLETE",
+                                    }
+                                ]
+                            },
+                            {"StackName": QUICKSTART_FORWARDING},
+                        )
+                    remote_stub.add_response(
+                        "describe_stack_resources",
+                        {"StackResources": [{**self.record, "StackId": owner}]},
+                        request,
+                    )
+                    remote_stub.add_response(
+                        "describe_stacks",
+                        {
+                            "Stacks": [
+                                {
+                                    "StackId": owner,
+                                    "StackName": "current",
+                                    "CreationTime": ROLE_CREATED,
+                                    "StackStatus": "CREATE_COMPLETE",
+                                }
+                            ]
+                        },
+                        {"StackName": owner},
+                    )
+                    self.assertEqual(self.owner(), owner)
+                    home_stub.assert_no_pending_responses()
+                    remote_stub.assert_no_pending_responses()
 
 
 class PollTest(unittest.TestCase):
@@ -1347,6 +1623,372 @@ class PollTest(unittest.TestCase):
                     launcher.InstallationError, "Review it manually"
                 ):
                     launcher.poll_change_set(self.client, event(), state())
+        self.client.execute_change_set.assert_not_called()
+
+    def permissions_refresh_change(self):
+        return {
+            "ResourceChange": {
+                "Action": "Modify",
+                "Replacement": "Conditional",
+                "LogicalResourceId": "DatadogAttachIntegrationPermissionsFunctionTrigger",
+                "ResourceType": "Custom::DatadogAttachIntegrationPermissionsFunctionTrigger",
+                "Scope": ["Properties"],
+                "Details": [
+                    {
+                        "ChangeSource": source,
+                        "Evaluation": evaluation,
+                        **({"CausingEntity": cause} if cause else {}),
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "InstrumentationRefreshToken",
+                            "RequiresRecreation": "Conditionally",
+                        },
+                    }
+                    for source, evaluation, cause in (
+                        ("ParameterReference", "Static", "InstrumentationRefreshToken"),
+                        ("DirectModification", "Dynamic", None),
+                    )
+                ],
+            }
+        }
+
+    def test_refresh_only_permissions_update_executes_inspected_root(self):
+        for logical_id in (
+            launcher.PERMISSIONS_RESOURCE,
+            launcher.OWNED_PERMISSIONS_RESOURCE,
+        ):
+            with self.subTest(logical_id=logical_id):
+                self.client.execute_change_set.reset_mock()
+                self.nested_changes([self.permissions_refresh_change()])
+                self.pages[CHANGE_SET][0]["Changes"][0]["ResourceChange"][
+                    "LogicalResourceId"
+                ] = logical_id
+                launcher.poll_change_set(self.client, event(), state())
+                self.client.execute_change_set.assert_called_once_with(
+                    StackName=ROOT,
+                    ChangeSetName=CHANGE_SET,
+                    ClientRequestToken=launcher.request_name(event()),
+                    DisableRollback=False,
+                )
+
+    def configure_type_expansion(self, logical_id=launcher.PERMISSIONS_RESOURCE):
+        self.client.execute_change_set.reset_mock()
+        change = self.permissions_refresh_change()
+        for detail in list(change["ResourceChange"]["Details"]):
+            added = json.loads(json.dumps(detail))
+            added["Target"]["Name"] = "InstrumentationResourceTypes"
+            if added.get("CausingEntity"):
+                added["CausingEntity"] = "InstrumentationResourceTypes"
+            change["ResourceChange"]["Details"].append(added)
+        self.nested_changes([change])
+        child_id = ROOT.replace("/target", "-permissions/child")
+        root_change = self.pages[CHANGE_SET][0]["Changes"][0]["ResourceChange"]
+        root_change.update(LogicalResourceId=logical_id, PhysicalResourceId=child_id)
+        proposed = [
+            {
+                "ParameterKey": "InstrumentationResourceTypes",
+                "ParameterValue": "aws:ec2:instance,aws:lambda:function",
+            }
+        ]
+        self.pages[CHANGE_SET][0]["Parameters"] = proposed
+        self.pages[NESTED_CHANGE_SET][0].update(StackId=child_id, Parameters=proposed)
+        child = stack(StackId=child_id)
+        self.client.describe_stacks.side_effect = lambda **kwargs: {
+            "Stacks": [stack() if kwargs["StackName"] == ROOT else child]
+        }
+        request = event()
+        request["ResourceProperties"]["InstrumentationResourceTypes"] = (
+            "aws:lambda:function"
+        )
+        return request, child, change["ResourceChange"]
+
+    def test_additive_permissions_update_executes_only_inspected_root(self):
+        for logical_id in (
+            launcher.PERMISSIONS_RESOURCE,
+            launcher.OWNED_PERMISSIONS_RESOURCE,
+        ):
+            with self.subTest(logical_id=logical_id):
+                request, child, _ = self.configure_type_expansion(logical_id)
+                launcher.poll_change_set(self.client, request, state())
+                self.client.execute_change_set.assert_called_once_with(
+                    StackName=ROOT,
+                    ChangeSetName=CHANGE_SET,
+                    ClientRequestToken=launcher.request_name(request),
+                    DisableRollback=False,
+                )
+                self.client.describe_stacks.assert_any_call(StackName=child["StackId"])
+
+    def test_type_expansion_rejects_removal_and_unrequested_types(self):
+        for proposed in (
+            "aws:lambda:function",
+            "aws:ec2:instance",
+            "aws:ec2:instance,aws:lambda:function,aws:eks:cluster",
+            "aws:ec2:instance,unknown",
+            "",
+        ):
+            with self.subTest(proposed=proposed):
+                request, _, _ = self.configure_type_expansion()
+                self.pages[CHANGE_SET][0]["Parameters"] = [
+                    {
+                        "ParameterKey": "InstrumentationResourceTypes",
+                        "ParameterValue": proposed,
+                    }
+                ]
+                with self.assertRaises(launcher.InstallationError):
+                    launcher.poll_change_set(self.client, request, state())
+                self.client.execute_change_set.assert_not_called()
+
+    def test_type_expansion_requires_complete_matching_child_preview(self):
+        for override in (
+            {"StackId": "another-child"},
+            {"Parameters": []},
+            {
+                "Parameters": [
+                    {
+                        "ParameterKey": "InstrumentationResourceTypes",
+                        "ParameterValue": "aws:lambda:function",
+                    }
+                ]
+            },
+        ):
+            with self.subTest(override=override):
+                request, _, _ = self.configure_type_expansion()
+                self.pages[NESTED_CHANGE_SET][0].update(override)
+                with self.assertRaises(launcher.InstallationError):
+                    launcher.poll_change_set(self.client, request, state())
+                self.client.execute_change_set.assert_not_called()
+
+    def test_type_expansion_requires_stable_matching_existing_child(self):
+        for override in (
+            {"StackId": "another-child"},
+            {"StackStatus": "UPDATE_IN_PROGRESS"},
+            {"Parameters": []},
+            {
+                "Parameters": [
+                    {
+                        "ParameterKey": "InstrumentationResourceTypes",
+                        "ParameterValue": "aws:eks:cluster",
+                    }
+                ]
+            },
+        ):
+            with self.subTest(override=override):
+                request, child, _ = self.configure_type_expansion()
+                child.update(override)
+                with self.assertRaises(launcher.InstallationError):
+                    launcher.poll_change_set(self.client, request, state())
+                self.client.execute_change_set.assert_not_called()
+
+    def test_type_expansion_rejects_other_properties_and_actual_replacement(self):
+        for override in (
+            {"Replacement": "True"},
+            {"LogicalResourceId": "OtherTrigger"},
+            {"Scope": ["Properties", "Metadata"]},
+        ):
+            with self.subTest(override=override):
+                request, _, resource = self.configure_type_expansion()
+                resource.update(override)
+                with self.assertRaises(launcher.InstallationError):
+                    launcher.poll_change_set(self.client, request, state())
+                self.client.execute_change_set.assert_not_called()
+        for name in (
+            "ServiceToken",
+            "DatadogIntegrationRole",
+            "InstrumentationPolicyScope",
+        ):
+            with self.subTest(name=name):
+                request, _, resource = self.configure_type_expansion()
+                detail = json.loads(json.dumps(resource["Details"][0]))
+                detail["Target"]["Name"] = name
+                detail["CausingEntity"] = name
+                resource["Details"].append(detail)
+                with self.assertRaises(launcher.InstallationError):
+                    launcher.poll_change_set(self.client, request, state())
+                self.client.execute_change_set.assert_not_called()
+
+    def test_type_expansion_rejects_wrong_property_reference(self):
+        request, _, resource = self.configure_type_expansion()
+        resource["Details"][2]["CausingEntity"] = "InstrumentationRefreshToken"
+        with self.assertRaises(launcher.InstallationError):
+            launcher.poll_change_set(self.client, request, state())
+        self.client.execute_change_set.assert_not_called()
+
+    def test_type_expansion_cannot_modify_frozen_or_forwarding_children(self):
+        for logical_id, legacy in (
+            (launcher.PERMISSIONS_RESOURCE, True),
+            ("DatadogAgentResourceUpdateForwardingStack", False),
+        ):
+            with self.subTest(logical_id=logical_id):
+                request, _, _ = self.configure_type_expansion(logical_id)
+                current = {**state(), "PreserveLegacyPermissions": legacy}
+                with self.assertRaises(launcher.InstallationError):
+                    launcher.poll_change_set(self.client, request, current)
+                self.client.execute_change_set.assert_not_called()
+
+    def test_type_expansion_is_limited_to_the_direct_permissions_child(self):
+        for at_root in (True, False):
+            with self.subTest(at_root=at_root):
+                request, _, resource = self.configure_type_expansion()
+                if at_root:
+                    self.pages[CHANGE_SET][0]["Changes"] = [
+                        {"ResourceChange": resource}
+                    ]
+                else:
+                    deeper_id = NESTED_CHANGE_SET + "-deeper"
+                    child_page = self.pages[NESTED_CHANGE_SET][0]
+                    self.pages[deeper_id] = [dict(child_page)]
+                    child_page["Changes"] = [
+                        {
+                            "ResourceChange": {
+                                "Action": "Modify",
+                                "LogicalResourceId": launcher.PERMISSIONS_RESOURCE,
+                                "ResourceType": "AWS::CloudFormation::Stack",
+                                "Replacement": "False",
+                                "ChangeSetId": deeper_id,
+                            }
+                        }
+                    ]
+                with self.assertRaises(launcher.InstallationError):
+                    launcher.poll_change_set(self.client, request, state())
+                self.client.execute_change_set.assert_not_called()
+
+    def test_type_expansion_cannot_hide_later_page_replacement(self):
+        request, _, resource = self.configure_type_expansion()
+        page = self.pages[NESTED_CHANGE_SET][0]
+        unsafe = json.loads(json.dumps(resource))
+        unsafe["Replacement"] = "True"
+        self.pages[NESTED_CHANGE_SET].append(
+            {**page, "Changes": [{"ResourceChange": unsafe}]}
+        )
+        with self.assertRaises(launcher.InstallationError):
+            launcher.poll_change_set(self.client, request, state())
+        self.client.execute_change_set.assert_not_called()
+
+    def test_refresh_exception_rejects_other_resources_and_replacements(self):
+        for override in (
+            {"LogicalResourceId": "OtherTrigger"},
+            {"ResourceType": "Custom::OtherTrigger"},
+            {"Action": "Remove"},
+            {"Replacement": "True"},
+            {"Replacement": None},
+            {"Scope": ["Properties", "Metadata"]},
+            {"Scope": []},
+            {"Details": []},
+            {"Details": None},
+        ):
+            with self.subTest(override=override):
+                change = self.permissions_refresh_change()
+                change["ResourceChange"].update(override)
+                self.nested_changes([change])
+                with self.assertRaises(launcher.InstallationError):
+                    launcher.poll_change_set(self.client, event(), state())
+        self.client.execute_change_set.assert_not_called()
+
+    def test_refresh_exception_rejects_other_property_changes(self):
+        for attribute, name, recreation in (
+            ("Properties", "ServiceToken", "Conditionally"),
+            ("Properties", "DatadogIntegrationRole", "Conditionally"),
+            ("Properties", "InstrumentationResourceTypes", "Conditionally"),
+            ("Properties", "InstrumentationPolicyScope", "Conditionally"),
+            ("Metadata", "InstrumentationRefreshToken", "Conditionally"),
+            ("Properties", "InstrumentationRefreshToken", "Always"),
+            ("Properties", "InstrumentationRefreshToken", None),
+        ):
+            with self.subTest(attribute=attribute, name=name, recreation=recreation):
+                change = self.permissions_refresh_change()
+                change["ResourceChange"]["Details"].append(
+                    {
+                        "ChangeSource": "DirectModification",
+                        "Evaluation": "Dynamic",
+                        "Target": {
+                            "Attribute": attribute,
+                            "Name": name,
+                            "RequiresRecreation": recreation,
+                        },
+                    }
+                )
+                self.nested_changes([change])
+                with self.assertRaises(launcher.InstallationError):
+                    launcher.poll_change_set(self.client, event(), state())
+        self.client.execute_change_set.assert_not_called()
+
+    def test_refresh_exception_rejects_unrecognized_change_sources(self):
+        for override in (
+            {"ChangeSource": "ResourceReference"},
+            {"CausingEntity": "IAMRoleName"},
+            {"Evaluation": "Dynamic"},
+            {"Target": {}},
+        ):
+            with self.subTest(override=override):
+                change = self.permissions_refresh_change()
+                change["ResourceChange"]["Details"][0].update(override)
+                self.nested_changes([change])
+                with self.assertRaises(launcher.InstallationError):
+                    launcher.poll_change_set(self.client, event(), state())
+        self.client.execute_change_set.assert_not_called()
+
+    def test_refresh_exception_is_limited_to_direct_permissions_children(self):
+        for parent in (launcher.FORWARDING_RESOURCE, launcher.SUPPLEMENTARY_RESOURCE):
+            with self.subTest(parent=parent):
+                self.nested_changes([self.permissions_refresh_change()])
+                self.pages[CHANGE_SET][0]["Changes"][0]["ResourceChange"][
+                    "LogicalResourceId"
+                ] = parent
+                with self.assertRaises(launcher.InstallationError):
+                    launcher.poll_change_set(self.client, event(), state())
+        self.client.execute_change_set.assert_not_called()
+
+    def test_refresh_exception_cannot_apply_at_root(self):
+        self.pages[CHANGE_SET][0]["Changes"] = [self.permissions_refresh_change()]
+        with self.assertRaises(launcher.InstallationError):
+            launcher.poll_change_set(self.client, event(), state())
+        self.client.execute_change_set.assert_not_called()
+
+    def test_refresh_exception_cannot_apply_below_permissions_child(self):
+        deeper_change_set = NESTED_CHANGE_SET + "-deeper"
+        self.nested_changes(
+            [
+                {
+                    "ResourceChange": {
+                        "Action": "Modify",
+                        "LogicalResourceId": "UnexpectedNestedStack",
+                        "ResourceType": "AWS::CloudFormation::Stack",
+                        "Replacement": "False",
+                        "ChangeSetId": deeper_change_set,
+                    }
+                }
+            ]
+        )
+        self.pages[deeper_change_set] = [
+            {
+                "Status": "CREATE_COMPLETE",
+                "IncludeNestedStacks": True,
+                "Changes": [self.permissions_refresh_change()],
+            }
+        ]
+        with self.assertRaises(launcher.InstallationError):
+            launcher.poll_change_set(self.client, event(), state())
+        self.client.execute_change_set.assert_not_called()
+
+    def test_refresh_exception_cannot_modify_frozen_legacy_child(self):
+        self.nested_changes([self.permissions_refresh_change()])
+        with self.assertRaisesRegex(launcher.InstallationError, "frozen legacy"):
+            launcher.assert_safe_changes(self.client, CHANGE_SET, preserve_legacy=True)
+        self.client.execute_change_set.assert_not_called()
+
+    def test_refresh_exception_does_not_hide_later_page_replacements(self):
+        self.nested_changes([self.permissions_refresh_change()])
+        unsafe = self.permissions_refresh_change()
+        unsafe["ResourceChange"]["Replacement"] = "True"
+        self.pages[NESTED_CHANGE_SET].append(
+            {
+                "Status": "CREATE_COMPLETE",
+                "IncludeNestedStacks": True,
+                "Changes": [unsafe],
+            }
+        )
+        with self.assertRaises(launcher.InstallationError):
+            launcher.poll_change_set(self.client, event(), state())
         self.client.execute_change_set.assert_not_called()
 
     def test_safe_nested_changes_execute_only_the_root_change_set(self):
@@ -2176,6 +2818,148 @@ class TemplateTest(unittest.TestCase):
                 url.endswith("/datadog_agent_supplementary_forwarding.yaml")
                 for url in templates["Resource"]
             )
+        )
+
+    def test_forwarding_discovery_uses_name_only_arns_without_lifecycle_writes(self):
+        template = self.load("main_agent_installation_launcher.yaml")
+        statements = template["Resources"]["LauncherRole"]["Properties"]["Policies"][0][
+            "PolicyDocument"
+        ]["Statement"]
+        discovery = next(s for s in statements if s["Sid"] == "ForwardingDiscovery")
+        names = [
+            "arn:${AWS::Partition}:events:*:${AWS::AccountId}:"
+            "connection/datadog-agent-resource-update-intake-connection",
+            "arn:${AWS::Partition}:events:*:${AWS::AccountId}:"
+            "api-destination/datadog-agent-resource-update-intake-destination",
+        ]
+        self.assertEqual(
+            discovery,
+            {
+                "Sid": "ForwardingDiscovery",
+                "Effect": "Allow",
+                "Action": [
+                    "events:DescribeConnection",
+                    "events:DescribeApiDestination",
+                ],
+                "Resource": names,
+            },
+        )
+        lifecycle = next(s for s in statements if s["Sid"] == "ForwardingLifecycle")
+        self.assertEqual(
+            lifecycle["Resource"],
+            [
+                *(name + "/*" for name in names),
+                "arn:${AWS::Partition}:events:*:${AWS::AccountId}:"
+                "rule/datadog-agent-resource-update-rule-*",
+            ],
+        )
+
+    def test_forwarding_pipeline_writes_use_exact_names_via_cloudformation(self):
+        template = self.load("main_agent_installation_launcher.yaml")
+        statements = template["Resources"]["LauncherRole"]["Properties"]["Policies"][0][
+            "PolicyDocument"
+        ]["Statement"]
+        lifecycle = next(
+            s for s in statements if s["Sid"] == "ForwardingPipelineLifecycle"
+        )
+        self.assertEqual(
+            lifecycle["Action"],
+            [
+                "events:CreateConnection",
+                "events:UpdateConnection",
+                "events:DeleteConnection",
+                "events:CreateApiDestination",
+                "events:UpdateApiDestination",
+                "events:DeleteApiDestination",
+            ],
+        )
+        discovery = next(s for s in statements if s["Sid"] == "ForwardingDiscovery")
+        self.assertEqual(lifecycle["Resource"], discovery["Resource"])
+        self.assertEqual(
+            lifecycle["Condition"],
+            {
+                "ForAnyValue:StringEquals": {
+                    "aws:CalledVia": ["cloudformation.amazonaws.com"]
+                }
+            },
+        )
+
+    def test_connection_secret_access_requires_cloudformation_then_eventbridge(self):
+        template = self.load("main_agent_installation_launcher.yaml")
+        statements = template["Resources"]["LauncherRole"]["Properties"]["Policies"][0][
+            "PolicyDocument"
+        ]["Statement"]
+        secrets = next(
+            s for s in statements if s["Sid"] == "ForwardingConnectionSecret"
+        )
+        self.assertEqual(
+            secrets,
+            {
+                "Sid": "ForwardingConnectionSecret",
+                "Effect": "Allow",
+                "Action": [
+                    "secretsmanager:CreateSecret",
+                    "secretsmanager:UpdateSecret",
+                    "secretsmanager:DeleteSecret",
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:PutSecretValue",
+                ],
+                "Resource": "arn:${AWS::Partition}:secretsmanager:*:${AWS::AccountId}:"
+                "secret:events!connection/datadog-agent-resource-update-intake-connection/*",
+                "Condition": {
+                    "StringEquals": {
+                        "aws:CalledViaFirst": "cloudformation.amazonaws.com",
+                        "aws:CalledViaLast": "events.amazonaws.com",
+                    },
+                },
+            },
+        )
+        for statement in statements:
+            if statement is secrets:
+                continue
+            actions = statement["Action"]
+            if isinstance(actions, str):
+                actions = [actions]
+            self.assertFalse(
+                any(action.startswith("secretsmanager:") for action in actions)
+            )
+
+    def test_physical_role_owner_lookup_has_only_unscoped_resource_read(self):
+        template = self.load("main_agent_installation_launcher.yaml")
+        statements = template["Resources"]["LauncherRole"]["Properties"]["Policies"][0][
+            "PolicyDocument"
+        ]["Statement"]
+        discovery = next(
+            s for s in statements if s["Sid"] == "PhysicalRoleOwnerDiscovery"
+        )
+        self.assertEqual(
+            discovery,
+            {
+                "Sid": "PhysicalRoleOwnerDiscovery",
+                "Effect": "Allow",
+                "Action": "cloudformation:DescribeStackResources",
+                "Resource": "*",
+            },
+        )
+        unscoped_cloudformation_actions = set()
+        for statement in statements:
+            if statement["Resource"] != "*":
+                continue
+            actions = statement["Action"]
+            if isinstance(actions, str):
+                actions = [actions]
+            unscoped_cloudformation_actions.update(
+                action for action in actions if action.startswith("cloudformation:")
+            )
+        self.assertEqual(
+            unscoped_cloudformation_actions, {"cloudformation:DescribeStackResources"}
+        )
+        owner_stacks = next(
+            s for s in statements if s["Sid"] == "ForwardingOwnerDiscovery"
+        )
+        self.assertEqual(
+            owner_stacks["Resource"],
+            "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/*/*",
         )
 
     def test_launcher_deployment_history_is_scoped_to_its_own_stack(self):

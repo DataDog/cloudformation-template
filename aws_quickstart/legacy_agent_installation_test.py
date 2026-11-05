@@ -76,8 +76,11 @@ class LegacyAdoptionTest(unittest.TestCase):
         self.role_parent = existing_tests.QUICKSTART_ROOT
         self.role_name = PROPS["IAMRoleName"]
         self.owned_scope = "stack"
+        f.role_owners[PROPS["IAMRoleName"]] = ROLE_STACK
         self.role = {
-            "Tags": [{"Key": "aws:cloudformation:stack-id", "Value": ROLE_STACK}],
+            "RoleName": PROPS["IAMRoleName"],
+            "CreateDate": existing_tests.ROLE_CREATED,
+            "Tags": [],
             "AssumeRolePolicyDocument": {
                 "Statement": [
                     {
@@ -114,6 +117,7 @@ class LegacyAdoptionTest(unittest.TestCase):
                 "Stacks": [
                     {
                         "StackId": ROLE_STACK,
+                        "StackStatus": "CREATE_COMPLETE",
                         "RootId": existing_tests.QUICKSTART_ROOT,
                         "ParentId": self.role_parent,
                         "Parameters": stack_parameters(self.role_parameters),
@@ -133,7 +137,14 @@ class LegacyAdoptionTest(unittest.TestCase):
             }
         return self.fixture.describe_stacks(StackName=StackName)
 
-    def describe_resources(self, *, StackName):
+    def describe_resources(
+        self, *, StackName=None, PhysicalResourceId=None, LogicalResourceId=None
+    ):
+        if PhysicalResourceId is not None:
+            return self.fixture.describe_stack_resources(
+                PhysicalResourceId=PhysicalResourceId,
+                LogicalResourceId=LogicalResourceId,
+            )
         if StackName == existing_tests.QUICKSTART_ROOT:
             return {
                 "StackResources": [
@@ -220,8 +231,14 @@ class LegacyAdoptionTest(unittest.TestCase):
             values["APIKey"], {"ParameterKey": "APIKey", "UsePreviousValue": True}
         )
         self.assertNotIn("APPKey", values)
+        self.assertEqual(self.role["Tags"], [])
+        self.fixture.cf.describe_stack_resources.assert_any_call(
+            PhysicalResourceId=PROPS["IAMRoleName"],
+            LogicalResourceId="DatadogIntegrationRole",
+        )
         self.fixture.iam.attach_role_policy.assert_not_called()
         self.fixture.iam.detach_role_policy.assert_not_called()
+        self.fixture.iam.tag_role.assert_not_called()
         self.fixture.cf.delete_stack.assert_not_called()
 
     def test_reuses_legacy_installation_owned_forwarding(self):
@@ -290,7 +307,7 @@ class LegacyAdoptionTest(unittest.TestCase):
         self.role_name = "unrelated-role"
         self.assert_rejected()
         self.role_name = PROPS["IAMRoleName"]
-        self.role["Tags"] = []
+        self.fixture.role_owners[PROPS["IAMRoleName"]] = None
         self.assert_rejected()
 
     def test_adoption_requires_unambiguous_current_role_trust(self):

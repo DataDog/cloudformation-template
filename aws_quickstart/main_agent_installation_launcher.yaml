@@ -105,6 +105,11 @@ Resources:
                 Effect: Allow
                 Action: [cloudformation:DescribeStacks, cloudformation:DescribeStackResources]
                 Resource: !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/*/*
+              - Sid: PhysicalRoleOwnerDiscovery
+                Effect: Allow
+                Action: cloudformation:DescribeStackResources
+                # PhysicalResourceId lookups have no StackName to authorize against a stack ARN.
+                Resource: '*'
               - Sid: NestedStackTemplates
                 Effect: Allow
                 Action:
@@ -200,6 +205,28 @@ Resources:
                 Condition:
                   ForAnyValue:StringEquals:
                     aws:CalledVia: [cloudformation.amazonaws.com, cloudformation.amazonaws.com.cn]
+              - Sid: ForwardingDiscovery
+                Effect: Allow
+                Action: [events:DescribeConnection, events:DescribeApiDestination]
+                # These reads authorize name-only ARNs, not the UUID-suffixed ARNs returned by EventBridge.
+                Resource:
+                  - !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:connection/datadog-agent-resource-update-intake-connection
+                  - !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/datadog-agent-resource-update-intake-destination
+              - Sid: ForwardingPipelineLifecycle
+                Effect: Allow
+                Action:
+                  - events:CreateConnection
+                  - events:UpdateConnection
+                  - events:DeleteConnection
+                  - events:CreateApiDestination
+                  - events:UpdateApiDestination
+                  - events:DeleteApiDestination
+                Resource:
+                  - !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:connection/datadog-agent-resource-update-intake-connection
+                  - !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/datadog-agent-resource-update-intake-destination
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com]
               - Sid: ForwardingLifecycle
                 Effect: Allow
                 Action:
@@ -244,6 +271,20 @@ Resources:
                 Condition:
                   ForAnyValue:StringEquals:
                     aws:CalledVia: [cloudformation.amazonaws.com, cloudformation.amazonaws.com.cn]
+              - Sid: ForwardingConnectionSecret
+                Effect: Allow
+                Action:
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:UpdateSecret
+                  - secretsmanager:DeleteSecret
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:PutSecretValue
+                Resource: !Sub arn:${AWS::Partition}:secretsmanager:*:${AWS::AccountId}:secret:events!connection/datadog-agent-resource-update-intake-connection/*
+                # EventBridge manages this secret using the caller's credentials, not only its service-linked role.
+                Condition:
+                  StringEquals:
+                    aws:CalledViaFirst: cloudformation.amazonaws.com
+                    aws:CalledViaLast: events.amazonaws.com
               - Sid: ForwardingServiceRole
                 Effect: Allow
                 Action: iam:CreateServiceLinkedRole

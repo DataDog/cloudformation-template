@@ -295,6 +295,87 @@ class Launcher:
         except self.iam.exceptions.NoSuchEntityException:
             return None
 
+    def role_owner(self, role, logical_id, account_id):
+        role_name = role["RoleName"]
+
+        def discover(region):
+            client = self.cloudformation[region]
+            try:
+                # Filtering by logical ID avoids DescribeStackResources' 100-resource limit.
+                resources = client.describe_stack_resources(
+                    PhysicalResourceId=role_name, LogicalResourceId=logical_id
+                )["StackResources"]
+            except ClientError as error:
+                # CloudFormation has no modeled exception for an untracked resource.
+                if (
+                    error.response["Error"]["Code"] == "ValidationError"
+                    and error.response["Error"].get("Message")
+                    == f"Stack for {role_name} does not exist"
+                ):
+                    return None
+                raise
+            if not resources:
+                return None
+            if len(resources) != 1:
+                raise InstallationError(
+                    "The IAM role's CloudFormation ownership is ambiguous. No changes were made."
+                )
+            resource = resources[0]
+            owner_id = resource.get("StackId", "")
+            if (
+                resource.get("ResourceType") != "AWS::IAM::Role"
+                or resource.get("PhysicalResourceId") != role_name
+                or resource.get("LogicalResourceId") != logical_id
+                or not re.fullmatch(
+                    rf"arn:{self.partition}:cloudformation:{region}:{account_id}:stack/[^/]+/[^/]+",
+                    owner_id,
+                )
+            ):
+                raise InstallationError(
+                    "The IAM role's CloudFormation ownership could not be verified. No changes were made."
+                )
+            owner = client.describe_stacks(StackName=owner_id)["Stacks"][0]
+            if owner.get("StackId") != owner_id:
+                raise InstallationError(
+                    "The IAM role's CloudFormation owner does not match its resource record. No changes were made."
+                )
+            # Reverse lookup includes deleted stacks for up to 90 days.
+            if (
+                owner.get("StackStatus") == "DELETE_COMPLETE"
+                or resource.get("ResourceStatus") == "DELETE_COMPLETE"
+            ):
+                return None
+            if (
+                owner.get("StackStatus") not in STABLE_STATES
+                or resource.get("ResourceStatus") not in STABLE_STATES
+            ):
+                raise InstallationError(
+                    "The IAM role's owning stack or resource is not stable. Wait for it to finish or repair it before retrying.",
+                    owner_id,
+                )
+            if role["CreateDate"] > resource["Timestamp"]:
+                raise InstallationError(
+                    "The IAM role was recreated after its CloudFormation resource record. Reconcile its ownership before retrying; no changes were made.",
+                    owner_id,
+                )
+            return owner_id
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            owners = [
+                owner
+                for owner in executor.map(discover, self.regions)
+                if owner is not None
+            ]
+        if not owners:
+            raise InstallationError(
+                "The IAM role has no verifiable integration owner. Reconcile its CloudFormation ownership before retrying; no changes were made."
+            )
+        if len(owners) != 1:
+            raise InstallationError(
+                "The IAM role has ambiguous CloudFormation ownership across regions. No changes were made."
+            )
+        return owners[0]
+
     def pipeline(self, region):
         client = self.events[region]
         try:
@@ -335,6 +416,19 @@ class Launcher:
         client = self.cloudformation[owner_id.split(":")[3]]
         owner = client.describe_stacks(StackName=owner_id)["Stacks"][0]
         root_id = owner.get("RootId", owner["StackId"])
+        root = (
+            owner
+            if root_id == owner["StackId"]
+            else client.describe_stacks(StackName=root_id)["Stacks"][0]
+        )
+        if any(
+            candidate.get("StackStatus") not in STABLE_STATES
+            for candidate in (owner, root)
+        ):
+            raise InstallationError(
+                "The owning integration stack is not stable. Wait for it to finish or repair it before retrying.",
+                root_id,
+            )
         resources = client.describe_stack_resources(StackName=root_id)["StackResources"]
         if any(
             resource["LogicalResourceId"] == PERMISSIONS_RESOURCE
@@ -345,11 +439,6 @@ class Launcher:
                 root_id,
             )
         if expected_identity:
-            root = (
-                owner
-                if root_id == owner["StackId"]
-                else client.describe_stacks(StackName=root_id)["Stacks"][0]
-            )
             identity = parameters(root)
             if not identity.get("ExternalId"):
                 role_stack_id = next(
@@ -388,18 +477,7 @@ class Launcher:
 
     def assert_integration_role_identity(self, props):
         role = self.iam.get_role(RoleName=props["IAMRoleName"])["Role"]
-        owner_id = next(
-            (
-                tag["Value"]
-                for tag in role.get("Tags", [])
-                if tag["Key"] == "aws:cloudformation:stack-id"
-            ),
-            None,
-        )
-        if not owner_id:
-            raise InstallationError(
-                "The legacy installation's integration role has no verifiable QuickStart owner. No changes were made."
-            )
+        owner_id = self.role_owner(role, "DatadogIntegrationRole", props["AccountId"])
         client = self.cloudformation[owner_id.split(":")[3]]
         owner = client.describe_stacks(StackName=owner_id)["Stacks"][0]
         identity = parameters(owner)
@@ -697,12 +775,17 @@ class Launcher:
         owned_forwarding_stack_id = owned_stacks.get(FORWARDING_RESOURCE)
         supplementary_stack_id = owned_stacks.get(SUPPLEMENTARY_RESOURCE)
         tags = {tag["Key"]: tag["Value"] for tag in (role or {}).get("Tags", [])}
+        owner_id = (
+            self.role_owner(role, "DDEventBridgeCrossRegionRole", props["AccountId"])
+            if role
+            else None
+        )
         if not types & FORWARDED_TYPES:
             if owned_stacks:
                 raise InstallationError(
                     "This update would remove installation-owned forwarding. Review the installation stack manually in CloudFormation; no changes were made."
                 )
-            self.assert_external_owner(tags.get("aws:cloudformation:stack-id"))
+            self.assert_external_owner(owner_id)
             return ForwardingPlan()
         if not role:
             if owned_stacks:
@@ -718,8 +801,7 @@ class Launcher:
                 "The forwarding role has no supported, enabled primary region. Repair the existing setup before retrying."
             )
         if owned_forwarding_stack_id and (
-            tags.get("aws:cloudformation:stack-id") != owned_forwarding_stack_id
-            or primary != region
+            owner_id != owned_forwarding_stack_id or primary != region
         ):
             raise InstallationError(
                 "Forwarding ownership does not match the existing installation stack. No changes were made."
@@ -741,7 +823,7 @@ class Launcher:
         if owned_forwarding_stack_id:
             # Keep this stack's resource in its template; discovery must not turn off its condition on updates.
             return ForwardingPlan(create_pipeline=True)
-        self.assert_external_owner(tags.get("aws:cloudformation:stack-id"), props)
+        self.assert_external_owner(owner_id, props)
         if supplementary_stack_id and primary != region:
             raise InstallationError(
                 "Supplementary forwarding no longer matches the pipeline's primary region. Review the installation's region before retrying."
@@ -902,9 +984,56 @@ def is_noop_change_set(change_set):
     )
 
 
+def is_permissions_refresh(resource, allow_type_expansion=False):
+    # CloudFormation cannot infer that this handler preserves PhysicalResourceId on update.
+    if (
+        resource.get("Action") != "Modify"
+        or resource.get("Replacement") != "Conditional"
+        or resource.get("LogicalResourceId")
+        != "DatadogAttachIntegrationPermissionsFunctionTrigger"
+        or resource.get("ResourceType")
+        != "Custom::DatadogAttachIntegrationPermissionsFunctionTrigger"
+        or resource.get("Scope") != ["Properties"]
+    ):
+        return False
+    allowed_properties = {"InstrumentationRefreshToken"}
+    if allow_type_expansion:
+        allowed_properties.add("InstrumentationResourceTypes")
+    details = resource.get("Details") or []
+    return bool(details) and all(
+        any(
+            detail.get("Target")
+            == {
+                "Attribute": "Properties",
+                "Name": name,
+                "RequiresRecreation": "Conditionally",
+            }
+            and (
+                detail.get("ChangeSource"),
+                detail.get("Evaluation"),
+                detail.get("CausingEntity"),
+            )
+            in {
+                ("ParameterReference", "Static", name),
+                ("DirectModification", "Dynamic", None),
+            }
+            for name in allowed_properties
+        )
+        for detail in details
+    )
+
+
 def assert_safe_changes(
-    client, change_set_id, is_root=True, preserve_legacy=False, unchanged=False
+    client,
+    change_set_id,
+    is_root=True,
+    preserve_legacy=False,
+    unchanged=False,
+    permissions_child=False,
+    type_expansion=None,
+    permissions_stack_id=None,
 ):
+    previous_child_types_match = None
     for page in client.get_paginator("describe_change_set").paginate(
         ChangeSetName=change_set_id
     ):
@@ -917,6 +1046,29 @@ def assert_safe_changes(
         if unchanged and page.get("Changes"):
             raise InstallationError(
                 "The change set would modify the frozen legacy permissions child. No changes were executed."
+            )
+        allow_type_expansion = False
+        if permissions_child and type_expansion and permissions_stack_id:
+            previous_types, expanded_types = type_expansion
+            if previous_child_types_match is None:
+                child = client.describe_stacks(StackName=permissions_stack_id)[
+                    "Stacks"
+                ][0]
+                previous_child_types_match = (
+                    child["StackId"] == permissions_stack_id
+                    and child["StackStatus"] in STABLE_STATES
+                    and resource_types(
+                        parameters(child).get("InstrumentationResourceTypes", "")
+                    )
+                    == previous_types
+                )
+            allow_type_expansion = (
+                previous_child_types_match
+                and page.get("StackId") == permissions_stack_id
+                and resource_types(
+                    parameters(page).get("InstrumentationResourceTypes", "")
+                )
+                == expanded_types
             )
         for change in page["Changes"]:
             resource = change["ResourceChange"]
@@ -934,6 +1086,11 @@ def assert_safe_changes(
                 or (
                     resource["Action"] == "Modify"
                     and resource.get("Replacement") != "False"
+                    and not (
+                        not is_root
+                        and permissions_child
+                        and is_permissions_refresh(resource, allow_type_expansion)
+                    )
                 )
                 or (
                     is_root
@@ -952,7 +1109,18 @@ def assert_safe_changes(
                     raise InstallationError(
                         "A nested installation change set is missing. Inspect it in CloudFormation before retrying; no changes were executed."
                     )
-                assert_safe_changes(client, nested_id, is_root=False, unchanged=frozen)
+                assert_safe_changes(
+                    client,
+                    nested_id,
+                    is_root=False,
+                    unchanged=frozen,
+                    permissions_child=is_root
+                    and not frozen
+                    and resource["LogicalResourceId"]
+                    in {PERMISSIONS_RESOURCE, OWNED_PERMISSIONS_RESOURCE},
+                    type_expansion=type_expansion,
+                    permissions_stack_id=resource.get("PhysicalResourceId"),
+                )
 
 
 def poll_change_set(client, event, state):
@@ -986,11 +1154,28 @@ def poll_change_set(client, event, state):
         raise InstallationError(
             "The installation change set is no longer executable. Launch a new request."
         )
+    type_expansion = None
+    proposed_types = parameters(change_set).get("InstrumentationResourceTypes")
+    if state["Baseline"] is not None and proposed_types is not None:
+        previous_types = resource_types(
+            parameters(stack).get("InstrumentationResourceTypes", "")
+        )
+        expanded_types = resource_types(proposed_types)
+        requested_types = resource_types(
+            event["ResourceProperties"]["InstrumentationResourceTypes"]
+        )
+        if expanded_types != previous_types | requested_types:
+            raise InstallationError(
+                "The change set resource types do not preserve the existing types and match this request. No changes were executed."
+            )
+        if previous_types < expanded_types:
+            type_expansion = (previous_types, expanded_types)
     change_set_id = change_set["ChangeSetId"]
     assert_safe_changes(
         client,
         change_set_id,
         preserve_legacy=state.get("PreserveLegacyPermissions", False),
+        type_expansion=type_expansion,
     )
     client.execute_change_set(
         StackName=state["StackId"],

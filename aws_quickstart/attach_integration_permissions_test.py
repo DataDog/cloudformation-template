@@ -79,7 +79,7 @@ BOUNDARY_POLICY_NAMES = (
 
 
 class TestInstrumentationRefresh(unittest.TestCase):
-    def test_unchanged_configuration_with_a_new_request_refreshes_permissions(self):
+    def test_request_refresh_and_type_expansion_preserve_physical_id(self):
         previous = {
             "DatadogIntegrationRole": "DatadogIntegrationRole",
             "AccountId": "123456789012",
@@ -95,20 +95,32 @@ class TestInstrumentationRefresh(unittest.TestCase):
             "RequestType": "Update",
             "StackId": "installation-permissions-stack",
             "LogicalResourceId": "Permissions",
+            "PhysicalResourceId": "installation-permissions-stack/Permissions",
             "OldResourceProperties": previous,
             "ResourceProperties": {
                 **previous,
                 "InstrumentationRefreshToken": "second-request",
             },
         }
-        with (
-            patch("attach_integration_permissions.boto3.client"),
-            patch(
-                "attach_integration_permissions.attach_instrumentation_permissions"
-            ) as attach,
-        ):
-            handle_create_update(event, None)
-        attach.assert_called_once()
+        for types in ("aws:ec2:instance", "aws:ec2:instance,aws:lambda:function"):
+            with self.subTest(types=types):
+                event["ResourceProperties"]["InstrumentationResourceTypes"] = types
+                with (
+                    patch("attach_integration_permissions.boto3.client"),
+                    patch(
+                        "attach_integration_permissions.attach_instrumentation_permissions"
+                    ) as attach,
+                    patch(
+                        "attach_integration_permissions.cfnresponse.send"
+                    ) as response,
+                ):
+                    handle_create_update(event, None)
+                attach.assert_called_once()
+                response.assert_called_once()
+                self.assertEqual(
+                    response.call_args.kwargs["physicalResourceId"],
+                    event["PhysicalResourceId"],
+                )
 
     def test_empty_default_does_not_refresh_existing_quickstart_permissions(self):
         self.assertFalse(
