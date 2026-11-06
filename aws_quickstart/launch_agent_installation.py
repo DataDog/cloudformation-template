@@ -31,7 +31,7 @@ PERMISSIONS_TRIGGER = "DatadogAttachIntegrationPermissionsFunctionTrigger"
 PUBLISHED_TEMPLATE_ORIGIN = (
     "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com"
 )
-# Fixture YAML/JSON hashes after normalizing the approved URLs and release header.
+# Released-template YAML/JSON hashes after normalizing the approved URLs and release header.
 LEGACY_TEMPLATE_HASHES = {
     "v4.21.1": {
         "070b77c6418fe36d0986ce9efba4c52eaa9b72a4373ff4046f0b5cacd1f09d2e",
@@ -204,15 +204,6 @@ def legacy_template_configuration(body):
             if hashlib.sha256(normalized.encode()).hexdigest() in hashes:
                 return {"version": version, "permissions_url": permissions_url}
     return None
-
-
-def legacy_template_version(body):
-    configuration = legacy_template_configuration(body)
-    return configuration["version"] if configuration else None
-
-
-def is_known_legacy_template(body):
-    return legacy_template_version(body) is not None
 
 
 def fingerprint(stack):

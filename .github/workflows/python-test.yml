@@ -3,7 +3,6 @@ name: Python tests
 on:
   push:
     paths:
-      - "aws_quickstart/fixtures/**"
       - "aws_quickstart/datadog_agent_supplementary_forwarding.yaml"
       - "**.py"
       - "aws_quickstart/main_workflow.yaml"
@@ -17,7 +16,6 @@ on:
       - "aws_quickstart/release.sh"
   pull_request:
     paths:
-      - "aws_quickstart/fixtures/**"
       - "aws_quickstart/datadog_agent_supplementary_forwarding.yaml"
       - "**.py"
       - "aws_quickstart/main_workflow.yaml"
