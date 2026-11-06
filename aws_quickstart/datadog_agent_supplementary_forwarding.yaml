@@ -1,0 +1,162 @@
+# version: <VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog Agent installation - supplementary rules for an existing EventBridge intake
+Parameters:
+  ExistingApiDestinationArn:
+    Type: String
+    AllowedPattern: 'arn:aws(-[a-z]+)*:events:[a-z0-9-]+:[0-9]{12}:api-destination/datadog-agent-resource-update-intake-destination/[A-Za-z0-9-]+'
+    Description: Verified API destination owned by the existing integration. Its connection and credentials are not modified.
+  InstrumentationResourceTypes:
+    Type: String
+    AllowedPattern: 'aws:(ec2:instance|eks:cluster|lambda:function)(,aws:(ec2:instance|eks:cluster|lambda:function))*'
+    Description: Resource types whose supplementary forwarding rules are owned by this stack.
+Conditions:
+  IncludeEC2:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Split [",aws:ec2:instance,", !Sub ",${InstrumentationResourceTypes},"]]
+          - !Sub ",${InstrumentationResourceTypes},"
+  IncludeEKS:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Split [",aws:eks:cluster,", !Sub ",${InstrumentationResourceTypes},"]]
+          - !Sub ",${InstrumentationResourceTypes},"
+  IncludeLAMBDA:
+    Fn::Not:
+      - Fn::Equals:
+          - !Join ["", !Split [",aws:lambda:function,", !Sub ",${InstrumentationResourceTypes},"]]
+          - !Sub ",${InstrumentationResourceTypes},"
+Resources:
+  DDEventBridgeInvocationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub
+                  - arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/datadog-agent-supp-${Id}-*
+                  - Id: !Select [2, !Split ['/', !Ref AWS::StackId]]
+      Policies:
+        - PolicyName: datadog-supplementary-intake-invoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: events:InvokeApiDestination
+                Resource: !Ref ExistingApiDestinationArn
+      Tags:
+        - Key: datadog:agent-installation-owner
+          Value: !Ref AWS::StackId
+  DDEventForwardingRuleEC2:
+    Type: AWS::Events::Rule
+    Condition: IncludeEC2
+    Properties:
+      Name: !Sub
+        - datadog-agent-supp-${Id}-ec2
+        - Id: !Select [2, !Split ['/', !Ref AWS::StackId]]
+      Description: Supplementary EC2 CloudTrail forwarding to the existing Datadog intake
+      State: ENABLED
+      Tags:
+        - Key: datadog:agent-installation-owner
+          Value: !Ref AWS::StackId
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          errorCode:
+            - exists: false
+          $or:
+            - eventName:
+                - RunInstances
+                - ModifyInstanceAttribute
+            - eventName:
+                - CreateTags
+                - DeleteTags
+              requestParameters:
+                resourcesSet:
+                  items:
+                    resourceId:
+                      - prefix: i-
+      Targets:
+        - Id: datadog-intake
+          Arn: !Ref ExistingApiDestinationArn
+          RoleArn: !GetAtt DDEventBridgeInvocationRole.Arn
+  DDEventForwardingRuleEKS:
+    Type: AWS::Events::Rule
+    Condition: IncludeEKS
+    Properties:
+      Name: !Sub
+        - datadog-agent-supp-${Id}-eks
+        - Id: !Select [2, !Split ['/', !Ref AWS::StackId]]
+      Description: Supplementary EKS CloudTrail forwarding to the existing Datadog intake
+      State: ENABLED
+      Tags:
+        - Key: datadog:agent-installation-owner
+          Value: !Ref AWS::StackId
+      EventPattern:
+        source:
+          - aws.eks
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          errorCode:
+            - exists: false
+          $or:
+            - eventName:
+                - CreateCluster
+                - UpdateClusterConfig
+                - UpdateClusterVersion
+            - eventName:
+                - TagResource
+                - UntagResource
+              requestParameters:
+                resourceArn:
+                  - wildcard: '*:cluster/*'
+      Targets:
+        - Id: datadog-intake
+          Arn: !Ref ExistingApiDestinationArn
+          RoleArn: !GetAtt DDEventBridgeInvocationRole.Arn
+  DDEventForwardingRuleLAMBDA:
+    Type: AWS::Events::Rule
+    Condition: IncludeLAMBDA
+    Properties:
+      Name: !Sub
+        - datadog-agent-supp-${Id}-lambda
+        - Id: !Select [2, !Split ['/', !Ref AWS::StackId]]
+      Description: Supplementary Lambda CloudTrail forwarding to the existing Datadog intake
+      State: ENABLED
+      Tags:
+        - Key: datadog:agent-installation-owner
+          Value: !Ref AWS::StackId
+      EventPattern:
+        source:
+          - aws.lambda
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          errorCode:
+            - exists: false
+          $or:
+            - eventName:
+                - CreateFunction20150331
+                - UpdateFunctionConfiguration20150331v2
+            - eventName:
+                - TagResource20170331v2
+                - UntagResource20170331v2
+              requestParameters:
+                resource:
+                  - wildcard: '*:function:*'
+      Targets:
+        - Id: datadog-intake
+          Arn: !Ref ExistingApiDestinationArn
+          RoleArn: !GetAtt DDEventBridgeInvocationRole.Arn

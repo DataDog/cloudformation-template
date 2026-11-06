@@ -52,6 +52,11 @@ class TestSendCfnResponse(unittest.TestCase):
             physicalResourceId=f"{value['StackId']}/{value['LogicalResourceId']}",
         )
 
+    def test_includes_an_explicit_safe_failure_reason(self):
+        cfn_response = MagicMock()
+        send_cfn_response(cfn_response, event(), "context", "FAILED", {}, reason="Deployment failed")
+        self.assertEqual(cfn_response.send.call_args.kwargs["reason"], "Deployment failed")
+
 
 class TestInlineComposition(unittest.TestCase):
     def test_shared_helper_composes_with_each_handler(self):
@@ -61,6 +66,7 @@ class TestInlineComposition(unittest.TestCase):
         for filename in (
             "attach_integration_permissions.py",
             "accept_operator_subscription.py",
+            "launch_agent_installation.py",
         ):
             handler = (directory / filename).read_text().replace(
                 "from cfn_common import send_cfn_response\n", ""
@@ -144,9 +150,27 @@ class TestForwardingConditions(unittest.TestCase):
         for filename in self.TEMPLATES:
             with self.subTest(filename=filename):
                 template = (directory / filename).read_text()
-                self.assertIn(condition, template)
+                expected = condition
+                if filename == "main_agent_installation.yaml":
+                    expected = condition.replace(
+                        "  ShouldForwardEvents:\n    Fn::And:\n",
+                        '  ShouldForwardEvents:\n    Fn::And:\n      - !Equals [!Ref CreateResourceUpdateForwarding, "true"]\n',
+                    )
+                self.assertIn(expected, template)
 
-    def test_region_condition_only_gates_the_forwarding_stack(self):
+    def test_agent_installation_can_skip_external_forwarding_without_retaining_owned_resources(self):
+        template = (Path(__file__).parent / "main_agent_installation.yaml").read_text()
+        self.assertIn('  CreateResourceUpdateForwarding:\n    Type: String\n    Default: "true"', template)
+        self.assertIn('      - !Equals [!Ref CreateResourceUpdateForwarding, "true"]', template)
+        forwarding = template.split("  DatadogAgentResourceUpdateForwardingStack:\n", 1)[1].split("Outputs:", 1)[0]
+        self.assertNotIn("DeletionPolicy: Retain", forwarding)
+        self.assertNotIn("UpdateReplacePolicy: Retain", forwarding)
+        permissions = template.split("  DatadogIntegrationPermissionsStack:\n", 1)[1].split("  DatadogAgentInstallationPermissionsStack:\n", 1)[0]
+        self.assertNotIn("Condition:", permissions)
+        self.assertIn("        ManageBasePermissions: false", permissions)
+        self.assertIn("        FailOnInstrumentationError: true", permissions)
+
+    def test_region_condition_only_gates_forwarding_stacks(self):
         directory = Path(__file__).parent
         forwarding_stack = """  DatadogAgentResourceUpdateForwardingStack:
     Type: AWS::CloudFormation::Stack
@@ -157,7 +181,25 @@ class TestForwardingConditions(unittest.TestCase):
                 template = (directory / filename).read_text()
                 self.assertIn(forwarding_stack, template)
                 self.assertEqual(template.count("Condition: ShouldForwardEvents"), 1)
-                self.assertEqual(template.count("Condition: SupportsEventBridgeApiDestinations"), 1)
+                is_installation = filename == "main_agent_installation.yaml"
+                self.assertEqual(
+                    template.count("Condition: SupportsEventBridgeApiDestinations"),
+                    2 if is_installation else 1,
+                )
+                if is_installation:
+                    self.assertIn(
+                        "  DatadogAgentSupplementaryForwardingStack:\n"
+                        "    Type: AWS::CloudFormation::Stack\n"
+                        "    Condition: HasSupplementaryForwarding\n",
+                        template,
+                    )
+                    supplementary_condition = template.split(
+                        "  HasSupplementaryForwarding:\n", 1
+                    )[1].split("  IncludeEC2:\n", 1)[0]
+                    self.assertIn(
+                        "Condition: SupportsEventBridgeApiDestinations",
+                        supplementary_condition,
+                    )
                 # Instrumentation permissions remain independent of regional forwarding support.
                 permissions_stack = (
                     "DatadogIntegrationPermissionsStack"
@@ -171,10 +213,12 @@ class TestForwardingConditions(unittest.TestCase):
                         break
                     block.append(line)
                 self.assertNotIn("    Condition:", "\n".join(block))
-                self.assertIn(
-                    '        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]',
-                    block,
+                types_parameter = (
+                    '        InstrumentationResourceTypes: !If [HasLegacyPermissions, !Ref LegacyInstrumentationResourceTypes, !Join [",", !Ref InstrumentationResourceTypes]]'
+                    if is_installation
+                    else '        InstrumentationResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]'
                 )
+                self.assertIn(types_parameter, block)
                 if filename != "main_agent_installation.yaml":
                     self.assertIn(
                         "        ResourceCollectionPermissions: !If [ResourceCollectionPermissions, true, false]",

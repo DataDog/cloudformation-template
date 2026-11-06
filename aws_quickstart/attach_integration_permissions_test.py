@@ -19,7 +19,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch, Mock, MagicMock, call
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, parse_qsl
 from io import BytesIO
 
@@ -30,12 +30,14 @@ if "cfnresponse" not in sys.modules:
 
 from attach_integration_permissions import (
     DatadogAPIError,
+    fetch_permissions_attributes_from_datadog,
     PermissionsBoundaryInUseError,
     safe_error_category,
     safe_policy_identifier,
     IAM_POLICY_NAME_PATTERN,
     IAM_POLICY_ARN_PATTERN,
     parse_resource_types,
+    _should_update_instrumentation_permissions,
     build_instrumentation_permissions_url,
     attach_instrumentation_permissions,
     cleanup_existing_policies,
@@ -69,12 +71,391 @@ from attach_integration_permissions import (
 )
 
 
+class PermissionResponseTest(unittest.TestCase):
+    def response(self, body):
+        return Mock(status=200, read=Mock(return_value=body))
+
+    @patch("attach_integration_permissions.time.sleep")
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_non_json_http_failure_retries_without_exposing_body(self, urlopen, sleep):
+        error = HTTPError(
+            "https://example.invalid/private",
+            503,
+            "private detail",
+            {},
+            BytesIO(b"<html>private-secret</html>"),
+        )
+        good = self.response(b'{"data":{"attributes":{"permissions":[]}}}')
+        urlopen.side_effect = [error, good]
+        with self.assertLogs(level="WARNING") as logs:
+            self.assertEqual(
+                fetch_permissions_attributes_from_datadog(
+                    "https://example.invalid/private"
+                ),
+                {"permissions": []},
+            )
+        self.assertNotIn("private", "\n".join(logs.output))
+        self.assertIn("HTTP503", "\n".join(logs.output))
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(1)
+        good.close.assert_called_once()
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 10)
+
+    @patch("attach_integration_permissions.time.sleep")
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_invalid_success_json_retries_then_recovers(self, urlopen, sleep):
+        bad = self.response(b"")
+        good = self.response(b'{"data":{"attributes":{"permissions":[]}}}')
+        urlopen.side_effect = [bad, good]
+        self.assertEqual(
+            fetch_permissions_attributes_from_datadog("https://example.invalid"),
+            {"permissions": []},
+        )
+        bad.close.assert_called_once()
+        sleep.assert_called_once_with(1)
+
+    @patch("attach_integration_permissions.time.sleep")
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_exhausted_json_retries_fail_closed_before_iam(self, urlopen, sleep):
+        urlopen.side_effect = [
+            self.response(b"<html>private-secret</html>") for _ in range(3)
+        ]
+        iam = Mock()
+        with self.assertRaises(DatadogAPIError) as caught:
+            attach_instrumentation_permissions(
+                iam,
+                "role",
+                "123456789012",
+                "aws",
+                "datad0g.com",
+                ["aws:ec2:instance"],
+                ["aws:ec2:instance"],
+                "owner",
+                fail_on_error=True,
+            )
+        self.assertEqual(safe_error_category(caught.exception), "DatadogAPIInvalidJSON")
+        self.assertNotIn("private-secret", str(caught.exception))
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [call(1), call(2)])
+        self.assertEqual(iam.mock_calls, [])
+
+    @patch("attach_integration_permissions.time.sleep")
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_nonretryable_http_failure_is_sanitized(self, urlopen, sleep):
+        urlopen.side_effect = HTTPError(
+            "https://example.invalid/private",
+            403,
+            "private-secret",
+            {},
+            BytesIO(b"not JSON"),
+        )
+        with self.assertRaises(DatadogAPIError) as caught:
+            fetch_permissions_attributes_from_datadog("https://example.invalid/private")
+        self.assertEqual(safe_error_category(caught.exception), "DatadogAPIHTTP403")
+        self.assertEqual(urlopen.call_count, 1)
+        sleep.assert_not_called()
+
+    @patch("attach_integration_permissions.time.sleep")
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_retryable_http_statuses_have_a_bounded_budget(self, urlopen, sleep):
+        for status in [429, 500, 502, 503, 504]:
+            with self.subTest(status=status):
+                urlopen.reset_mock()
+                sleep.reset_mock()
+                urlopen.side_effect = [
+                    HTTPError(
+                        "https://example.invalid",
+                        status,
+                        "private-secret",
+                        {},
+                        BytesIO(b"not JSON"),
+                    )
+                    for _ in range(3)
+                ]
+                with self.assertRaises(DatadogAPIError) as caught:
+                    fetch_permissions_attributes_from_datadog("https://example.invalid")
+                self.assertEqual(
+                    safe_error_category(caught.exception), f"DatadogAPIHTTP{status}"
+                )
+                self.assertEqual(urlopen.call_count, 3)
+                self.assertEqual(sleep.call_args_list, [call(1), call(2)])
+
+    @patch("attach_integration_permissions.time.sleep")
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_network_failures_retry_without_logging_exception_details(
+        self, urlopen, sleep
+    ):
+        for error in [URLError("private-secret"), TimeoutError("private-secret")]:
+            with self.subTest(error_type=type(error).__name__):
+                urlopen.reset_mock()
+                sleep.reset_mock()
+                urlopen.side_effect = error
+                with (
+                    self.assertLogs(level="WARNING") as logs,
+                    self.assertRaises(DatadogAPIError) as caught,
+                ):
+                    fetch_permissions_attributes_from_datadog("https://example.invalid")
+                self.assertEqual(
+                    safe_error_category(caught.exception), "DatadogAPINetworkError"
+                )
+                self.assertNotIn("private-secret", "\n".join(logs.output))
+                self.assertEqual(urlopen.call_count, 3)
+                self.assertEqual(sleep.call_args_list, [call(1), call(2)])
+
+    @patch("attach_integration_permissions.time.sleep")
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_invalid_response_shape_is_not_retried(self, urlopen, sleep):
+        for body in [b"[]", b"{}", b'{"data":null}', b'{"data":{"attributes":[]}}']:
+            with self.subTest(body=body):
+                urlopen.reset_mock()
+                urlopen.side_effect = None
+                urlopen.return_value = self.response(body)
+                with self.assertRaises(DatadogAPIError) as caught:
+                    fetch_permissions_attributes_from_datadog("https://example.invalid")
+                self.assertEqual(
+                    safe_error_category(caught.exception), "DatadogAPIInvalidResponse"
+                )
+                urlopen.assert_called_once()
+        sleep.assert_not_called()
+
+
+class PermissionDiagnosticsTest(unittest.TestCase):
+    @patch("attach_integration_permissions.time.monotonic", side_effect=[10, 10.025])
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_success_logs_bounded_metadata_not_payload_or_headers(self, urlopen, clock):
+        body = b'{"data":{"attributes":{"permissions":["private-secret"]}}}'
+        urlopen.return_value = Mock(
+            status=200,
+            headers={
+                "Content-Type": "application/json; private-secret",
+                "Content-Encoding": "identity",
+                "Content-Length": str(len(body)),
+                "Authorization": "private-secret",
+            },
+            read=Mock(return_value=body),
+        )
+        with self.assertLogs(level="INFO") as logs:
+            fetch_permissions_attributes_from_datadog(
+                "https://example.invalid/private-secret"
+            )
+        record = logs.records[0]
+        self.assertEqual(record.permission_request_outcome, "success")
+        self.assertEqual(record.permission_request_attempt, 1)
+        self.assertEqual(record.permission_http_status, 200)
+        self.assertEqual(record.permission_request_elapsed_ms, 25)
+        self.assertEqual(record.permission_response_content_type, "application/json")
+        self.assertEqual(record.permission_response_encoding, "identity")
+        self.assertEqual(record.permission_response_bytes, len(body))
+        self.assertEqual(record.permission_response_declared_bytes, len(body))
+        self.assertEqual(record.permission_response_prefix, "json_container")
+        self.assertNotIn("private-secret", repr(record.__dict__))
+
+    @patch("attach_integration_permissions.time.sleep")
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_invalid_json_logs_empty_and_markup_categories(self, urlopen, sleep):
+        for body, prefix in [
+            (b"", "empty"),
+            (b"  ", "whitespace"),
+            (b"<html>private-secret</html>", "markup"),
+            (b"private-secret", "other"),
+        ]:
+            with self.subTest(prefix=prefix):
+                urlopen.side_effect = [
+                    Mock(
+                        status=200,
+                        headers={"Content-Type": "text/html"},
+                        read=Mock(return_value=body),
+                    )
+                    for _ in range(3)
+                ]
+                with (
+                    self.assertLogs(level="WARNING") as logs,
+                    self.assertRaises(DatadogAPIError),
+                ):
+                    fetch_permissions_attributes_from_datadog(
+                        "https://example.invalid/private-secret"
+                    )
+                self.assertEqual(
+                    [r.permission_request_attempt for r in logs.records], [1, 2, 3]
+                )
+                for record in logs.records:
+                    self.assertEqual(
+                        record.permission_request_outcome, "DatadogAPIInvalidJSON"
+                    )
+                    self.assertEqual(record.permission_http_status, 200)
+                    self.assertEqual(record.permission_response_bytes, len(body))
+                    self.assertEqual(record.permission_response_prefix, prefix)
+                    self.assertNotIn("private-secret", repr(record.__dict__))
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_http_error_logs_headers_without_reading_body(self, urlopen):
+        body = Mock(spec=BytesIO)
+        urlopen.side_effect = HTTPError(
+            "https://example.invalid/private-secret",
+            403,
+            "private-secret",
+            {"Content-Type": "text/html", "Content-Length": "123"},
+            body,
+        )
+        with (
+            self.assertLogs(level="WARNING") as logs,
+            self.assertRaises(DatadogAPIError),
+        ):
+            fetch_permissions_attributes_from_datadog(
+                "https://example.invalid/private-secret"
+            )
+        record = logs.records[0]
+        self.assertEqual(record.permission_http_status, 403)
+        self.assertEqual(record.permission_response_content_type, "text/html")
+        self.assertEqual(record.permission_response_declared_bytes, 123)
+        self.assertIsNone(record.permission_response_bytes)
+        self.assertEqual(record.permission_response_prefix, "not_read")
+        body.read.assert_not_called()
+        self.assertNotIn("private-secret", repr(record.__dict__))
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_untrusted_header_values_are_not_logged(self, urlopen):
+        urlopen.side_effect = HTTPError(
+            "https://example.invalid",
+            403,
+            "private-secret",
+            {
+                "Content-Type": "private-secret",
+                "Content-Encoding": "private-secret",
+                "Content-Length": "999999999999999999999999-private-secret",
+            },
+            BytesIO(b"private-secret"),
+        )
+        with (
+            self.assertLogs(level="WARNING") as logs,
+            self.assertRaises(DatadogAPIError),
+        ):
+            fetch_permissions_attributes_from_datadog("https://example.invalid")
+        record = logs.records[0]
+        self.assertEqual(record.permission_response_content_type, "unknown")
+        self.assertEqual(record.permission_response_encoding, "unknown")
+        self.assertIsNone(record.permission_response_declared_bytes)
+        self.assertNotIn("private-secret", repr(record.__dict__))
+
+    @patch("attach_integration_permissions.urllib.request.urlopen")
+    def test_invalid_schema_is_logged_without_body(self, urlopen):
+        urlopen.return_value = Mock(
+            status=200,
+            headers={},
+            read=Mock(return_value=b'{"errors":["private-secret"]}'),
+        )
+        with (
+            self.assertLogs(level="WARNING") as logs,
+            self.assertRaises(DatadogAPIError),
+        ):
+            fetch_permissions_attributes_from_datadog("https://example.invalid")
+        self.assertEqual(
+            logs.records[0].permission_request_outcome, "DatadogAPIInvalidResponse"
+        )
+        self.assertNotIn("private-secret", repr(logs.records[0].__dict__))
+
+    @patch("attach_integration_permissions.handle_create_update")
+    def test_handler_logs_only_validated_request_identity(self, create):
+        for request_id, expected in [
+            (
+                "12345678-1234-1234-1234-123456789012",
+                "12345678-1234-1234-1234-123456789012",
+            ),
+            ("private-secret", None),
+        ]:
+            with self.subTest(request_id_valid=expected is not None):
+                with self.assertLogs(level="INFO") as logs:
+                    handler(
+                        {
+                            "RequestType": "Update",
+                            "RequestId": request_id,
+                            "ResourceProperties": {
+                                "APIKey": "private-secret",
+                                "ExternalId": "private-secret",
+                            },
+                        },
+                        Mock(),
+                    )
+                record = logs.records[0]
+                self.assertEqual(record.cloudformation_request_id, expected)
+                self.assertEqual(record.cloudformation_request_type, "Update")
+                self.assertNotIn("private-secret", repr(record.__dict__))
+
+
 BOUNDARY_POLICY_NAMES = (
     "datadog-instrumenter-ec2-ssm-boundary",
     "datadog-instrumenter-eks-lambda-boundary",
     "datadog-instrumenter-eks-ascp-boundary",
     "datadog-instrumenter-ecs-task-execution-boundary",
 )
+
+
+class TestInstrumentationRefresh(unittest.TestCase):
+    def test_request_refresh_and_type_expansion_preserve_physical_id(self):
+        previous = {
+            "DatadogIntegrationRole": "DatadogIntegrationRole",
+            "AccountId": "123456789012",
+            "Partition": "aws",
+            "DatadogSite": "datadoghq.com",
+            "ResourceCollectionPermissions": "false",
+            "ManageBasePermissions": "false",
+            "FailOnInstrumentationError": "true",
+            "InstrumentationResourceTypes": "aws:ec2:instance",
+            "InstrumentationRefreshToken": "first-request",
+        }
+        event = {
+            "RequestType": "Update",
+            "StackId": "installation-permissions-stack",
+            "LogicalResourceId": "Permissions",
+            "PhysicalResourceId": "installation-permissions-stack/Permissions",
+            "OldResourceProperties": previous,
+            "ResourceProperties": {
+                **previous,
+                "InstrumentationRefreshToken": "second-request",
+            },
+        }
+        for types in ("aws:ec2:instance", "aws:ec2:instance,aws:lambda:function"):
+            with self.subTest(types=types):
+                event["ResourceProperties"]["InstrumentationResourceTypes"] = types
+                with (
+                    patch("attach_integration_permissions.boto3.client"),
+                    patch(
+                        "attach_integration_permissions.attach_instrumentation_permissions"
+                    ) as attach,
+                    patch(
+                        "attach_integration_permissions.cfnresponse.send"
+                    ) as response,
+                ):
+                    handle_create_update(event, None)
+                attach.assert_called_once()
+                response.assert_called_once()
+                self.assertEqual(
+                    response.call_args.kwargs["physicalResourceId"],
+                    event["PhysicalResourceId"],
+                )
+
+    def test_empty_default_does_not_refresh_existing_quickstart_permissions(self):
+        self.assertFalse(
+            _should_update_instrumentation_permissions(
+                {
+                    "RequestType": "Update",
+                    "OldResourceProperties": {},
+                    "ResourceProperties": {"InstrumentationRefreshToken": ""},
+                }
+            )
+        )
+
+    def test_unchanged_request_token_does_not_force_another_refresh(self):
+        props = {"InstrumentationRefreshToken": "same-request"}
+        self.assertFalse(
+            _should_update_instrumentation_permissions(
+                {
+                    "RequestType": "Update",
+                    "OldResourceProperties": props,
+                    "ResourceProperties": dict(props),
+                }
+            )
+        )
 
 
 class TestLambdaSourceEmbedding(unittest.TestCase):
@@ -127,6 +508,15 @@ class TestLambdaSourceEmbedding(unittest.TestCase):
                 rendered,
             )
             self.assertNotIn("<ATTACH_INTEGRATION_PERMISSIONS_SOURCE>", rendered)
+            launcher = (output / "main_agent_installation_launcher.yaml").read_text()
+            self.assertNotIn("<LAUNCH_AGENT_INSTALLATION_SOURCE>", launcher)
+            self.assertNotIn("<BUCKET_PLACEHOLDER>", launcher)
+            self.assertNotIn("<VERSION_PLACEHOLDER>", launcher)
+            self.assertIn("class Launcher:", launcher)
+            self.assertIn(
+                f"https://test-quickstart-bucket.s3.amazonaws.com/aws/{version}/main_agent_installation.yaml",
+                launcher,
+            )
 
     def test_cloudformation_template_uses_source_placeholder(self):
         template_path = Path(__file__).with_name("datadog_integration_permissions.yaml")
@@ -1898,7 +2288,7 @@ class TestManageBasePermissions(unittest.TestCase):
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.cleanup_instrumentation_policies")
     @patch("attach_integration_permissions.cleanup_existing_policies")
-    def test_delete_manage_base_false_preserves_base_policies(
+    def test_delete_empty_addon_preserves_base_and_instrumentation_policies(
         self, mock_cleanup_base, mock_cleanup_instr, mock_client, mock_cleanup_boundaries
     ):
         mock_client.return_value = self.iam
@@ -1906,14 +2296,14 @@ class TestManageBasePermissions(unittest.TestCase):
         event["RequestType"] = "Delete"
         handle_delete(event, None)
         mock_cleanup_base.assert_not_called()
-        mock_cleanup_instr.assert_called_once()
+        mock_cleanup_instr.assert_not_called()
         mock_cleanup_boundaries.assert_called_once_with(self.iam, self.stack_id)
 
     @patch("attach_integration_permissions.cleanup_permissions_boundaries")
     @patch("attach_integration_permissions.boto3.client")
     @patch("attach_integration_permissions.cleanup_instrumentation_policies")
     @patch("attach_integration_permissions.cleanup_existing_policies")
-    def test_delete_manage_base_true_cleans_base_policies(
+    def test_delete_empty_role_stack_cleans_only_base_policies(
         self, mock_cleanup_base, mock_cleanup_instr, mock_client, mock_cleanup_boundaries
     ):
         mock_client.return_value = self.iam
@@ -1921,7 +2311,7 @@ class TestManageBasePermissions(unittest.TestCase):
         event["RequestType"] = "Delete"
         handle_delete(event, None)
         mock_cleanup_base.assert_called_once()
-        mock_cleanup_instr.assert_called_once()
+        mock_cleanup_instr.assert_not_called()
         mock_cleanup_boundaries.assert_called_once_with(self.iam, self.stack_id)
 
     @patch("attach_integration_permissions.cfnresponse")
@@ -2187,6 +2577,7 @@ class TestManageBasePermissions(unittest.TestCase):
             "123456789012",
             "aws",
             fail_on_error=True,
+            policy_owner=None,
         )
 
     @patch("attach_integration_permissions.cfnresponse")
@@ -2437,6 +2828,7 @@ class TestSafeLogging(unittest.TestCase):
                 "DatadogIntegrationRole": "test-role",
                 "AccountId": "123456789012",
                 "ManageBasePermissions": "false",
+                "InstrumentationResourceTypes": "aws:ec2:instance",
             },
         }
 
@@ -2453,6 +2845,7 @@ class TestSafeLogging(unittest.TestCase):
     def test_policy_error_does_not_log_exception_message(self, mock_cfn, mock_client):
         marker = "forged\r\nlog entry fake-credential"
         event = {
+            "RequestType": "Create",
             "StackId": "stack-id",
             "LogicalResourceId": "Permissions",
             "ResourceProperties": {

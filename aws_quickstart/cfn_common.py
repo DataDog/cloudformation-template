@@ -4,11 +4,12 @@ def physical_resource_id(event):
     )
 
 
-def send_cfn_response(cfn_response, event, context, status, response_data):
+def send_cfn_response(cfn_response, event, context, status, response_data, reason=None):
     cfn_response.send(
         event,
         context,
         status,
         responseData=response_data,
         physicalResourceId=physical_resource_id(event),
+        **({"reason": reason} if reason is not None else {}),
     )

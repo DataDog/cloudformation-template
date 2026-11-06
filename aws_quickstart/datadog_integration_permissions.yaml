@@ -44,6 +44,17 @@ Parameters:
       Set this value to "true" to manage the standard, resource-collection, and agentless scanning
       permissions on the role (the role-creation case). Set it to "false" to manage only the
       instrumentation permissions and leave those policies untouched (the post-setup add-on case).
+  InstrumentationPolicyScope:
+    Type: String
+    Default: role
+    AllowedValues: [role, stack]
+    Description: The installation add-on uses stack-owned policies so it cannot replace or remove QuickStart permissions.
+  InstrumentationRefreshToken:
+    Type: String
+    Default: ""
+    AllowedPattern: '[A-Za-z0-9-]*'
+    MaxLength: 128
+    Description: Change this token to refresh instrumentation permissions without changing resource types.
   FailOnInstrumentationError:
     Type: String
     Default: false
@@ -74,6 +85,8 @@ Conditions:
               - !Sub
                 - ",${NormalizedResourceTypes},"
                 - NormalizedResourceTypes: !Join [",", !Ref InstrumentationResourceTypes]
+  HasInstrumentationRefreshToken: !Not [!Equals [!Ref InstrumentationRefreshToken, ""]]
+  HasStackScopedInstrumentation: !Equals [!Ref InstrumentationPolicyScope, stack]
 Resources:
   DatadogAttachIntegrationPermissionsLambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -128,11 +141,17 @@ Resources:
                   - iam:DeletePolicyVersion
                 Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-agentless-saas-permissions-*
               - Effect: Allow
+                Action: [iam:GetPolicy, iam:ListPolicyTags, iam:TagPolicy]
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-owned-v1-*
+              - Effect: Allow
                 Action: iam:DeleteRolePolicy
                 # Role replacement must remove a legacy inline policy from the previous role, whose
                 # name is known only at runtime. IAM cannot scope this action by inline policy name,
                 # so the handler limits deletion to fixed Datadog policy names in application code.
                 Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+              - Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Ref AWS::StackId
               - Effect: Allow
                 Action: iam:GetAccountSummary
                 Resource: "*"
@@ -186,6 +205,8 @@ Resources:
       DatadogSite: !Ref DatadogSite
       ManageBasePermissions: !Ref ManageBasePermissions
       FailOnInstrumentationError: !Ref FailOnInstrumentationError
+      InstrumentationRefreshToken: !If [HasInstrumentationRefreshToken, !Ref InstrumentationRefreshToken, !Ref AWS::NoValue]
+      InstrumentationPolicyScope: !If [HasStackScopedInstrumentation, stack, !Ref AWS::NoValue]
   DatadogOperatorSubscriptionLambdaExecutionRole:
     Type: AWS::IAM::Role
     Condition: IncludeEKS

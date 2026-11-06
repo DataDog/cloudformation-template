@@ -1,0 +1,376 @@
+# version: <VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Datadog Agent installation launcher for commercial AWS accounts. Authorizes a
+  helper to create or update DatadogAgentInstallation, preserve its configured
+  resource types, and avoid recreating existing event forwarding. No separate
+  approval is requested for the installation update. Deleting this launcher
+  does not uninstall Datadog.
+Parameters:
+  APIKey:
+    Type: String
+    NoEcho: true
+    Description: Datadog API key for a new installation. Existing installation keys are preserved.
+  DatadogSite:
+    Type: String
+    Default: datadoghq.com
+    AllowedValues: [datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com, ap1.datadoghq.com, ap2.datadoghq.com, uk1.datadoghq.com, ddog-gov.com, us2.ddog-gov.com]
+  IAMRoleName:
+    Type: String
+    Default: DatadogIntegrationRole
+    AllowedPattern: '[\w+=,.@-]+'
+    MaxLength: 64
+    Description: Existing Datadog AWS integration role. Its base permissions are not changed.
+  ExternalId:
+    Type: String
+    AllowedPattern: '[\w+=,.@:/-]+'
+    MaxLength: 1224
+    Description: External ID of the Datadog AWS integration selected in Datadog. Existing forwarding must belong to this integration.
+  AccountId:
+    Type: String
+    AllowedPattern: '[0-9]{12}'
+    Description: AWS account selected in Datadog.
+  InstrumentationResourceTypes:
+    Type: CommaDelimitedList
+    AllowedValues: ['aws:ec2:instance', 'aws:ecs:cluster', 'aws:eks:cluster', 'aws:lambda:function']
+    Description: Resource types to enable. Types already configured on the installation stack are preserved.
+Rules:
+  ValidateAccountId:
+    Assertions:
+      - Assert: !Equals [!Ref AccountId, !Ref 'AWS::AccountId']
+        AssertDescription: Launch this template in the AWS account selected in Datadog.
+Resources:
+  LauncherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      # The initial approval acknowledges named IAM resources, as required by the downstream installation.
+      RoleName: !Sub
+        - DatadogAgentLauncher-${Id}
+        - Id: !Select [2, !Split ['/', !Ref 'AWS::StackId']]
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: installation-launcher
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Late Lambda logging must not recreate the group after CloudFormation deletes it.
+              - Sid: LauncherLogging
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt LauncherLogGroup.Arn
+              - Sid: InstallationChangeSets
+                Effect: Allow
+                Action: cloudformation:CreateChangeSet
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/DatadogAgentInstallation/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:changeSet/datadog-agent-*/*
+                Condition:
+                  StringEquals:
+                    cloudformation:TemplateUrl: https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/main_agent_installation.yaml
+              - Sid: InstallationExecution
+                Effect: Allow
+                Action: cloudformation:ExecuteChangeSet
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/DatadogAgentInstallation/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:changeSet/datadog-agent-*/*
+              - Sid: InstallationChangeSetDiscovery
+                Effect: Allow
+                Action: cloudformation:DescribeChangeSet
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/DatadogAgentInstallation/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/DatadogAgentInstallation-*/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:changeSet/*/*
+              - Sid: InstallationStacks
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:TagResource
+                  - cloudformation:UntagResource
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/DatadogAgentInstallation/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/DatadogAgentInstallation-*/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:changeSet/datadog-agent-*/*
+              - Sid: LauncherDeploymentHistory
+                Effect: Allow
+                Action: cloudformation:DescribeStackEvents
+                Resource: !Ref AWS::StackId
+              - Sid: ForwardingOwnerDiscovery
+                Effect: Allow
+                Action: [cloudformation:DescribeStacks, cloudformation:DescribeStackResources]
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/*/*
+              - Sid: PhysicalRoleOwnerDiscovery
+                Effect: Allow
+                Action: cloudformation:DescribeStackResources
+                # PhysicalResourceId lookups have no StackName to authorize against a stack ARN.
+                Resource: '*'
+              - Sid: NestedStackTemplates
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/DatadogAgentInstallation-*/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:changeSet/*/*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com, cloudformation.amazonaws.com.cn]
+                  StringLike:
+                    # Earlier releases are needed when CloudFormation rolls back an upgrade.
+                    cloudformation:TemplateUrl:
+                      - https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/v*/datadog_integration_permissions.yaml
+                      - https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/v*/datadog_agent_resource_update_forwarding.yaml
+                      - https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/v*/datadog_agent_supplementary_forwarding.yaml
+                      - https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/v4.21.1/datadog_integration_permissions.yaml
+                      - https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/v4.22.0/datadog_integration_permissions.yaml
+                      - https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/v4.21.1/datadog_agent_resource_update_forwarding.yaml
+                      - https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/v4.22.0/datadog_agent_resource_update_forwarding.yaml
+              - Sid: NestedStackLifecycle
+                Effect: Allow
+                Action:
+                  - cloudformation:DeleteStack
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:ExecuteChangeSet
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/DatadogAgentInstallation-*/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:changeSet/*/*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com, cloudformation.amazonaws.com.cn]
+              - Sid: VersionedTemplates
+                Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::<BUCKET_PLACEHOLDER>/aws/<VERSION_PLACEHOLDER>/main_agent_installation.yaml
+                  - !Sub arn:${AWS::Partition}:s3:::<BUCKET_PLACEHOLDER>/aws/v*/datadog_integration_permissions.yaml
+                  - !Sub arn:${AWS::Partition}:s3:::<BUCKET_PLACEHOLDER>/aws/v*/datadog_agent_resource_update_forwarding.yaml
+                  - !Sub arn:${AWS::Partition}:s3:::<BUCKET_PLACEHOLDER>/aws/v*/datadog_agent_supplementary_forwarding.yaml
+                  - !Sub arn:${AWS::Partition}:s3:::datadog-cloudformation-template-quickstart/aws/v4.21.1/datadog_integration_permissions.yaml
+                  - !Sub arn:${AWS::Partition}:s3:::datadog-cloudformation-template-quickstart/aws/v4.22.0/datadog_integration_permissions.yaml
+                  - !Sub arn:${AWS::Partition}:s3:::datadog-cloudformation-template-quickstart/aws/v4.21.1/datadog_agent_resource_update_forwarding.yaml
+                  - !Sub arn:${AWS::Partition}:s3:::datadog-cloudformation-template-quickstart/aws/v4.22.0/datadog_agent_resource_update_forwarding.yaml
+              - Sid: IntegrationRoleIdentity
+                Effect: Allow
+                Action: iam:GetRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${IAMRoleName}
+              - Sid: ForwardingRoleDiscovery
+                Effect: Allow
+                Action: iam:GetRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/datadog-eventbridge-cross-region-role
+              # CloudFormation can truncate generated names; constrain IAM/Lambda mutations by call path instead.
+              - Sid: InstallationRoles
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:UpdateRole
+                  - iam:PutRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:ListRoleTags
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com, cloudformation.amazonaws.com.cn]
+              - Sid: InstallationRolePassing
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com, cloudformation.amazonaws.com.cn]
+                  StringEquals:
+                    iam:PassedToService: [lambda.amazonaws.com, events.amazonaws.com, lambda.amazonaws.com.cn, events.amazonaws.com.cn]
+              - Sid: InstallationFunctions
+                Effect: Allow
+                Action:
+                  - lambda:CreateFunction
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:DeleteFunction
+                  - lambda:InvokeFunction
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:ListTags
+                Resource: !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com, cloudformation.amazonaws.com.cn]
+              - Sid: ForwardingDiscovery
+                Effect: Allow
+                Action: [events:DescribeConnection, events:DescribeApiDestination]
+                # These reads authorize name-only ARNs, not the UUID-suffixed ARNs returned by EventBridge.
+                Resource:
+                  - !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:connection/datadog-agent-resource-update-intake-connection
+                  - !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/datadog-agent-resource-update-intake-destination
+              - Sid: ForwardingPipelineLifecycle
+                Effect: Allow
+                Action:
+                  - events:CreateConnection
+                  - events:UpdateConnection
+                  - events:DeleteConnection
+                  - events:CreateApiDestination
+                  - events:UpdateApiDestination
+                  - events:DeleteApiDestination
+                Resource:
+                  - !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:connection/datadog-agent-resource-update-intake-connection
+                  - !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/datadog-agent-resource-update-intake-destination
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com]
+              - Sid: ForwardingLifecycle
+                Effect: Allow
+                Action:
+                  - events:CreateConnection
+                  - events:UpdateConnection
+                  - events:DeleteConnection
+                  - events:DescribeConnection
+                  - events:CreateApiDestination
+                  - events:UpdateApiDestination
+                  - events:DeleteApiDestination
+                  - events:DescribeApiDestination
+                  - events:PutRule
+                  - events:DeleteRule
+                  - events:DescribeRule
+                  - events:PutTargets
+                  - events:RemoveTargets
+                  - events:ListTargetsByRule
+                  - events:TagResource
+                  - events:UntagResource
+                  - events:ListTagsForResource
+                Resource:
+                  - !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:connection/datadog-agent-resource-update-intake-connection/*
+                  - !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:api-destination/datadog-agent-resource-update-intake-destination/*
+                  - !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:rule/datadog-agent-resource-update-rule-*
+              - Sid: SupplementaryRuleDiscovery
+                Effect: Allow
+                Action: [events:DescribeRule, events:ListTargetsByRule, events:ListTagsForResource]
+                Resource: !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:rule/datadog-agent-supp-*
+              - Sid: SupplementaryRuleLifecycle
+                Effect: Allow
+                Action:
+                  - events:PutRule
+                  - events:DeleteRule
+                  - events:DescribeRule
+                  - events:PutTargets
+                  - events:RemoveTargets
+                  - events:ListTargetsByRule
+                  - events:TagResource
+                  - events:UntagResource
+                  - events:ListTagsForResource
+                Resource: !Sub arn:${AWS::Partition}:events:*:${AWS::AccountId}:rule/datadog-agent-supp-*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com, cloudformation.amazonaws.com.cn]
+              - Sid: ForwardingConnectionSecret
+                Effect: Allow
+                Action:
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:UpdateSecret
+                  - secretsmanager:DeleteSecret
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:PutSecretValue
+                Resource: !Sub arn:${AWS::Partition}:secretsmanager:*:${AWS::AccountId}:secret:events!connection/datadog-agent-resource-update-intake-connection/*
+                # EventBridge manages this secret using the caller's credentials, not only its service-linked role.
+                Condition:
+                  StringEquals:
+                    aws:CalledViaFirst: cloudformation.amazonaws.com
+                    aws:CalledViaLast: events.amazonaws.com
+              - Sid: ForwardingServiceRole
+                Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/apidestinations.events.amazonaws.com/AWSServiceRoleForAmazonEventBridgeApiDestinations
+                Condition:
+                  StringEquals:
+                    iam:AWSServiceName: apidestinations.events.amazonaws.com
+              - Sid: RegionalDiscovery
+                Effect: Allow
+                Action: [ec2:DescribeRegions, events:ListRules]
+                Resource: '*'
+              - Sid: ContinueWaiting
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub
+                  - arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:datadog-agent-launcher-${Id}
+                  - Id: !Select [2, !Split ['/', !Ref 'AWS::StackId']]
+  LauncherLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub
+        - /aws/lambda/datadog-agent-launcher-${Id}
+        - Id: !Select [2, !Split ['/', !Ref 'AWS::StackId']]
+      RetentionInDays: 14
+  LauncherFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LauncherLogGroup
+    Properties:
+      FunctionName: !Sub
+        - datadog-agent-launcher-${Id}
+        - Id: !Select [2, !Split ['/', !Ref 'AWS::StackId']]
+      Description: Create or update the Datadog Agent installation and wait for the deployment result.
+      Role: !GetAtt LauncherRole.Arn
+      Runtime: python3.14
+      Handler: index.handler
+      Timeout: 900
+      MemorySize: 512
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: ERROR
+      Environment:
+        Variables:
+          INSTALLATION_TEMPLATE_URL: https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/main_agent_installation.yaml
+          TEMPLATE_VERSION: <VERSION_PLACEHOLDER>
+      Code:
+        ZipFile: |
+          <LAUNCH_AGENT_INSTALLATION_SOURCE>
+  LaunchInstallation:
+    Type: Custom::DatadogAgentInstallationLauncher
+    Properties:
+      ServiceToken: !GetAtt LauncherFunction.Arn
+      ServiceTimeout: 3600
+      APIKey: !Ref APIKey
+      DatadogSite: !Ref DatadogSite
+      IAMRoleName: !Ref IAMRoleName
+      ExternalId: !Ref ExternalId
+      AccountId: !Ref AccountId
+      InstrumentationResourceTypes: !Join [',', !Ref InstrumentationResourceTypes]
+      TemplateVersion: <VERSION_PLACEHOLDER>
+Outputs:
+  InstallationStack:
+    Description: Open the installation stack to inspect its resources and deployment events.
+    Value: !GetAtt LaunchInstallation.InstallationStackURL
+  InstallationStackId:
+    Description: The installation stack managed by this request. Deleting the launcher does not delete this stack.
+    Value: !GetAtt LaunchInstallation.InstallationStackId
+  Result:
+    Description: Deployment result. The launcher waits for the installation operation to finish.
+    Value: !GetAtt LaunchInstallation.Result
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Installation configuration
+        Parameters: [AccountId, IAMRoleName, ExternalId, InstrumentationResourceTypes, DatadogSite]
+      - Label:
+          default: Credentials for a new installation
+        Parameters: [APIKey]

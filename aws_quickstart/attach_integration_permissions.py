@@ -28,6 +28,8 @@ API_CALL_SOURCE_HEADER_VALUE = "cfn-quickstart"
 POLICY_NAME_STANDARD = "DatadogAWSIntegrationPolicyV2"
 BASE_POLICY_PREFIX_RESOURCE_COLLECTION = "datadog-aws-integration-resource-collection-permissions-v2"
 BASE_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions-v2"
+OWNED_POLICY_PREFIX_INSTRUMENTATION = "datadog-aws-integration-instrumentation-permissions-owned-v1"
+INSTRUMENTATION_POLICY_OWNER_TAG = "DatadogInstrumentationOwner"
 POLICY_PREFIX_AGENTLESS_SAAS = "datadog-aws-integration-agentless-saas-permissions"
 # Un-suffixed standard/resource-collection names created by the pre-extraction inline trigger
 # (<= v4.13). The role-creation path cleans these up before attaching the v2 policies so the two
@@ -45,6 +47,8 @@ INSTRUMENTATION_POLICY_GENERATIONS = ("a", "b")
 # generation or replacement behavior. Otherwise, an update can retain stale policies.
 INSTRUMENTATION_UPDATE_PROPERTIES = (
     "PolicyAttachmentSchemaVersion",
+    "InstrumentationRefreshToken",
+    "InstrumentationPolicyScope",
     "DatadogIntegrationRole",
     "AccountId",
     "Partition",
@@ -73,7 +77,21 @@ class DatadogAPIError(Exception):
     pass
 
 
+class DatadogAPIRequestError(DatadogAPIError):
+    def __init__(self, category):
+        super().__init__(category)
+        self.category = category
+
+
 class PermissionsBoundaryInUseError(RuntimeError):
+    pass
+
+
+class InstrumentationPolicyQuotaError(RuntimeError):
+    pass
+
+
+class InstrumentationPolicyMigrationRequired(RuntimeError):
     pass
 
 
@@ -98,6 +116,10 @@ def safe_policy_identifier(value, pattern):
 
 
 def safe_error_category(error):
+    if isinstance(error, DatadogAPIRequestError) and re.fullmatch(
+        r"DatadogAPI(?:HTTP[1-5][0-9]{2}|InvalidJSON|InvalidResponse|NetworkError)", error.category
+    ):
+        return error.category
     if isinstance(error, PermissionsBoundaryInUseError):
         return "PermissionsBoundaryInUse"
     response = getattr(error, "response", None)
@@ -110,6 +132,77 @@ def safe_error_category(error):
     return type(error).__name__
 
 
+def _log_permission_request(attempt, started_at, category, status, headers, body):
+    headers = headers or {}
+    content_type = headers.get("Content-Type")
+    if isinstance(content_type, str):
+        content_type = content_type.split(";", 1)[0].strip().lower()
+    allowed_types = {
+        "application/json",
+        "application/vnd.api+json",
+        "application/problem+json",
+        "text/html",
+        "text/plain",
+        "application/xml",
+        "text/xml",
+    }
+    content_type = (
+        content_type
+        if isinstance(content_type, str) and content_type in allowed_types
+        else "unknown"
+    )
+    encoding = headers.get("Content-Encoding")
+    if isinstance(encoding, str):
+        encoding = encoding.strip().lower()
+    encoding = (
+        encoding
+        if isinstance(encoding, str)
+        and encoding in {"identity", "gzip", "br", "deflate"}
+        else "unknown"
+    )
+    length = headers.get("Content-Length")
+    declared_length = (
+        int(length)
+        if isinstance(length, str) and re.fullmatch(r"[0-9]{1,12}", length)
+        else None
+    )
+    prefix = "not_read"
+    response_bytes = None
+    if isinstance(body, bytes):
+        response_bytes = len(body)
+        first = body.lstrip()[:1]
+        if not body:
+            prefix = "empty"
+        elif not first:
+            prefix = "whitespace"
+        elif first == b"<":
+            prefix = "markup"
+        elif first in (b"{", b"["):
+            prefix = "json_container"
+        else:
+            prefix = "other"
+    LOGGER.log(
+        logging.INFO if category == "success" else logging.WARNING,
+        "Permission request result (%s); attempt %s/3; HTTP status %s",
+        category,
+        attempt + 1,
+        status,
+        extra={
+            "permission_request_outcome": category,
+            "permission_request_attempt": attempt + 1,
+            "permission_http_status": status,
+            "permission_request_elapsed_ms": max(
+                0, round((time.monotonic() - started_at) * 1000)
+            ),
+            "permission_response_content_type": content_type,
+            "permission_response_encoding": encoding,
+            "permission_response_bytes": response_bytes,
+            "permission_response_declared_bytes": declared_length,
+            "permission_response_prefix": prefix,
+        },
+    )
+
+
 def fetch_permissions_attributes_from_datadog(api_url):
     headers = {
         "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
@@ -117,14 +210,55 @@ def fetch_permissions_attributes_from_datadog(api_url):
     request = Request(api_url, headers=headers)
     request.get_method = lambda: "GET"
 
-    try:
-        response = urllib.request.urlopen(request)
-    except urllib.error.HTTPError as e:
-        error_body = json.loads(e.read())
-        error_message = error_body.get('errors', ['Unknown error'])[0]
-        raise DatadogAPIError(f"Datadog API error: {error_message}") from e
+    for attempt in range(3):
+        started_at = time.monotonic()
+        status = None
+        response_headers = None
+        body = None
+        retryable = True
+        try:
+            response = urllib.request.urlopen(request, timeout=10)
+            try:
+                status = response.status if isinstance(response.status, int) else None
+                response_headers = response.headers
+                body = response.read()
+                payload = json.loads(body)
+            finally:
+                response.close()
+        except urllib.error.HTTPError as error:
+            status = error.code
+            response_headers = error.headers
+            error.close()
+            category = f"DatadogAPIHTTP{status}"
+            retryable = status in {429, 500, 502, 503, 504}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            category = "DatadogAPIInvalidJSON"
+        except (urllib.error.URLError, TimeoutError):
+            category = "DatadogAPINetworkError"
+        else:
+            data = payload.get("data") if isinstance(payload, dict) else None
+            attributes = data.get("attributes") if isinstance(data, dict) else None
+            if not isinstance(attributes, dict):
+                _log_permission_request(
+                    attempt,
+                    started_at,
+                    "DatadogAPIInvalidResponse",
+                    status,
+                    response_headers,
+                    body,
+                )
+                raise DatadogAPIRequestError("DatadogAPIInvalidResponse")
+            _log_permission_request(
+                attempt, started_at, "success", status, response_headers, body
+            )
+            return attributes
 
-    return json.loads(response.read())["data"]["attributes"]
+        _log_permission_request(
+            attempt, started_at, category, status, response_headers, body
+        )
+        if not retryable or attempt == 2:
+            raise DatadogAPIRequestError(category) from None
+        time.sleep(2**attempt)
 
 
 def fetch_permissions_from_datadog(api_url):
@@ -166,6 +300,10 @@ def _is_enabled(value):
 def _normalized_instrumentation_property(name, value):
     if name == "InstrumentationResourceTypes":
         return tuple(sorted(set(parse_resource_types(value))))
+    if name == "InstrumentationRefreshToken":
+        return value or ""
+    if name == "InstrumentationPolicyScope":
+        return value or "role"
     if name == "Partition":
         return value or "aws"
     if name == "DatadogSite":
@@ -419,7 +557,7 @@ def _prune_oldest_policy_version_if_needed(iam_client, policy_arn):
     iam_client.delete_policy_version(PolicyArn=policy_arn, VersionId=oldest["VersionId"])
 
 
-def _ensure_permissions_boundary_policy(iam_client, boundary, owner_id):
+def _ensure_permissions_boundary_policy(iam_client, boundary, owner_id, strict_ownership=False):
     policy_name = boundary["policy_name"]
     policy_arn = boundary["policy_arn"]
     policy_json = _canonical_policy_document(boundary["policy_document"])
@@ -443,12 +581,11 @@ def _ensure_permissions_boundary_policy(iam_client, boundary, owner_id):
                 continue
 
         tags = _policy_tags_by_key(iam_client, policy_arn)
-        if (
-            tags.get(BOUNDARY_POLICY_MANAGED_TAG_KEY)
-            == BOUNDARY_POLICY_MANAGED_TAG_VALUE
-        ):
-            owner_tag_key = _boundary_policy_owner_tag_key(owner_id)
-            if owner_tag_key not in tags:
+        is_managed = tags.get(BOUNDARY_POLICY_MANAGED_TAG_KEY) == BOUNDARY_POLICY_MANAGED_TAG_VALUE
+        owner_tag_key = _boundary_policy_owner_tag_key(owner_id)
+        owner_tags = _boundary_owner_tag_keys(tags)
+        if is_managed:
+            if not strict_ownership and owner_tag_key not in tags:
                 iam_client.tag_policy(
                     PolicyArn=policy_arn,
                     Tags=[_boundary_policy_owner_tag(owner_id)],
@@ -469,8 +606,12 @@ def _ensure_permissions_boundary_policy(iam_client, boundary, owner_id):
                 VersionId=default_version_id,
             )["PolicyVersion"]["Document"]
             if _canonical_policy_document(current_document) == policy_json:
+                if strict_ownership and is_managed and owner_tags and owner_tag_key not in owner_tags:
+                    _claim_boundary_ownership(iam_client, policy_arn, owner_id)
                 return
 
+            if strict_ownership and (not is_managed or owner_tags != {owner_tag_key}):
+                raise RuntimeError("A shared or externally owned permissions boundary requires reconciliation by its owner")
             _prune_oldest_policy_version_if_needed(iam_client, policy_arn)
             iam_client.create_policy_version(
                 PolicyArn=policy_arn,
@@ -489,9 +630,10 @@ def _ensure_permissions_boundary_policy(iam_client, boundary, owner_id):
     raise RuntimeError(f"Policy {policy_name} could not be reconciled")
 
 
-def manage_permissions_boundaries(iam_client, boundary_documents, owner_id):
+def manage_permissions_boundaries(iam_client, boundary_documents, owner_id, strict_ownership=False):
+    options = {"strict_ownership": True} if strict_ownership else {}
     for boundary in boundary_documents:
-        _ensure_permissions_boundary_policy(iam_client, boundary, owner_id)
+        _ensure_permissions_boundary_policy(iam_client, boundary, owner_id, **options)
 
 
 def _list_policy_tags(iam_client, policy_arn):
@@ -575,7 +717,7 @@ def _claim_boundary_ownership(iam_client, policy_arn, owner_id):
     )
 
 
-def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
+def _delete_permissions_boundary_policy(iam_client, boundary, owner_id, strict_ownership=False):
     policy_arn = boundary["policy_arn"]
     if _get_policy(iam_client, policy_arn) is None:
         return True
@@ -595,9 +737,9 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
 
     owner_tags = _boundary_owner_tag_keys(tags)
     if owner_tag_key not in owner_tags:
-        if owner_tags:
+        if strict_ownership or owner_tags:
             LOGGER.warning(
-                "Preserving permissions boundary %s because it is owned by another "
+                "Preserving permissions boundary %s because ownership is not recorded for this "
                 "CloudFormation stack",
                 safe_policy_identifier(policy_arn, IAM_POLICY_ARN_PATTERN),
             )
@@ -667,22 +809,30 @@ def _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
     return True
 
 
-def cleanup_permissions_boundaries(iam_client, owner_id, retained_policy_arns=()):
+def cleanup_permissions_boundaries(
+    iam_client, owner_id, retained_policy_arns=(), strict_ownership=False
+):
     retained_policy_arns = set(retained_policy_arns)
+    options = {"strict_ownership": True} if strict_ownership else {}
     preserved = []
     failures = []
     for boundary in _list_boundary_policies(iam_client):
         if boundary["policy_arn"] in retained_policy_arns:
             continue
         try:
-            if not _delete_permissions_boundary_policy(iam_client, boundary, owner_id):
+            if not _delete_permissions_boundary_policy(
+                iam_client, boundary, owner_id, **options
+            ):
                 preserved.append(boundary["policy_arn"])
         except Exception as error:
             failures.append((boundary["policy_arn"], error))
     if failures:
         error_type = (
             PermissionsBoundaryInUseError
-            if all(isinstance(error, PermissionsBoundaryInUseError) for _, error in failures)
+            if all(
+                isinstance(error, PermissionsBoundaryInUseError)
+                for _, error in failures
+            )
             else RuntimeError
         )
         raise error_type(
@@ -812,6 +962,7 @@ def cleanup_instrumentation_policies(
     partition,
     max_policies=10,
     fail_on_error=False,
+    policy_owner=None,
 ):
     for generation in (None, *INSTRUMENTATION_POLICY_GENERATIONS):
         _cleanup_instrumentation_policy_generation(
@@ -822,6 +973,7 @@ def cleanup_instrumentation_policies(
             generation,
             max_policies=max_policies,
             fail_on_error=fail_on_error,
+            policy_owner=policy_owner,
         )
 
 
@@ -849,7 +1001,7 @@ def cleanup_legacy_base_policies(
     )
 
 
-def _cleanup_previous_target_policies(iam_client, props):
+def _cleanup_previous_target_policies(iam_client, props, policy_owner=None):
     role_name = props["DatadogIntegrationRole"]
     account_id = props["AccountId"]
     partition = props.get("Partition", "aws")
@@ -871,13 +1023,15 @@ def _cleanup_previous_target_policies(iam_client, props):
             partition,
             fail_on_error=True,
         )
-    cleanup_instrumentation_policies(
-        iam_client,
-        role_name,
-        account_id,
-        partition,
-        fail_on_error=True,
-    )
+    if policy_owner or parse_resource_types(props.get("InstrumentationResourceTypes")):
+        cleanup_instrumentation_policies(
+            iam_client,
+            role_name,
+            account_id,
+            partition,
+            fail_on_error=True,
+            policy_owner=policy_owner,
+        )
 
 
 def attach_standard_permissions(iam_client, role_name):
@@ -911,14 +1065,15 @@ def _create_and_attach_policy(iam_client, role_name, policy_name, actions):
     iam_client.attach_role_policy(RoleName=role_name, PolicyArn=policy['Policy']['Arn'])
 
 
-def _create_policy_document(iam_client, policy_name, policy_document):
+def _create_policy_document(iam_client, policy_name, policy_document, policy_owner=None):
     policy_json = json.dumps(policy_document, separators=(',', ':'))
     LOGGER.info(
         "Creating policy %s (%d characters)",
         safe_policy_identifier(policy_name, IAM_POLICY_NAME_PATTERN),
         len(policy_json),
     )
-    policy = iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json)
+    tags = {"Tags": [{"Key": INSTRUMENTATION_POLICY_OWNER_TAG, "Value": policy_owner}]} if policy_owner else {}
+    policy = iam_client.create_policy(PolicyName=policy_name, PolicyDocument=policy_json, **tags)
     return policy['Policy']['Arn']
 
 
@@ -1004,9 +1159,18 @@ def _list_attached_role_policies(iam_client, role_name):
         marker = response["Marker"]
 
 
-def _instrumentation_policy_name(role_name, index, generation=None):
+def _instrumentation_policy_prefix(role_name, policy_owner=None):
+    if policy_owner is None:
+        return f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}"
+    identity = json.dumps([policy_owner, role_name], separators=(",", ":"))
+    owner_hash = hashlib.sha256(identity.encode()).hexdigest()[:32]
+    # A separate namespace protects these policies from older role-wide Delete handlers.
+    return f"{OWNED_POLICY_PREFIX_INSTRUMENTATION}-{owner_hash}"
+
+
+def _instrumentation_policy_name(role_name, index, generation=None, policy_owner=None):
     suffix = f"{generation or ''}{index}"
-    return f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-{suffix}"
+    return f"{_instrumentation_policy_prefix(role_name, policy_owner)}-{suffix}"
 
 
 def _instrumentation_policy_arn(
@@ -1015,13 +1179,14 @@ def _instrumentation_policy_arn(
     partition,
     index,
     generation=None,
+    policy_owner=None,
 ):
-    policy_name = _instrumentation_policy_name(role_name, index, generation)
+    policy_name = _instrumentation_policy_name(role_name, index, generation, policy_owner)
     return f"arn:{partition}:iam::{account_id}:policy/{policy_name}"
 
 
-def _instrumentation_policy_identity(policy_name, role_name):
-    prefix = f"{BASE_POLICY_PREFIX_INSTRUMENTATION}-{role_name}-"
+def _instrumentation_policy_identity(policy_name, role_name, policy_owner=None):
+    prefix = f"{_instrumentation_policy_prefix(role_name, policy_owner)}-"
     if not policy_name.startswith(prefix):
         return None
 
@@ -1039,8 +1204,16 @@ def _instrumentation_policy_identity(policy_name, role_name):
     return generation, index
 
 
-def _is_instrumentation_policy(policy_name, role_name):
-    return _instrumentation_policy_identity(policy_name, role_name) is not None
+def _is_instrumentation_policy(policy_name, role_name, policy_owner=None):
+    return _instrumentation_policy_identity(policy_name, role_name, policy_owner) is not None
+
+
+def _assert_instrumentation_policy_owner(iam_client, policy_arn, policy_owner):
+    if _get_policy(iam_client, policy_arn) is None:
+        return False
+    if _policy_tags_by_key(iam_client, policy_arn).get(INSTRUMENTATION_POLICY_OWNER_TAG) != policy_owner:
+        raise RuntimeError("Instrumentation policy ownership could not be verified")
+    return True
 
 
 def _cleanup_instrumentation_policy_generation(
@@ -1051,16 +1224,20 @@ def _cleanup_instrumentation_policy_generation(
     generation,
     max_policies=MAX_POLICY_DOCUMENTS,
     fail_on_error=False,
+    policy_owner=None,
 ):
     for index in range(1, max_policies + 1):
-        policy_name = _instrumentation_policy_name(role_name, index, generation)
+        policy_name = _instrumentation_policy_name(role_name, index, generation, policy_owner)
         policy_arn = _instrumentation_policy_arn(
             role_name,
             account_id,
             partition,
             index,
             generation,
+            policy_owner,
         )
+        if policy_owner and not _assert_instrumentation_policy_owner(iam_client, policy_arn, policy_owner):
+            continue
         _detach_and_delete_policy(
             iam_client,
             role_name,
@@ -1070,11 +1247,13 @@ def _cleanup_instrumentation_policy_generation(
         )
 
 
-def _attached_instrumentation_policies(iam_client, role_name):
+def _attached_instrumentation_policies(iam_client, role_name, policy_owner=None):
     policies = []
     for policy in _list_attached_role_policies(iam_client, role_name):
-        identity = _instrumentation_policy_identity(policy["PolicyName"], role_name)
+        identity = _instrumentation_policy_identity(policy["PolicyName"], role_name, policy_owner)
         if identity is None:
+            continue
+        if policy_owner and not _assert_instrumentation_policy_owner(iam_client, policy["PolicyArn"], policy_owner):
             continue
         generation, index = identity
         policies.append(
@@ -1158,8 +1337,9 @@ def _replace_instrumentation_policies(
     account_id,
     partition,
     policy_documents,
+    policy_owner=None,
 ):
-    previous_policies = _attached_instrumentation_policies(iam_client, role_name)
+    previous_policies = _attached_instrumentation_policies(iam_client, role_name, policy_owner)
     replacement_generation = _replacement_policy_generation(previous_policies)
 
     _cleanup_instrumentation_policy_generation(
@@ -1169,6 +1349,7 @@ def _replace_instrumentation_policies(
         partition,
         replacement_generation,
         fail_on_error=True,
+        policy_owner=policy_owner,
     )
 
     replacement_policies = []
@@ -1178,11 +1359,13 @@ def _replace_instrumentation_policies(
                 role_name,
                 index,
                 replacement_generation,
+                policy_owner,
             )
             policy_arn = _create_policy_document(
                 iam_client,
                 policy_name,
                 policy_document,
+                policy_owner,
             )
             replacement_policies.append({"name": policy_name, "arn": policy_arn})
     except Exception:
@@ -1192,6 +1375,7 @@ def _replace_instrumentation_policies(
             account_id,
             partition,
             replacement_generation,
+            policy_owner=policy_owner,
         )
         raise
 
@@ -1218,6 +1402,7 @@ def _replace_instrumentation_policies(
                 account_id,
                 partition,
                 replacement_generation,
+                policy_owner=policy_owner,
             )
         raise
 
@@ -1230,13 +1415,14 @@ def _replace_instrumentation_policies(
             account_id,
             partition,
             generation,
+            policy_owner=policy_owner,
         )
 
 
-def _validate_instrumentation_policy_capacity(iam_client, role_name, policy_document_count):
+def _validate_instrumentation_policy_capacity(iam_client, role_name, policy_document_count, policy_owner=None):
     attached_policies = _list_attached_role_policies(iam_client, role_name)
     existing_instrumentation_count = sum(
-        _is_instrumentation_policy(policy["PolicyName"], role_name)
+        _is_instrumentation_policy(policy["PolicyName"], role_name, policy_owner)
         for policy in attached_policies
     )
     non_instrumentation_count = len(attached_policies) - existing_instrumentation_count
@@ -1246,7 +1432,7 @@ def _validate_instrumentation_policy_capacity(iam_client, role_name, policy_docu
     if not isinstance(attachment_quota, int) or attachment_quota < 1:
         raise RuntimeError("IAM account summary did not include AttachedPoliciesPerRoleQuota")
     if non_instrumentation_count + policy_document_count > attachment_quota:
-        raise RuntimeError(
+        raise InstrumentationPolicyQuotaError(
             f"role {role_name} has room for only "
             f"{attachment_quota - non_instrumentation_count} instrumentation policies, "
             f"but Datadog returned {policy_document_count}"
@@ -1263,12 +1449,14 @@ def attach_instrumentation_permissions(
     previous_resource_types,
     owner_id,
     fail_on_error=False,
+    policy_owner=None,
 ):
     # Fetch and validate capacity before staging so a transient failure leaves existing policies.
     replacing_existing_policies = bool(previous_resource_types)
     # Existing policies make updates atomic even when initial attachment was best-effort;
     # accepting new properties while retaining old policies would leave them permanently stale.
     mutation_must_succeed = fail_on_error or replacing_existing_policies
+    boundary_options = {"strict_ownership": True} if policy_owner else {}
     if not resource_types and not replacing_existing_policies:
         return
 
@@ -1284,8 +1472,9 @@ def attach_instrumentation_permissions(
                 iam_client,
                 role_name,
                 len(policy_documents),
+                policy_owner,
             )
-            manage_permissions_boundaries(iam_client, boundary_documents, owner_id)
+            manage_permissions_boundaries(iam_client, boundary_documents, owner_id, **boundary_options)
         else:
             policy_documents, boundary_documents = [], []
     except Exception as e:
@@ -1306,6 +1495,7 @@ def attach_instrumentation_permissions(
                 account_id,
                 partition,
                 policy_documents,
+                policy_owner,
             )
         else:
             cleanup_instrumentation_policies(
@@ -1314,6 +1504,7 @@ def attach_instrumentation_permissions(
                 account_id,
                 partition,
                 fail_on_error=mutation_must_succeed,
+                policy_owner=policy_owner,
             )
 
         retained_boundary_arns = {
@@ -1323,6 +1514,7 @@ def attach_instrumentation_permissions(
             iam_client,
             owner_id,
             retained_policy_arns=retained_boundary_arns,
+            **boundary_options,
         )
     except Exception as e:
         if mutation_must_succeed:
@@ -1330,6 +1522,13 @@ def attach_instrumentation_permissions(
         LOGGER.warning(
             "Failed to reconcile instrumentation permissions (%s)", safe_error_category(e)
         )
+
+
+def _instrumentation_policy_owner(event, props):
+    scope = props.get("InstrumentationPolicyScope", "role")
+    if scope not in {"role", "stack"}:
+        raise ValueError("Unknown instrumentation policy scope")
+    return event["StackId"] if scope == "stack" else None
 
 
 def handle_delete(event, context):
@@ -1340,15 +1539,21 @@ def handle_delete(event, context):
     manage_base_permissions = _is_enabled(props.get('ManageBasePermissions', 'true'))
     iam_client = boto3.client('iam')
     try:
+        policy_owner = _instrumentation_policy_owner(event, props)
         if manage_base_permissions:
             if _is_enabled(props.get("AgentlessScanning", "false")):
                 cleanup_agentless_saas_permissions(iam_client, role_name, account_id, partition)
             cleanup_existing_policies(iam_client, role_name, account_id, partition)
-        cleanup_instrumentation_policies(iam_client, role_name, account_id, partition)
+        if policy_owner or parse_resource_types(props.get("InstrumentationResourceTypes")):
+            cleanup_instrumentation_policies(
+                iam_client, role_name, account_id, partition, policy_owner=policy_owner,
+                fail_on_error=policy_owner is not None,
+            )
         # Fail on in-use boundaries so CloudFormation retains ownership for a cleanup retry.
         preserved_boundaries = cleanup_permissions_boundaries(
             iam_client,
             event["StackId"],
+            **({"strict_ownership": True} if policy_owner else {}),
         )
         response_data = {}
         if preserved_boundaries:
@@ -1397,6 +1602,16 @@ def handle_create_update(event, context):
     target_changed = previous_target != current_target
 
     try:
+        policy_owner = _instrumentation_policy_owner(event, props)
+        previous_policy_owner = _instrumentation_policy_owner(event, previous_props)
+        if event["RequestType"] == "Update" and policy_owner != previous_policy_owner:
+            cloudformation = boto3.client("cloudformation", region_name=event["StackId"].split(":")[3])
+            status = cloudformation.describe_stacks(StackName=event["StackId"])["Stacks"][0]["StackStatus"]
+            # Scope changes fail before mutations; rolling that rejection back must also be a no-op.
+            if status == "UPDATE_ROLLBACK_IN_PROGRESS":
+                send_cfn_response(cfnresponse, event, context, cfnresponse.SUCCESS, {})
+                return
+            raise InstrumentationPolicyMigrationRequired("Instrumentation policies require an explicit ownership migration")
         iam_client = boto3.client('iam')
         if manage_base_permissions:
             cleanup_legacy_base_policies(iam_client, role_name, account_id, partition)
@@ -1421,24 +1636,47 @@ def handle_create_update(event, context):
                 previous_instrumentation_resource_types,
                 event["StackId"],
                 fail_on_error=fail_on_instrumentation_error,
+                policy_owner=policy_owner,
             )
         if target_changed:
-            _cleanup_previous_target_policies(iam_client, previous_props)
+            _cleanup_previous_target_policies(iam_client, previous_props, previous_policy_owner)
         send_cfn_response(cfnresponse, event, context, cfnresponse.SUCCESS, {})
     except Exception as e:
         category = safe_error_category(e)
         LOGGER.error("Error creating/attaching policy (%s)", category)
+        message = f"Policy attachment failed ({category})."
+        if isinstance(e, InstrumentationPolicyQuotaError):
+            message = "The integration role has insufficient managed-policy attachment capacity. Request a higher IAM quota or reconcile existing grants before retrying. Existing owners' policies were not removed."
+        elif isinstance(e, InstrumentationPolicyMigrationRequired):
+            message = "Instrumentation policy ownership cannot be changed in place. Migrate this stack explicitly before retrying. No policies were changed."
         send_cfn_response(
             cfnresponse,
             event,
             context,
             cfnresponse.FAILED,
-            {"Message": f"Policy attachment failed ({category})."},
+            {"Message": message},
+            reason=message,
         )
 
 
 def handler(event, context):
-    if event['RequestType'] == 'Delete':
+    request_id = event.get("RequestId")
+    if not isinstance(request_id, str) or not re.fullmatch(
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        request_id,
+    ):
+        request_id = None
+    request_type = event.get("RequestType")
+    if request_type not in ("Create", "Update", "Delete"):
+        request_type = "unknown"
+    LOGGER.info(
+        "Permissions handler request",
+        extra={
+            "cloudformation_request_id": request_id,
+            "cloudformation_request_type": request_type,
+        },
+    )
+    if event["RequestType"] == "Delete":
         handle_delete(event, context)
     else:
         handle_create_update(event, context)
