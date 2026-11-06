@@ -77,6 +77,12 @@ class DatadogAPIError(Exception):
     pass
 
 
+class DatadogAPIRequestError(DatadogAPIError):
+    def __init__(self, category):
+        super().__init__(category)
+        self.category = category
+
+
 class PermissionsBoundaryInUseError(RuntimeError):
     pass
 
@@ -110,6 +116,10 @@ def safe_policy_identifier(value, pattern):
 
 
 def safe_error_category(error):
+    if isinstance(error, DatadogAPIRequestError) and re.fullmatch(
+        r"DatadogAPI(?:HTTP[1-5][0-9]{2}|InvalidJSON|InvalidResponse|NetworkError)", error.category
+    ):
+        return error.category
     if isinstance(error, PermissionsBoundaryInUseError):
         return "PermissionsBoundaryInUse"
     response = getattr(error, "response", None)
@@ -122,6 +132,77 @@ def safe_error_category(error):
     return type(error).__name__
 
 
+def _log_permission_request(attempt, started_at, category, status, headers, body):
+    headers = headers or {}
+    content_type = headers.get("Content-Type")
+    if isinstance(content_type, str):
+        content_type = content_type.split(";", 1)[0].strip().lower()
+    allowed_types = {
+        "application/json",
+        "application/vnd.api+json",
+        "application/problem+json",
+        "text/html",
+        "text/plain",
+        "application/xml",
+        "text/xml",
+    }
+    content_type = (
+        content_type
+        if isinstance(content_type, str) and content_type in allowed_types
+        else "unknown"
+    )
+    encoding = headers.get("Content-Encoding")
+    if isinstance(encoding, str):
+        encoding = encoding.strip().lower()
+    encoding = (
+        encoding
+        if isinstance(encoding, str)
+        and encoding in {"identity", "gzip", "br", "deflate"}
+        else "unknown"
+    )
+    length = headers.get("Content-Length")
+    declared_length = (
+        int(length)
+        if isinstance(length, str) and re.fullmatch(r"[0-9]{1,12}", length)
+        else None
+    )
+    prefix = "not_read"
+    response_bytes = None
+    if isinstance(body, bytes):
+        response_bytes = len(body)
+        first = body.lstrip()[:1]
+        if not body:
+            prefix = "empty"
+        elif not first:
+            prefix = "whitespace"
+        elif first == b"<":
+            prefix = "markup"
+        elif first in (b"{", b"["):
+            prefix = "json_container"
+        else:
+            prefix = "other"
+    LOGGER.log(
+        logging.INFO if category == "success" else logging.WARNING,
+        "Permission request result (%s); attempt %s/3; HTTP status %s",
+        category,
+        attempt + 1,
+        status,
+        extra={
+            "permission_request_outcome": category,
+            "permission_request_attempt": attempt + 1,
+            "permission_http_status": status,
+            "permission_request_elapsed_ms": max(
+                0, round((time.monotonic() - started_at) * 1000)
+            ),
+            "permission_response_content_type": content_type,
+            "permission_response_encoding": encoding,
+            "permission_response_bytes": response_bytes,
+            "permission_response_declared_bytes": declared_length,
+            "permission_response_prefix": prefix,
+        },
+    )
+
+
 def fetch_permissions_attributes_from_datadog(api_url):
     headers = {
         "Dd-Aws-Api-Call-Source": API_CALL_SOURCE_HEADER_VALUE,
@@ -129,14 +210,55 @@ def fetch_permissions_attributes_from_datadog(api_url):
     request = Request(api_url, headers=headers)
     request.get_method = lambda: "GET"
 
-    try:
-        response = urllib.request.urlopen(request)
-    except urllib.error.HTTPError as e:
-        error_body = json.loads(e.read())
-        error_message = error_body.get('errors', ['Unknown error'])[0]
-        raise DatadogAPIError(f"Datadog API error: {error_message}") from e
+    for attempt in range(3):
+        started_at = time.monotonic()
+        status = None
+        response_headers = None
+        body = None
+        retryable = True
+        try:
+            response = urllib.request.urlopen(request, timeout=10)
+            try:
+                status = response.status if isinstance(response.status, int) else None
+                response_headers = response.headers
+                body = response.read()
+                payload = json.loads(body)
+            finally:
+                response.close()
+        except urllib.error.HTTPError as error:
+            status = error.code
+            response_headers = error.headers
+            error.close()
+            category = f"DatadogAPIHTTP{status}"
+            retryable = status in {429, 500, 502, 503, 504}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            category = "DatadogAPIInvalidJSON"
+        except (urllib.error.URLError, TimeoutError):
+            category = "DatadogAPINetworkError"
+        else:
+            data = payload.get("data") if isinstance(payload, dict) else None
+            attributes = data.get("attributes") if isinstance(data, dict) else None
+            if not isinstance(attributes, dict):
+                _log_permission_request(
+                    attempt,
+                    started_at,
+                    "DatadogAPIInvalidResponse",
+                    status,
+                    response_headers,
+                    body,
+                )
+                raise DatadogAPIRequestError("DatadogAPIInvalidResponse")
+            _log_permission_request(
+                attempt, started_at, "success", status, response_headers, body
+            )
+            return attributes
 
-    return json.loads(response.read())["data"]["attributes"]
+        _log_permission_request(
+            attempt, started_at, category, status, response_headers, body
+        )
+        if not retryable or attempt == 2:
+            raise DatadogAPIRequestError(category) from None
+        time.sleep(2**attempt)
 
 
 def fetch_permissions_from_datadog(api_url):
@@ -1538,7 +1660,23 @@ def handle_create_update(event, context):
 
 
 def handler(event, context):
-    if event['RequestType'] == 'Delete':
+    request_id = event.get("RequestId")
+    if not isinstance(request_id, str) or not re.fullmatch(
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        request_id,
+    ):
+        request_id = None
+    request_type = event.get("RequestType")
+    if request_type not in ("Create", "Update", "Delete"):
+        request_type = "unknown"
+    LOGGER.info(
+        "Permissions handler request",
+        extra={
+            "cloudformation_request_id": request_id,
+            "cloudformation_request_type": request_type,
+        },
+    )
+    if event["RequestType"] == "Delete":
         handle_delete(event, context)
     else:
         handle_create_update(event, context)

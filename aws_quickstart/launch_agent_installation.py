@@ -26,11 +26,21 @@ SUPPLEMENTARY_RULE_PREFIX = "datadog-agent-supp-"
 SUPPLEMENTARY_OWNER_TAG = "datadog:agent-installation-owner"
 PERMISSIONS_RESOURCE = "DatadogIntegrationPermissionsStack"
 OWNED_PERMISSIONS_RESOURCE = "DatadogAgentInstallationPermissionsStack"
-LEGACY_VERSION = "v4.21.1"
+PERMISSIONS_FUNCTION = "DatadogAttachIntegrationPermissionsFunction"
+PERMISSIONS_TRIGGER = "DatadogAttachIntegrationPermissionsFunctionTrigger"
+PUBLISHED_TEMPLATE_ORIGIN = (
+    "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com"
+)
 # Fixture YAML/JSON hashes after normalizing the approved URLs and release header.
 LEGACY_TEMPLATE_HASHES = {
-    "070b77c6418fe36d0986ce9efba4c52eaa9b72a4373ff4046f0b5cacd1f09d2e",
-    "8f0afb417d9aa5c3146b488966d6f1447deea6a07816cc66083c9db338be2b42",
+    "v4.21.1": {
+        "070b77c6418fe36d0986ce9efba4c52eaa9b72a4373ff4046f0b5cacd1f09d2e",
+        "8f0afb417d9aa5c3146b488966d6f1447deea6a07816cc66083c9db338be2b42",
+    },
+    "v4.22.0": {
+        "1b2f272ed9901183de050d5f9a0963f1335c4e8668cc67c5c61da0e19a5c333d",
+        "79a048ea46945e1b6593ec753368b68427a57040220efd27abad85e435b720d3",
+    },
 }
 INSTALLATION_RESOURCES = {
     PERMISSIONS_RESOURCE,
@@ -157,7 +167,21 @@ def change_set_parameters(props, types, forwarding, refresh_token, previous, leg
     return params
 
 
-def is_known_legacy_template(body):
+def legacy_template_origins():
+    return {
+        os.environ["INSTALLATION_TEMPLATE_URL"].rsplit("/aws/", 1)[0],
+        PUBLISHED_TEMPLATE_ORIGIN,
+    }
+
+
+def legacy_permissions_template_urls(version):
+    return {
+        f"{origin}/aws/{version}/datadog_integration_permissions.yaml"
+        for origin in legacy_template_origins()
+    }
+
+
+def legacy_template_configuration(body):
     if isinstance(body, str):
         try:
             body = json.loads(body)
@@ -166,13 +190,29 @@ def is_known_legacy_template(body):
     if isinstance(body, dict):
         body = json.dumps(body, sort_keys=True, separators=(",", ":"))
     if not isinstance(body, str):
-        return False
-    prefix = os.environ["INSTALLATION_TEMPLATE_URL"].rsplit("/aws/", 1)[0]
-    body = body.replace(
-        f"{prefix}/aws/{LEGACY_VERSION}/",
-        "https://legacy-template.invalid/aws/release/",
-    ).replace(f"# version: {LEGACY_VERSION}", "# version: legacy")
-    return hashlib.sha256(body.encode()).hexdigest() in LEGACY_TEMPLATE_HASHES
+        return None
+    for origin in sorted(legacy_template_origins()):
+        for version, hashes in LEGACY_TEMPLATE_HASHES.items():
+            prefix = f"{origin}/aws/{version}/"
+            permissions_url = prefix + "datadog_integration_permissions.yaml"
+            forwarding_url = prefix + "datadog_agent_resource_update_forwarding.yaml"
+            if permissions_url not in body or forwarding_url not in body:
+                continue
+            normalized = body.replace(
+                prefix, "https://legacy-template.invalid/aws/release/"
+            ).replace(f"# version: {version}", "# version: legacy")
+            if hashlib.sha256(normalized.encode()).hexdigest() in hashes:
+                return {"version": version, "permissions_url": permissions_url}
+    return None
+
+
+def legacy_template_version(body):
+    configuration = legacy_template_configuration(body)
+    return configuration["version"] if configuration else None
+
+
+def is_known_legacy_template(body):
+    return legacy_template_version(body) is not None
 
 
 def fingerprint(stack):
@@ -520,6 +560,40 @@ class Launcher:
             )
         self.assert_external_owner(owner_id, props)
 
+    def frozen_permissions_template_url(self, stack_id, permissions_id, region):
+        request = {"StackName": stack_id}
+        for _ in range(20):
+            response = self.cloudformation[region].describe_stack_events(**request)
+            for event in response.get("StackEvents", []):
+                if (
+                    event.get("LogicalResourceId") != PERMISSIONS_RESOURCE
+                    or event.get("PhysicalResourceId") != permissions_id
+                    or event.get("ResourceType") != "AWS::CloudFormation::Stack"
+                    or event.get("ResourceStatus") not in STABLE_STATES
+                ):
+                    continue
+                try:
+                    properties = json.loads(event.get("ResourceProperties", ""))
+                except (TypeError, ValueError):
+                    break
+                url = (
+                    properties.get("TemplateURL")
+                    if isinstance(properties, dict)
+                    else None
+                )
+                if isinstance(url, str) and url:
+                    return url
+                break
+            else:
+                token = response.get("NextToken")
+                if token:
+                    request["NextToken"] = token
+                    continue
+            break
+        raise InstallationError(
+            "The frozen permissions template URL could not be verified. Review it manually; no changes were made."
+        )
+
     def legacy_permissions_configuration(
         self, stack, permissions_stack, resources, props, region
     ):
@@ -536,7 +610,7 @@ class Launcher:
         child = parameters(permissions_stack)
         if version:
             if (
-                version != LEGACY_VERSION
+                version not in LEGACY_TEMPLATE_HASHES
                 or not owned_id
                 or not previous.get("ExternalId")
             ):
@@ -551,15 +625,31 @@ class Launcher:
                     "The installation's managed permissions are not stack-owned. No changes were made."
                 )
             frozen_types = previous.get("LegacyInstrumentationResourceTypes")
+            template_url = previous.get("LegacyPermissionsTemplateURL")
+            if not template_url:
+                template_url = self.frozen_permissions_template_url(
+                    stack["StackId"], permissions_stack["StackId"], region
+                )
+            if template_url not in legacy_permissions_template_urls(version):
+                raise InstallationError(
+                    "The frozen permissions template URL does not match its approved release and origin. No changes were made."
+                )
         else:
             template = self.cloudformation[region].get_template(
                 StackName=stack["StackId"], TemplateStage="Original"
             )["TemplateBody"]
-            if owned_id or not is_known_legacy_template(template):
+            configuration = legacy_template_configuration(template)
+            if (
+                owned_id
+                or configuration is None
+                or previous.get("LegacyPermissionsTemplateURL")
+            ):
                 raise InstallationError(
                     "This legacy installation template is not supported for automatic adoption. Contact support; no changes were made.",
                     stack["StackId"],
                 )
+            version = configuration["version"]
+            template_url = configuration["permissions_url"]
             self.assert_integration_role_identity(props)
             frozen_types = child.get("InstrumentationResourceTypes")
             if frozen_types is None or resource_types(frozen_types) != resource_types(
@@ -587,7 +677,8 @@ class Launcher:
             )
         resource_types(frozen_types)
         return {
-            "LegacyPermissionsTemplateVersion": LEGACY_VERSION,
+            "LegacyPermissionsTemplateVersion": version,
+            "LegacyPermissionsTemplateURL": template_url,
             "LegacyInstrumentationResourceTypes": frozen_types,
         }
 
@@ -633,6 +724,7 @@ class Launcher:
         elif (
             policy_scope != "stack"
             or previous.get("LegacyPermissionsTemplateVersion")
+            or previous.get("LegacyPermissionsTemplateURL")
             or any(
                 resource["LogicalResourceId"] == OWNED_PERMISSIONS_RESOURCE
                 for resource in resources
@@ -662,7 +754,7 @@ class Launcher:
         return forwarding, legacy
 
     def rule_covers(
-        self, region, name, resource_type, destination_arn, role_arn=None, owner_id=None
+        self, region, name, resource_type, destination_arn, role_arn, owner_id=None
     ):
         client = self.events[region]
         try:
@@ -692,7 +784,10 @@ class Launcher:
             or not any(
                 target.get("Arn") == destination_arn
                 and target.get("RoleArn")
-                and (role_arn is None or target["RoleArn"] == role_arn)
+                and target["RoleArn"] == role_arn
+                and not any(
+                    key in target for key in ("Input", "InputPath", "InputTransformer")
+                )
                 for target in targets.get("Targets", [])
             )
         ):
@@ -771,6 +866,27 @@ class Launcher:
                 )
         return owned_types
 
+    def forwarding_invocation_role(self, owner_id, account):
+        resources = self.cloudformation[
+            owner_id.split(":")[3]
+        ].describe_stack_resources(
+            StackName=owner_id, LogicalResourceId="DDEventBridgeInvocationRole"
+        )["StackResources"]
+        resource = resources[0] if len(resources) == 1 else {}
+        name = resource.get("PhysicalResourceId")
+        if (
+            resource.get("StackId") != owner_id
+            or resource.get("LogicalResourceId") != "DDEventBridgeInvocationRole"
+            or resource.get("ResourceType") != "AWS::IAM::Role"
+            or resource.get("ResourceStatus") not in STABLE_STATES
+            or not isinstance(name, str)
+            or not re.fullmatch(r"[A-Za-z0-9_+=,.@-]{1,64}", name)
+        ):
+            raise InstallationError(
+                "The existing forwarding invocation role could not be verified. Review its owning stack before retrying; no changes were made."
+            )
+        return f"arn:{self.partition}:iam::{account}:role/{name}"
+
     def forwarding_plan(self, owned_stacks, role, region, types, props):
         owned_forwarding_stack_id = owned_stacks.get(FORWARDING_RESOURCE)
         supplementary_stack_id = owned_stacks.get(SUPPLEMENTARY_RESOURCE)
@@ -832,14 +948,20 @@ class Launcher:
         supplementary = self.supplementary_types(
             supplementary_stack_id, primary, types, destination_arn, props["AccountId"]
         )
-        for resource_type in sorted((types & FORWARDED_TYPES) - supplementary):
-            if not self.rule_covers(
-                primary,
-                RULE_PREFIX + resource_type.split(":")[1],
-                resource_type,
-                destination_arn,
-            ):
-                supplementary.add(resource_type)
+        remaining_types = (types & FORWARDED_TYPES) - supplementary
+        if remaining_types:
+            invocation_role = self.forwarding_invocation_role(
+                owner_id, props["AccountId"]
+            )
+            for resource_type in sorted(remaining_types):
+                if not self.rule_covers(
+                    primary,
+                    RULE_PREFIX + resource_type.split(":")[1],
+                    resource_type,
+                    destination_arn,
+                    role_arn=invocation_role,
+                ):
+                    supplementary.add(resource_type)
         if not supplementary:
             return ForwardingPlan()
         if primary != region:
@@ -984,7 +1106,9 @@ def is_noop_change_set(change_set):
     )
 
 
-def is_permissions_refresh(resource, allow_type_expansion=False):
+def is_permissions_refresh(
+    resource, allow_type_expansion=False, allow_service_token_refresh=False
+):
     # CloudFormation cannot infer that this handler preserves PhysicalResourceId on update.
     if (
         resource.get("Action") != "Modify"
@@ -1001,7 +1125,22 @@ def is_permissions_refresh(resource, allow_type_expansion=False):
         allowed_properties.add("InstrumentationResourceTypes")
     details = resource.get("Details") or []
     return bool(details) and all(
-        any(
+        (
+            allow_service_token_refresh
+            and detail.get("Target")
+            == {
+                "Attribute": "Properties",
+                "Name": "ServiceToken",
+                "RequiresRecreation": "Conditionally",
+            }
+            and (
+                detail.get("ChangeSource"),
+                detail.get("Evaluation"),
+                detail.get("CausingEntity"),
+            )
+            == ("ResourceAttribute", "Dynamic", f"{PERMISSIONS_FUNCTION}.Arn")
+        )
+        or any(
             detail.get("Target")
             == {
                 "Attribute": "Properties",
@@ -1023,6 +1162,144 @@ def is_permissions_refresh(resource, allow_type_expansion=False):
     )
 
 
+def is_permissions_code_refresh(
+    client, change_set_id, pages, stack_id, type_expansion=None
+):
+    if not stack_id or any(
+        page.get("StackId") != stack_id
+        or page.get("Status") != "CREATE_COMPLETE"
+        or not page.get("IncludeNestedStacks")
+        for page in pages
+    ):
+        return False
+    changes = [
+        item["ResourceChange"] for page in pages for item in page.get("Changes", [])
+    ]
+    if len(changes) != 2 or {r.get("LogicalResourceId") for r in changes} != {
+        PERMISSIONS_FUNCTION,
+        PERMISSIONS_TRIGGER,
+    }:
+        return False
+    function = next(
+        r for r in changes if r["LogicalResourceId"] == PERMISSIONS_FUNCTION
+    )
+    trigger = next(r for r in changes if r["LogicalResourceId"] == PERMISSIONS_TRIGGER)
+    if not any(
+        d.get("Target", {}).get("Name") == "ServiceToken"
+        for d in trigger.get("Details", [])
+    ):
+        return False
+    if not is_permissions_refresh(
+        trigger, allow_type_expansion=True, allow_service_token_refresh=True
+    ):
+        return False
+    if (
+        function.get("ResourceType") != "AWS::Lambda::Function"
+        or function.get("Action") != "Modify"
+        or function.get("Replacement") != "False"
+        or function.get("Scope") != ["Properties"]
+        or function.get("Details")
+        != [
+            {
+                "Target": {
+                    "Attribute": "Properties",
+                    "Name": "Code",
+                    "RequiresRecreation": "Never",
+                },
+                "ChangeSource": "DirectModification",
+                "Evaluation": "Static",
+            }
+        ]
+    ):
+        return False
+    child = client.describe_stacks(StackName=stack_id)["Stacks"][0]
+    if (
+        child.get("StackId") != stack_id
+        or child.get("StackStatus") not in STABLE_STATES
+        or not child.get("ParentId")
+        or child.get("RootId") != child["ParentId"]
+    ):
+        return False
+    for change in changes:
+        resources = client.describe_stack_resources(
+            StackName=stack_id, LogicalResourceId=change["LogicalResourceId"]
+        )["StackResources"]
+        if len(resources) != 1:
+            return False
+        current = resources[0]
+        if (
+            current.get("StackId") != stack_id
+            or current.get("LogicalResourceId") != change["LogicalResourceId"]
+        ):
+            return False
+        if (
+            not change.get("PhysicalResourceId")
+            or current.get("PhysicalResourceId") != change["PhysicalResourceId"]
+            or current.get("ResourceType") != change["ResourceType"]
+            or current.get("ResourceStatus") not in STABLE_STATES
+        ):
+            return False
+    name = function["PhysicalResourceId"]
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
+        return False
+    _, partition, _, region, account, _ = stack_id.split(":", 5)
+    expected_arn = f"arn:{partition}:lambda:{region}:{account}:function:{name}"
+    resolved = []
+    for page in client.get_paginator("describe_change_set").paginate(
+        ChangeSetName=change_set_id, IncludePropertyValues=True
+    ):
+        if (
+            page.get("StackId") != stack_id
+            or page.get("Status") != "CREATE_COMPLETE"
+            or not page.get("IncludeNestedStacks")
+        ):
+            return False
+        resolved.extend(
+            r["ResourceChange"]
+            for r in page.get("Changes", [])
+            if r["ResourceChange"].get("LogicalResourceId") == PERMISSIONS_TRIGGER
+        )
+    if len(resolved) != 1 or any(
+        resolved[0].get(key) != trigger.get(key)
+        for key in (
+            "LogicalResourceId",
+            "PhysicalResourceId",
+            "ResourceType",
+            "Action",
+            "Replacement",
+            "Scope",
+        )
+    ):
+        return False
+    try:
+        before = json.loads(resolved[0]["BeforeContext"])["Properties"]
+        after = json.loads(resolved[0]["AfterContext"])["Properties"]
+    except (KeyError, TypeError, ValueError):
+        return False
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+    if (
+        before.get("ServiceToken") != expected_arn
+        or after.get("ServiceToken") != expected_arn
+    ):
+        return False
+    ignored = {"InstrumentationRefreshToken"}
+    if type_expansion:
+        previous_types, expanded_types = type_expansion
+        if (
+            not previous_types <= expanded_types
+            or resource_types(before.get("InstrumentationResourceTypes", ""))
+            != previous_types
+            or resource_types(after.get("InstrumentationResourceTypes", ""))
+            != expanded_types
+        ):
+            return False
+        ignored.add("InstrumentationResourceTypes")
+    return {k: v for k, v in before.items() if k not in ignored} == {
+        k: v for k, v in after.items() if k not in ignored
+    }
+
+
 def assert_safe_changes(
     client,
     change_set_id,
@@ -1034,9 +1311,19 @@ def assert_safe_changes(
     permissions_stack_id=None,
 ):
     previous_child_types_match = None
-    for page in client.get_paginator("describe_change_set").paginate(
-        ChangeSetName=change_set_id
-    ):
+    request = {"ChangeSetName": change_set_id}
+    if is_root and preserve_legacy:
+        request["IncludePropertyValues"] = True
+    pages = list(client.get_paginator("describe_change_set").paginate(**request))
+    allow_service_token_refresh = (
+        not is_root
+        and permissions_child
+        and not unchanged
+        and is_permissions_code_refresh(
+            client, change_set_id, pages, permissions_stack_id, type_expansion
+        )
+    )
+    for page in pages:
         if not is_root and is_noop_change_set(page) and not page.get("Changes"):
             continue
         if page["Status"] != "CREATE_COMPLETE" or not page.get("IncludeNestedStacks"):
@@ -1077,10 +1364,28 @@ def assert_safe_changes(
                 and preserve_legacy
                 and resource["LogicalResourceId"] == PERMISSIONS_RESOURCE
             )
-            if frozen and resource["Action"] != "Modify":
-                raise InstallationError(
-                    "The legacy permissions child cannot be added, removed, or replaced during adoption."
-                )
+            if frozen:
+                if resource["Action"] != "Modify":
+                    raise InstallationError(
+                        "The legacy permissions child cannot be added, removed, or replaced during adoption."
+                    )
+                try:
+                    before_url = json.loads(resource["BeforeContext"])["Properties"][
+                        "TemplateURL"
+                    ]
+                    after_url = json.loads(resource["AfterContext"])["Properties"][
+                        "TemplateURL"
+                    ]
+                except (KeyError, TypeError, ValueError):
+                    before_url = after_url = None
+                if (
+                    not isinstance(before_url, str)
+                    or not before_url
+                    or before_url != after_url
+                ):
+                    raise InstallationError(
+                        "The frozen legacy permissions template URL would change or could not be verified. No changes were executed."
+                    )
             if (
                 resource["Action"] not in {"Add", "Modify"}
                 or (
@@ -1089,7 +1394,9 @@ def assert_safe_changes(
                     and not (
                         not is_root
                         and permissions_child
-                        and is_permissions_refresh(resource, allow_type_expansion)
+                        and is_permissions_refresh(
+                            resource, allow_type_expansion, allow_service_token_refresh
+                        )
                     )
                 )
                 or (
@@ -1188,18 +1495,21 @@ def poll_change_set(client, event, state):
 
 
 def poll_deployment(client, event, state):
+    newer_root_failure = False
     for page in client.get_paginator("describe_stack_events").paginate(
         StackName=state["StackId"]
     ):
         for item in page["StackEvents"]:
-            if item.get("PhysicalResourceId") != state["StackId"] or item.get(
-                "ClientRequestToken"
-            ) != request_name(event):
+            if item.get("PhysicalResourceId") != state["StackId"]:
                 continue
             status = item["ResourceStatus"]
+            if item.get("ClientRequestToken") != request_name(event):
+                # Events are newest first; cancellation can use a different token.
+                newer_root_failure |= status in FAILED_STATES
+                continue
             if status in {"CREATE_COMPLETE", "UPDATE_COMPLETE"}:
                 return True
-            if status in FAILED_STATES:
+            if status in FAILED_STATES or newer_root_failure:
                 raise InstallationError(
                     "The installation deployment failed or rolled back. Inspect the installation stack's Events tab before retrying."
                 )
@@ -1263,6 +1573,10 @@ def wait_for_result(event, context, state):
             continuation["ResourceProperties"] = {
                 "AccountId": event["ResourceProperties"]["AccountId"]
             }
+            if "InstrumentationResourceTypes" in event["ResourceProperties"]:
+                continuation["ResourceProperties"]["InstrumentationResourceTypes"] = (
+                    event["ResourceProperties"]["InstrumentationResourceTypes"]
+                )
             continuation.pop("OldResourceProperties", None)
             boto3.client("lambda", config=SDK_CONFIG).invoke(
                 FunctionName=context.invoked_function_arn,

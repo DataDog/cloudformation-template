@@ -38,8 +38,18 @@ Parameters:
   LegacyPermissionsTemplateVersion:
     Type: String
     Default: ""
-    AllowedValues: ["", "v4.21.1"]
+    AllowedValues: ["", "v4.21.1", "v4.22.0"]
     Description: Set by the launcher when preserving a supported legacy permissions child.
+  LegacyPermissionsTemplateURL:
+    Type: String
+    Default: ""
+    AllowedValues:
+      - ""
+      - "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/v4.21.1/datadog_integration_permissions.yaml"
+      - "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/v4.22.0/datadog_integration_permissions.yaml"
+      - "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/v4.21.1/datadog_integration_permissions.yaml"
+      - "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/v4.22.0/datadog_integration_permissions.yaml"
+    Description: Set by the launcher to preserve the verified legacy child's original template URL.
   LegacyInstrumentationResourceTypes:
     Type: String
     Default: ""
@@ -75,6 +85,24 @@ Parameters:
       for supported resource types in regions with public EventBridge API destinations; other resource types
       and regions receive IAM permissions but no event forwarding.
 Rules:
+  LegacyTemplateURLMatchesVersion:
+    RuleCondition: !Or
+      - !Not [!Equals [!Ref LegacyPermissionsTemplateURL, ""]]
+      - !Not [!Equals [!Ref LegacyPermissionsTemplateVersion, ""]]
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::And:
+                - !Equals [!Ref LegacyPermissionsTemplateVersion, "v4.21.1"]
+                - Fn::Contains:
+                    - ["https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/v4.21.1/datadog_integration_permissions.yaml", "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/v4.21.1/datadog_integration_permissions.yaml"]
+                    - !Ref LegacyPermissionsTemplateURL
+            - Fn::And:
+                - !Equals [!Ref LegacyPermissionsTemplateVersion, "v4.22.0"]
+                - Fn::Contains:
+                    - ["https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/v4.22.0/datadog_integration_permissions.yaml", "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com/aws/v4.22.0/datadog_integration_permissions.yaml"]
+                    - !Ref LegacyPermissionsTemplateURL
+        AssertDescription: The legacy permissions URL must match its approved release and asset origin.
   ValidateAccountId:
     Assertions:
       - Assert: !Equals [!Ref AccountId, !Ref "AWS::AccountId"]
@@ -87,7 +115,9 @@ Rules:
       - Assert: !Not [!Equals [!Ref ExistingApiDestinationArn, ""]]
         AssertDescription: Supplementary rules require the existing API destination ARN.
 Conditions:
-  HasLegacyPermissions: !Not [!Equals [!Ref LegacyPermissionsTemplateVersion, ""]]
+  HasLegacyPermissions: !And
+    - !Not [!Equals [!Ref LegacyPermissionsTemplateVersion, ""]]
+    - !Not [!Equals [!Ref LegacyPermissionsTemplateURL, ""]]
   HasSupplementaryForwarding:
     Fn::And:
       - !Not [!Equals [!Ref SupplementaryResourceTypes, ""]]
@@ -160,7 +190,7 @@ Resources:
     Properties:
       TemplateURL: !If
         - HasLegacyPermissions
-        - !Sub "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/${LegacyPermissionsTemplateVersion}/datadog_integration_permissions.yaml"
+        - !Ref LegacyPermissionsTemplateURL
         - "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/datadog_integration_permissions.yaml"
       Parameters:
         IAMRoleName: !Ref IAMRoleName

@@ -29,7 +29,8 @@ TemplateLoader.add_multi_constructor("!", intrinsic)
 
 def legacy_template(prefix="https://test-bucket.s3.amazonaws.com", version="v4.21.1"):
     source = (
-        Path(__file__).parent / "fixtures/main_agent_installation_v4_21_1.yaml"
+        Path(__file__).parent
+        / f"fixtures/main_agent_installation_{version.replace('.', '_')}.yaml"
     ).read_text()
     return source.replace(
         "https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com", prefix
@@ -43,23 +44,18 @@ def stack_parameters(values):
 
 
 class LegacyAdoptionTest(unittest.TestCase):
+    legacy_version = "v4.21.1"
+    legacy_origin = "https://test-bucket.s3.amazonaws.com"
+
     def setUp(self):
         self.fixture = existing_tests.LauncherTest()
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         f = self.fixture
-        f.existing(
-            Parameters=stack_parameters(
-                {
-                    **{
-                        key: value
-                        for key, value in PROPS.items()
-                        if key != "ExternalId"
-                    },
-                    "APPKey": "legacy-app-secret",
-                }
-            )
-        )
+        previous = {key: value for key, value in PROPS.items() if key != "ExternalId"}
+        if self.legacy_version == "v4.21.1":
+            previous["APPKey"] = "legacy-app-secret"
+        f.existing(Parameters=stack_parameters(previous))
         self.legacy_parameters = {
             "IAMRoleName": PROPS["IAMRoleName"],
             "DatadogSite": PROPS["DatadogSite"],
@@ -76,6 +72,16 @@ class LegacyAdoptionTest(unittest.TestCase):
         self.role_parent = existing_tests.QUICKSTART_ROOT
         self.role_name = PROPS["IAMRoleName"]
         self.owned_scope = "stack"
+        self.permissions_url = f"{self.legacy_origin}/aws/{self.legacy_version}/datadog_integration_permissions.yaml"
+        self.child_event = {
+            "LogicalResourceId": launcher.PERMISSIONS_RESOURCE,
+            "PhysicalResourceId": "permissions",
+            "ResourceType": "AWS::CloudFormation::Stack",
+            "ResourceStatus": "CREATE_COMPLETE",
+            "ResourceProperties": json.dumps({"TemplateURL": self.permissions_url}),
+        }
+        f.cf.describe_stack_events.side_effect = None
+        f.cf.describe_stack_events.return_value = {"StackEvents": [self.child_event]}
         f.role_owners[PROPS["IAMRoleName"]] = ROLE_STACK
         self.role = {
             "RoleName": PROPS["IAMRoleName"],
@@ -96,7 +102,11 @@ class LegacyAdoptionTest(unittest.TestCase):
         }
         self.legacy_parent = ROOT
         self.pipeline = False
-        f.cf.get_template.return_value = {"TemplateBody": legacy_template()}
+        f.cf.get_template.return_value = {
+            "TemplateBody": legacy_template(
+                prefix=self.legacy_origin, version=self.legacy_version
+            )
+        }
         f.cf.describe_stacks.side_effect = self.describe_stacks
         f.cf.describe_stack_resources.side_effect = self.describe_resources
         f.iam.get_role.side_effect = self.get_role
@@ -165,7 +175,9 @@ class LegacyAdoptionTest(unittest.TestCase):
                     }
                 ]
             }
-        return self.fixture.describe_stack_resources(StackName=StackName)
+        return self.fixture.describe_stack_resources(
+            StackName=StackName, LogicalResourceId=LogicalResourceId
+        )
 
     def get_role(self, *, RoleName):
         if RoleName == PROPS["IAMRoleName"]:
@@ -180,15 +192,18 @@ class LegacyAdoptionTest(unittest.TestCase):
         self.fixture.iam.get_role.side_effect = self.get_role
         self.fixture.coverage("aws:ec2:instance")
 
-    def adopted(self):
+    def adopted(self, *, pinned=True):
         previous = launcher.parameters(self.fixture.current_stack)
         previous.pop("APPKey", None)
         previous.update(
             ExternalId=PROPS["ExternalId"],
-            LegacyPermissionsTemplateVersion="v4.21.1",
+            LegacyPermissionsTemplateVersion=self.legacy_version,
+            LegacyPermissionsTemplateURL=self.permissions_url,
             LegacyInstrumentationResourceTypes="aws:ec2:instance",
             InstrumentationResourceTypes="aws:ec2:instance,aws:eks:cluster",
         )
+        if not pinned:
+            previous.pop("LegacyPermissionsTemplateURL")
         self.fixture.current_stack["Parameters"] = stack_parameters(previous)
         self.fixture.cf.describe_stack_resources.return_value["StackResources"].append(
             {
@@ -216,7 +231,12 @@ class LegacyAdoptionTest(unittest.TestCase):
         self.assertTrue(json.loads(args["Description"])["PreserveLegacyPermissions"])
         values = self.fixture.values()
         self.assertEqual(
-            values["LegacyPermissionsTemplateVersion"]["ParameterValue"], "v4.21.1"
+            values["LegacyPermissionsTemplateURL"]["ParameterValue"],
+            self.permissions_url,
+        )
+        self.assertEqual(
+            values["LegacyPermissionsTemplateVersion"]["ParameterValue"],
+            self.legacy_version,
         )
         self.assertEqual(
             values["LegacyInstrumentationResourceTypes"]["ParameterValue"],
@@ -327,10 +347,13 @@ class LegacyAdoptionTest(unittest.TestCase):
         self.assert_rejected()
 
     def test_unknown_or_modified_template_is_rejected(self):
+        original = legacy_template(
+            prefix=self.legacy_origin, version=self.legacy_version
+        )
         for source in (
-            legacy_template(version="v4.20.1"),
-            legacy_template() + "\nMetadata: {custom: true}\n",
-            legacy_template().replace(
+            original.replace(self.legacy_version, "v4.20.1"),
+            original + "\nMetadata: {custom: true}\n",
+            original.replace(
                 "ManageBasePermissions: false", "ManageBasePermissions: true"
             ),
         ):
@@ -378,7 +401,92 @@ class LegacyAdoptionTest(unittest.TestCase):
             self.fixture.values()["InstrumentationResourceTypes"]["ParameterValue"],
             "aws:ec2:instance,aws:eks:cluster",
         )
+        self.assertEqual(
+            self.fixture.values()["LegacyPermissionsTemplateVersion"]["ParameterValue"],
+            self.legacy_version,
+        )
+        self.assertEqual(
+            self.fixture.values()["LegacyPermissionsTemplateURL"]["ParameterValue"],
+            self.permissions_url,
+        )
         self.fixture.cf.get_template.assert_not_called()
+        self.fixture.cf.describe_stack_events.assert_not_called()
+
+    def test_older_adopted_stack_recovers_exact_url_from_paginated_physical_history(
+        self,
+    ):
+        self.adopted()
+        previous = launcher.parameters(self.fixture.current_stack)
+        previous.pop("LegacyPermissionsTemplateURL")
+        self.fixture.current_stack["Parameters"] = stack_parameters(previous)
+        self.fixture.cf.describe_stack_events.side_effect = [
+            {
+                "StackEvents": [
+                    {**self.child_event, "PhysicalResourceId": "another-child"}
+                ],
+                "NextToken": "page-2",
+            },
+            {"StackEvents": [self.child_event]},
+        ]
+        self.fixture.subject.prepare(existing_tests.event())
+        self.assertEqual(
+            self.fixture.values()["LegacyPermissionsTemplateURL"]["ParameterValue"],
+            self.permissions_url,
+        )
+        self.fixture.cf.describe_stack_events.assert_any_call(
+            StackName=ROOT, NextToken="page-2"
+        )
+
+    def test_unapproved_url_pin_is_rejected(self):
+        self.adopted()
+        previous = launcher.parameters(self.fixture.current_stack)
+        for url in (
+            self.permissions_url.replace("https://", "http://"),
+            self.permissions_url + "?versionId=unverified",
+            self.permissions_url.replace(self.legacy_version, "v4.20.1"),
+            self.permissions_url.replace(self.legacy_origin, "https://unknown.invalid"),
+        ):
+            with self.subTest(url=url):
+                self.fixture.current_stack["Parameters"] = stack_parameters(
+                    {**previous, "LegacyPermissionsTemplateURL": url}
+                )
+                self.assert_rejected()
+
+    def test_missing_or_untrusted_child_history_does_not_guess_an_origin(self):
+        self.adopted(pinned=False)
+        for change in (
+            {"ResourceProperties": "{}"},
+            {"ResourceProperties": "not-json"},
+            {"ResourceProperties": "[]"},
+            {
+                "ResourceProperties": json.dumps(
+                    {"TemplateURL": "https://unknown.invalid/old.yaml"}
+                )
+            },
+            {"PhysicalResourceId": "replaced-child"},
+            {"ResourceStatus": "UPDATE_FAILED"},
+        ):
+            with self.subTest(change=change):
+                self.fixture.cf.describe_stack_events.return_value = {
+                    "StackEvents": [{**self.child_event, **change}]
+                }
+                self.assert_rejected()
+        self.fixture.cf.describe_stack_events.return_value = {
+            "StackEvents": [
+                {**self.child_event, "ResourceProperties": "{}"},
+                self.child_event,
+            ]
+        }
+        self.assert_rejected()
+
+    def test_history_lookup_is_bounded(self):
+        self.adopted(pinned=False)
+        self.fixture.cf.describe_stack_events.return_value = {
+            "StackEvents": [],
+            "NextToken": "more",
+        }
+        self.assert_rejected()
+        self.assertEqual(self.fixture.cf.describe_stack_events.call_count, 20)
 
     def test_adoption_preserves_tags_without_an_inherited_version_tag_update(self):
         tags = [{"Key": "customer", "Value": "preserve"}]
@@ -439,6 +547,36 @@ class LegacyAdoptionTest(unittest.TestCase):
         self.fixture.cf.create_change_set.assert_not_called()
 
 
+class Legacy422AdoptionTest(LegacyAdoptionTest):
+    legacy_version = "v4.22.0"
+
+    def test_api_key_only_fixture_and_previous_parameters_do_not_require_app_key(self):
+        template = yaml.load(
+            legacy_template(prefix=self.legacy_origin, version=self.legacy_version),
+            Loader=TemplateLoader,
+        )
+        self.assertNotIn("APPKey", template["Parameters"])
+        self.assertNotIn("APPKey", launcher.parameters(self.fixture.current_stack))
+        self.fixture.subject.prepare(existing_tests.event())
+        self.assertEqual(
+            self.fixture.values()["APIKey"],
+            {"ParameterKey": "APIKey", "UsePreviousValue": True},
+        )
+        self.assertNotIn("APPKey", self.fixture.values())
+
+
+class PublishedLegacyAdoptionTest(LegacyAdoptionTest):
+    legacy_origin = (
+        "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com"
+    )
+
+
+class PublishedLegacy422AdoptionTest(Legacy422AdoptionTest):
+    legacy_origin = (
+        "https://datadog-cloudformation-template-quickstart.s3.amazonaws.com"
+    )
+
+
 class LegacyChangeSetTest(unittest.TestCase):
     def setUp(self):
         self.fixture = existing_tests.PollTest()
@@ -478,6 +616,34 @@ class LegacyChangeSetTest(unittest.TestCase):
         ]
         launcher.poll_change_set(f.client, existing_tests.event(), self.current)
         f.client.execute_change_set.assert_called_once()
+
+    def test_frozen_url_retargeting_or_missing_context_blocks_execution(self):
+        f = self.fixture
+        for context in (
+            None,
+            "not-json",
+            json.dumps(
+                {
+                    "Properties": {
+                        "TemplateURL": launcher.PUBLISHED_TEMPLATE_ORIGIN
+                        + "/aws/v4.21.1/datadog_integration_permissions.yaml"
+                    }
+                }
+            ),
+        ):
+            with self.subTest(context=context):
+                f.nested_changes([])
+                f.pages[existing_tests.CHANGE_SET][0]["Changes"][0]["ResourceChange"][
+                    "AfterContext"
+                ] = context
+                with self.assertRaisesRegex(launcher.InstallationError, "template URL"):
+                    launcher.poll_change_set(
+                        f.client, existing_tests.event(), self.current
+                    )
+                f.client.execute_change_set.assert_not_called()
+        f.change_paginator.paginate.assert_any_call(
+            ChangeSetName=existing_tests.CHANGE_SET, IncludePropertyValues=True
+        )
 
     def test_any_legacy_child_resource_change_blocks_execution(self):
         for action in ("Add", "Modify", "Remove"):
@@ -547,21 +713,61 @@ class LegacyChangeSetTest(unittest.TestCase):
 
 class LegacyTemplateTest(unittest.TestCase):
     def test_known_template_hashes_cover_yaml_and_json_in_both_partitions(self):
-        for prefix in (
-            "https://test-bucket.s3.amazonaws.com",
-            "https://test-gov.s3.us-gov-west-1.amazonaws.com",
-        ):
-            with (
-                self.subTest(prefix=prefix),
-                patch.dict(
-                    os.environ,
-                    {
-                        "INSTALLATION_TEMPLATE_URL": prefix
-                        + "/aws/v4.23.0/main_agent_installation.yaml"
-                    },
-                ),
+        for version in ("v4.21.1", "v4.22.0"):
+            for prefix in (
+                "https://test-bucket.s3.amazonaws.com",
+                "https://test-gov.s3.us-gov-west-1.amazonaws.com",
             ):
-                source = legacy_template(prefix=prefix)
+                with (
+                    self.subTest(version=version, prefix=prefix),
+                    patch.dict(
+                        os.environ,
+                        {
+                            "INSTALLATION_TEMPLATE_URL": prefix
+                            + "/aws/v4.23.0/main_agent_installation.yaml"
+                        },
+                    ),
+                ):
+                    source = legacy_template(prefix=prefix, version=version)
+                    parsed = json.loads(
+                        json.dumps(
+                            yaml.load(source, Loader=TemplateLoader), default=str
+                        )
+                    )
+                    for body in (
+                        source,
+                        source.replace("\n", "\r\n"),
+                        parsed,
+                        json.dumps(parsed),
+                    ):
+                        self.assertEqual(
+                            launcher.legacy_template_version(body), version
+                        )
+                        self.assertTrue(launcher.is_known_legacy_template(body))
+                    self.assertIsNone(
+                        launcher.legacy_template_version(
+                            {**parsed, "Metadata": {"changed": True}}
+                        )
+                    )
+                    self.assertFalse(
+                        launcher.is_known_legacy_template(
+                            legacy_template(
+                                prefix="https://untrusted.invalid", version=version
+                            )
+                        )
+                    )
+
+    def test_published_release_formats_keep_their_url_with_a_private_candidate(self):
+        with patch.dict(
+            os.environ,
+            {
+                "INSTALLATION_TEMPLATE_URL": "https://test-bucket.s3.amazonaws.com/aws/v4.23.0/main_agent_installation.yaml"
+            },
+        ):
+            for version in ("v4.21.1", "v4.22.0"):
+                source = legacy_template(
+                    prefix=launcher.PUBLISHED_TEMPLATE_ORIGIN, version=version
+                )
                 parsed = json.loads(
                     json.dumps(yaml.load(source, Loader=TemplateLoader), default=str)
                 )
@@ -571,27 +777,139 @@ class LegacyTemplateTest(unittest.TestCase):
                     parsed,
                     json.dumps(parsed),
                 ):
-                    self.assertTrue(launcher.is_known_legacy_template(body))
-                self.assertFalse(
-                    launcher.is_known_legacy_template(
-                        {**parsed, "Metadata": {"changed": True}}
+                    self.assertEqual(
+                        launcher.legacy_template_configuration(body),
+                        {
+                            "version": version,
+                            "permissions_url": f"{launcher.PUBLISHED_TEMPLATE_ORIGIN}/aws/{version}/datadog_integration_permissions.yaml",
+                        },
                     )
+
+    def test_published_asset_permissions_are_exact_and_delegated(self):
+        template = yaml.load(
+            Path(__file__)
+            .with_name("main_agent_installation_launcher.yaml")
+            .read_text(),
+            Loader=TemplateLoader,
+        )
+        statements = template["Resources"]["LauncherRole"]["Properties"]["Policies"][0][
+            "PolicyDocument"
+        ]["Statement"]
+        objects = {
+            f"aws/{version}/{name}"
+            for version in ("v4.21.1", "v4.22.0")
+            for name in (
+                "datadog_integration_permissions.yaml",
+                "datadog_agent_resource_update_forwarding.yaml",
+            )
+        }
+        reads = next(s for s in statements if s["Sid"] == "VersionedTemplates")
+        actual = {
+            r["Fn::Sub"]
+            for r in reads["Resource"]
+            if "datadog-cloudformation-template-quickstart" in r["Fn::Sub"]
+        }
+        self.assertEqual(
+            actual,
+            {
+                "arn:${AWS::Partition}:s3:::datadog-cloudformation-template-quickstart/"
+                + p
+                for p in objects
+            },
+        )
+        self.assertEqual(reads["Action"], "s3:GetObject")
+        writes = next(s for s in statements if s["Sid"] == "NestedStackTemplates")
+        self.assertIn(
+            "cloudformation.amazonaws.com",
+            writes["Condition"]["ForAnyValue:StringEquals"]["aws:CalledVia"],
+        )
+        urls = {
+            url
+            for url in writes["Condition"]["StringLike"]["cloudformation:TemplateUrl"]
+            if url.startswith(launcher.PUBLISHED_TEMPLATE_ORIGIN)
+        }
+        self.assertEqual(
+            urls, {launcher.PUBLISHED_TEMPLATE_ORIGIN + "/" + p for p in objects}
+        )
+
+    def test_origin_mixing_and_pre_normalized_urls_are_rejected(self):
+        with patch.dict(
+            os.environ,
+            {
+                "INSTALLATION_TEMPLATE_URL": "https://test-bucket.s3.amazonaws.com/aws/v4.23.0/main_agent_installation.yaml"
+            },
+        ):
+            for version in ("v4.21.1", "v4.22.0"):
+                source = legacy_template(
+                    prefix=launcher.PUBLISHED_TEMPLATE_ORIGIN, version=version
                 )
-                self.assertFalse(
-                    launcher.is_known_legacy_template(
-                        legacy_template(prefix="https://untrusted.invalid")
+                for altered in (
+                    source.replace(
+                        launcher.PUBLISHED_TEMPLATE_ORIGIN,
+                        "https://test-bucket.s3.amazonaws.com",
+                        1,
+                    ),
+                    source.replace(
+                        launcher.PUBLISHED_TEMPLATE_ORIGIN, "https://unknown.invalid"
+                    ),
+                    source.replace(
+                        f"{launcher.PUBLISHED_TEMPLATE_ORIGIN}/aws/{version}/",
+                        "https://legacy-template.invalid/aws/release/",
+                    ).replace(f"# version: {version}", "# version: legacy"),
+                ):
+                    parsed = json.loads(
+                        json.dumps(
+                            yaml.load(altered, Loader=TemplateLoader), default=str
+                        )
                     )
-                )
+                    for body in (altered, parsed, json.dumps(parsed)):
+                        self.assertIsNone(launcher.legacy_template_configuration(body))
+
+    def test_release_labels_and_dependencies_cannot_be_mixed(self):
+        with patch.dict(
+            os.environ,
+            {
+                "INSTALLATION_TEMPLATE_URL": "https://test-bucket.s3.amazonaws.com/aws/v4.23.0/main_agent_installation.yaml"
+            },
+        ):
+            for version, other in (("v4.21.1", "v4.22.0"), ("v4.22.0", "v4.21.1")):
+                source = legacy_template(version=version)
+                for altered in (
+                    source.replace(version, other),
+                    source.replace(version, "v4.22.1"),
+                    source.replace(
+                        version + "/datadog_integration_permissions.yaml",
+                        other + "/datadog_integration_permissions.yaml",
+                    ),
+                ):
+                    parsed = json.loads(
+                        json.dumps(
+                            yaml.load(altered, Loader=TemplateLoader), default=str
+                        )
+                    )
+                    for body in (altered, parsed, json.dumps(parsed)):
+                        with self.subTest(
+                            version=version, body_type=type(body).__name__
+                        ):
+                            self.assertIsNone(launcher.legacy_template_version(body))
 
     def test_legacy_child_is_pinned_and_keeps_normal_deletion_behavior(self):
         current = yaml.load(
             Path(__file__).with_name("main_agent_installation.yaml").read_text(),
             Loader=TemplateLoader,
         )
-        original = yaml.load(legacy_template(), Loader=TemplateLoader)
+        self.assertEqual(
+            set(
+                current["Parameters"]["LegacyPermissionsTemplateVersion"][
+                    "AllowedValues"
+                ]
+            ),
+            {"", "v4.21.1", "v4.22.0"},
+        )
         params = {
             **PROPS,
             "LegacyPermissionsTemplateVersion": "v4.21.1",
+            "LegacyPermissionsTemplateURL": "",
             "LegacyInstrumentationResourceTypes": "aws:ec2:instance",
             "InstrumentationResourceTypes": ["aws:ec2:instance", "aws:eks:cluster"],
             "InstrumentationRefreshToken": "new-request",
@@ -602,17 +920,31 @@ class LegacyTemplateTest(unittest.TestCase):
             if isinstance(value, list):
                 return [evaluate(v) for v in value]
             if not isinstance(value, dict):
-                return value
+                return (
+                    value.replace("<BUCKET_PLACEHOLDER>", "test-bucket")
+                    if isinstance(value, str)
+                    else value
+                )
+            if "Fn::Equals" in value:
+                left, right = evaluate(value["Fn::Equals"])
+                return left == right
+            if "Fn::Contains" in value:
+                collection, item = evaluate(value["Fn::Contains"])
+                return item in collection
+            if "Fn::And" in value:
+                return all(evaluate(value["Fn::And"]))
+            if "Fn::Or" in value:
+                return any(evaluate(value["Fn::Or"]))
+            if "Fn::Not" in value:
+                return not evaluate(value["Fn::Not"])[0]
             if "Ref" in value:
                 return (
                     no_value if value["Ref"] == "AWS::NoValue" else params[value["Ref"]]
                 )
             if "Fn::If" in value:
                 condition, yes, no = value["Fn::If"]
-                self.assertEqual(condition, "HasLegacyPermissions")
-                return evaluate(
-                    yes if params["LegacyPermissionsTemplateVersion"] else no
-                )
+                enabled = evaluate(current["Conditions"][condition])
+                return evaluate(yes if enabled else no)
             if "Fn::Sub" in value:
                 return value["Fn::Sub"].replace(
                     "${LegacyPermissionsTemplateVersion}",
@@ -625,18 +957,56 @@ class LegacyTemplateTest(unittest.TestCase):
             return {key: item for key, item in resolved.items() if item is not no_value}
 
         frozen = current["Resources"][launcher.PERMISSIONS_RESOURCE]
-        resolved = evaluate(frozen["Properties"])
-        resolved["TemplateURL"] = resolved["TemplateURL"].replace(
-            "<BUCKET_PLACEHOLDER>", "test-bucket"
+        for version in ("v4.21.1", "v4.22.0"):
+            for origin in (
+                "https://test-bucket.s3.amazonaws.com",
+                launcher.PUBLISHED_TEMPLATE_ORIGIN,
+            ):
+                with self.subTest(version=version, origin=origin):
+                    params["LegacyPermissionsTemplateVersion"] = version
+                    params["LegacyPermissionsTemplateURL"] = (
+                        f"{origin}/aws/{version}/datadog_integration_permissions.yaml"
+                    )
+                    params["InstrumentationResourceTypes"] = [
+                        "aws:ec2:instance",
+                        "aws:eks:cluster",
+                    ]
+                    original = yaml.load(
+                        legacy_template(prefix=origin, version=version),
+                        Loader=TemplateLoader,
+                    )
+                    resolved = evaluate(frozen["Properties"])
+                    # The old root's requested types are restored by CloudFormation on rollback.
+                    params["InstrumentationResourceTypes"] = ["aws:ec2:instance"]
+                    self.assertEqual(
+                        resolved,
+                        evaluate(
+                            original["Resources"][launcher.PERMISSIONS_RESOURCE][
+                                "Properties"
+                            ]
+                        ),
+                    )
+        rule = current["Rules"]["LegacyTemplateURLMatchesVersion"]
+        allowed_urls = evaluate(
+            current["Parameters"]["LegacyPermissionsTemplateURL"]["AllowedValues"]
         )
-        # The old root's requested types are restored by CloudFormation on rollback.
-        params["InstrumentationResourceTypes"] = ["aws:ec2:instance"]
-        self.assertEqual(
-            resolved,
-            evaluate(
-                original["Resources"][launcher.PERMISSIONS_RESOURCE]["Properties"]
-            ),
-        )
+        for version in ("", "v4.21.1", "v4.22.0"):
+            params["LegacyPermissionsTemplateVersion"] = version
+            for url in [*allowed_urls, "https://untrusted.invalid/template.yaml"]:
+                params["LegacyPermissionsTemplateURL"] = url
+                accepted = url in allowed_urls and (
+                    not evaluate(rule["RuleCondition"])
+                    or all(evaluate(a["Assert"]) for a in rule["Assertions"])
+                )
+                self.assertEqual(
+                    accepted,
+                    (not url and not version)
+                    or (
+                        bool(version)
+                        and f"/aws/{version}/" in url
+                        and url in allowed_urls
+                    ),
+                )
         for resource in current["Resources"].values():
             self.assertNotIn("DeletionPolicy", resource)
             self.assertNotIn("UpdateReplacePolicy", resource)
@@ -647,6 +1017,7 @@ class LegacyTemplateTest(unittest.TestCase):
             new["Properties"]["Parameters"]["InstrumentationPolicyScope"], "stack"
         )
         params["LegacyPermissionsTemplateVersion"] = ""
+        params["LegacyPermissionsTemplateURL"] = ""
         fresh = evaluate(frozen["Properties"])
         self.assertEqual(fresh["Parameters"]["InstrumentationPolicyScope"], "stack")
         self.assertEqual(
