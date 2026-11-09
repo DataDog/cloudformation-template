@@ -115,18 +115,16 @@ else
     echo "Proceeding with upload (--yes flag provided)"
 fi
 
-# Update bucket placeholder
-cp main_organizations.yaml main_organizations.yaml.bak
-perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_organizations.yaml
-perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_organizations.yaml
-trap 'mv main_organizations.yaml.bak main_organizations.yaml' EXIT
-
-# Upload
-if [ "$PRIVATE_TEMPLATE" = true ] ; then
-    aws s3 cp . s3://${BUCKET}/aws/${VERSION} --recursive --exclude "*" --include "*.yaml"
-else
-    aws s3 cp . s3://${BUCKET}/aws/${VERSION} --recursive --exclude "*" --include "*.yaml"
+# Publish the worker and bootstrap together, with matching immutable URLs.
+# Render outside the checkout so a failed upload cannot leave source files modified.
+python3 wif/render_wif.py --check
+RENDER_DIR=$(mktemp -d)
+trap 'rm -rf "$RENDER_DIR"' EXIT
+python3 wif/render_wif.py --output "$RENDER_DIR" --bucket "$BUCKET" --version "$VERSION"
+if [ "$GOV" = true ]; then
+    rm "$RENDER_DIR/main_organizations_wif.yaml"
 fi
+aws s3 cp "$RENDER_DIR/" "s3://${BUCKET}/aws/${VERSION}" --recursive --exclude "*" --include "*.yaml"
 if [ "$GOV" = true ]; then
     echo "Done uploading the template. Navigate to https://console.amazonaws-us-gov.com/cloudformation/home?region=us-gov-west-1#/stacksets/create and use the template URL below."
     echo "https://${BUCKET}.s3.us-gov-west-1.amazonaws.com/aws/${VERSION}/main_organizations.yaml"
@@ -147,6 +145,10 @@ if [ "$PRIVATE_TEMPLATE" = false ] ; then
     echo "\thttps://${VERSIONS_BUCKET}.s3.amazonaws.com/organizations/versions.json"
 else
     echo "Skipping versions.json upload for private release"
+fi
+
+if [ "$GOV" = false ]; then
+    echo "WIF bootstrap (commercial AWS only): https://${BUCKET}.s3.amazonaws.com/aws/${VERSION}/main_organizations_wif.yaml"
 fi
 
 echo "Done!"

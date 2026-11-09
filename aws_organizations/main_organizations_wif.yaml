@@ -1,0 +1,621 @@
+# version: <VERSION_PLACEHOLDER>
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Bootstrap Datadog AWS Organizations StackSet WIF with a short-lived PAT; member accounts retain no Datadog keys.
+Parameters:
+  BootstrapPAT:
+    Type: String
+    NoEcho: true
+    MinLength: 1
+    Description: Paste the short-lived PAT from Datadog. Used only for initial mapping creation; never passed to member accounts.
+  DatadogSite:
+    Type: String
+    Default: datadoghq.com
+    AllowedValues: [datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com, ap1.datadoghq.com, ap2.datadoghq.com, uk1.datadoghq.com, datad0g.com]
+  DatadogOrgUUID:
+    Type: String
+    AllowedPattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+  ServiceAccountId:
+    Type: String
+    AllowedPattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    Description: UUID from the existing Datadog service-account URL in Organization Settings. WIF inherits its permissions; use a dedicated least-privilege account. No SAT is created.
+  ExpectedAccountId:
+    Type: String
+    AllowedPattern: '^[0-9]{12}$'
+    Description: 12-digit ID of the already-integrated management or delegated-administrator account where you are launching this bootstrap stack.
+  CallAs:
+    Type: String
+    Default: SELF
+    AllowedValues: [SELF, DELEGATED_ADMIN]
+    Description: SELF for the AWS Organizations management account; DELEGATED_ADMIN for a registered StackSets delegated administrator.
+  OrganizationalUnitIds:
+    Type: CommaDelimitedList
+    AllowedPattern: '^(r-[a-z0-9]{4,32}|ou-[a-z0-9]{4,32}-[a-z0-9]{8,32})$'
+    Description: Explicit organization root or OU IDs to integrate. New accounts added to these targets are deployed automatically.
+  IAMRoleName:
+    Type: String
+    Default: DatadogIntegrationRole
+    AllowedPattern: '^[A-Za-z0-9_+=,.@-]{1,64}$'
+  DisableMetricCollection:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  DisableResourceCollection:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  CloudSecurityPostureManagement:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+Resources:
+  BootstrapExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: InspectBootstrapPrerequisites
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: organizations:DescribeOrganization
+                Resource: '*'
+              - Effect: Allow
+                Action: iam:GetRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+  OrganizationInfoFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.14
+      Handler: index.handler
+      Role: !GetAtt BootstrapExecutionRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import hashlib
+          import json
+          import boto3
+          import cfnresponse
+          from botocore.config import Config
+
+          def handler(event, context):
+              if event['RequestType'] == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+              try:
+                  props = event['ResourceProperties']
+                  config = Config(connect_timeout=3, read_timeout=10, retries={'total_max_attempts': 2})
+                  org = boto3.client('organizations', region_name='us-east-1', config=config).describe_organization()['Organization']
+                  management = org.get('ManagementAccountId', org.get('MasterAccountId'))
+                  if props['CallAs'] == 'SELF' and management != props['AccountId']:
+                      raise ValueError('not the management account')
+                  targets = props['OrganizationalUnitIds']
+                  if isinstance(targets, str):
+                      targets = targets.split(',')
+                  targets = sorted(set(target.strip() for target in targets))
+                  digest = hashlib.sha256(json.dumps(targets).encode()).hexdigest()
+                  identity = 'datadog-org:' + org['Id'] + ':' + digest
+                  if event['RequestType'] == 'Update' and event.get('PhysicalResourceId') != identity:
+                      cfnresponse.send(event, context, cfnresponse.FAILED, {}, physicalResourceId=event.get('PhysicalResourceId'), reason='Organization and OU/root targets are immutable in this bootstrap stack. Delete affected instances before changing authorization, then create a replacement bootstrap stack.')
+                      return
+                  paths = [org['Id'] + ('/' if target.startswith('r-') else '/*/') + target + '/*' for target in targets]
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {'OrganizationId': org['Id'], 'OrganizationPaths': ','.join(paths)}, physicalResourceId=identity)
+              except Exception:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, physicalResourceId=event.get('PhysicalResourceId'), reason='Cannot verify AWS Organizations prerequisites. Use the management account, or select DELEGATED_ADMIN for a registered StackSets delegated administrator.')
+  OrganizationInfo:
+    Type: Custom::DatadogOrganizationInfo
+    Properties:
+      ServiceToken: !GetAtt OrganizationInfoFunction.Arn
+      ServiceTimeout: 90
+      AccountId: !Ref AWS::AccountId
+      CallAs: !Ref CallAs
+      OrganizationalUnitIds: !Ref OrganizationalUnitIds
+  WifBrokerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Datadog WIF identity broker. No AWS data-access permissions; only tightly constrained organization workers may assume it.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: BootstrapVerification
+            Effect: Allow
+            Principal: {AWS: !GetAtt BootstrapExecutionRole.Arn}
+            Action: sts:AssumeRole
+          - Sid: OrganizationStackSetWorkers
+            Effect: Allow
+            Principal: {AWS: '*'}
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: !GetAtt OrganizationInfo.OrganizationId
+              ForAnyValue:StringLike:
+                aws:PrincipalOrgPaths: !Split [',', !GetAtt OrganizationInfo.OrganizationPaths]
+              ArnLike:
+                aws:PrincipalArn: !Sub
+                  - arn:aws:iam::*:role/DatadogWif-${StackUuid}
+                  - StackUuid: !Select [2, !Split ['/', !Ref AWS::StackId]]
+  BootstrapAssumeRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: VerifyDatadogWifBroker
+      Roles: [!Ref BootstrapExecutionRole]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Resource: !GetAtt WifBrokerRole.Arn
+  BootstrapFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: BootstrapAssumeRolePolicy
+    Properties:
+      Runtime: python3.14
+      Handler: index.handler
+      Role: !GetAtt BootstrapExecutionRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          # BEGIN GENERATED WIF BOOTSTRAP
+          """AWS identity exchange used by the StackSet bootstrap and account workers.
+
+          Embedded into the templates by render_wif.py. No PAT or static Datadog key is
+          needed by this client. Credentials and signed STS proofs must never be logged.
+          """
+
+          import base64
+          import json
+          import math
+          import os
+          import re
+          import time
+          import urllib.error
+          import urllib.request
+          import uuid
+
+          import boto3
+          from botocore.auth import SigV4Auth
+          from botocore.awsrequest import AWSRequest
+          from botocore.credentials import Credentials
+          from botocore.config import Config
+          from botocore.exceptions import ClientError
+
+          WIF_AWS_CONFIG = Config(connect_timeout=3, read_timeout=10, retries={"total_max_attempts": 2, "mode": "standard"})
+
+          WIF_SITES = frozenset({
+              "datadoghq.com", "datadoghq.eu", "us3.datadoghq.com", "us5.datadoghq.com",
+              "ap1.datadoghq.com", "ap2.datadoghq.com", "uk1.datadoghq.com", "datad0g.com",
+          })
+          _WIF_ROLE = re.compile(r"^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9_+=,.@-]{1,64}$")
+          _WIF_TOKEN_CACHE = {}
+
+
+          class WifError(RuntimeError):
+              """An error whose message is safe to return to CloudFormation."""
+
+
+          class DatadogHttpError(WifError):
+              def __init__(self, status, path):
+                  self.status = status
+                  # Do not include response bodies, request headers, or signed proofs.
+                  super().__init__(f"Datadog returned HTTP {status} for {path.split('?')[0]}")
+
+
+          class _NoCredentialRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+
+          def _wif_api_origin(site):
+              if site not in WIF_SITES:
+                  raise WifError("Unsupported Datadog site for AWS StackSet WIF")
+              return f"https://api.{site}"
+
+
+          def wif_api_request(site, path, headers, method="GET", body=None):
+              """Call only a supported Datadog API origin, without forwarding credentials."""
+              origin = _wif_api_origin(site)
+              if not path.startswith("/api/"):
+                  raise WifError("Invalid Datadog API path")
+              request_headers = {
+                  "Accept": "application/vnd.api+json",
+                  "Dd-Aws-Api-Call-Source": "cfn-organizations-wif",
+                  **headers,
+              }
+              data = None
+              if body is not None:
+                  data = json.dumps(body).encode("utf-8")
+                  request_headers["Content-Type"] = "application/vnd.api+json"
+              request = urllib.request.Request(
+                  origin + path, data=data, headers=request_headers, method=method,
+              )
+              try:
+                  with urllib.request.build_opener(_NoCredentialRedirect()).open(request, timeout=15) as response:
+                      raw = response.read()
+              except urllib.error.HTTPError as error:
+                  raise DatadogHttpError(error.code, path) from None
+              except (OSError, urllib.error.URLError):
+                  raise WifError("Unable to reach the Datadog API") from None
+              try:
+                  return json.loads(raw) if raw else {}
+              except (ValueError, UnicodeError):
+                  raise WifError("Malformed response from the Datadog API") from None
+
+
+          class WifClient:
+              def __init__(self, site, org_uuid, role_arn):
+                  _wif_api_origin(site)
+                  try:
+                      if str(uuid.UUID(org_uuid)) != org_uuid.lower():
+                          raise ValueError()
+                  except (ValueError, AttributeError, TypeError):
+                      raise WifError("DatadogOrgUUID must be a canonical organization UUID") from None
+                  if not isinstance(role_arn, str) or not _WIF_ROLE.fullmatch(role_arn):
+                      raise WifError("WifBrokerRoleArn must identify one commercial AWS IAM role")
+                  self.site = site
+                  self.org_uuid = org_uuid.lower()
+                  self.role_arn = role_arn
+
+              def _proof(self):
+                  region = os.environ.get("AWS_REGION", "us-east-1")
+                  if not re.fullmatch(r"[a-z]{2}-[a-z0-9-]+-[0-9]+", region):
+                      raise WifError("Invalid AWS region")
+                  try:
+                      sts = boto3.client("sts", region_name=region, config=WIF_AWS_CONFIG)
+                      for attempt in range(5):
+                          try:
+                              result = sts.assume_role(
+                                  RoleArn=self.role_arn,
+                                  RoleSessionName="datadog-stackset-wif",
+                                  DurationSeconds=900,
+                              )["Credentials"]
+                              break
+                          except ClientError as error:
+                              # Newly created worker policies and broker trust can take a
+                              # few seconds to propagate. Never fall back to a PAT/key.
+                              if attempt == 4 or error.response.get("Error", {}).get("Code") not in {"AccessDenied", "AccessDeniedException", "NoSuchEntity"}:
+                                  raise
+                              time.sleep(2 ** attempt)
+                  except Exception:
+                      raise WifError("Unable to assume the WIF broker role; check its organization, OU, and worker-role trust policy") from None
+                  credentials = Credentials(result["AccessKeyId"], result["SecretAccessKey"], result["SessionToken"])
+                  host = f"sts.{region}.amazonaws.com"
+                  url = f"https://{host}/"
+                  body = "Action=GetCallerIdentity&Version=2011-06-15"
+                  request = AWSRequest(
+                      method="POST", url=url, data=body,
+                      headers={
+                          "Host": host,
+                          "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+                          # This header MUST be present before signing: it binds the proof
+                          # to the Datadog org and prevents cross-org proof replay.
+                          "X-Ddog-Org-Id": self.org_uuid,
+                      },
+                  )
+                  SigV4Auth(credentials, "sts", region).add_auth(request)
+                  headers = json.dumps({key: [value] for key, value in request.headers.items()})
+                  encode = lambda value: base64.b64encode(value.encode("utf-8")).decode("ascii")
+                  return "|".join((encode(body), encode(headers), "POST", encode(url)))
+
+              def invalidate(self):
+                  _WIF_TOKEN_CACHE.pop((self.site, self.org_uuid, self.role_arn), None)
+
+              def headers(self):
+                  cache_key = (self.site, self.org_uuid, self.role_arn)
+                  cached = _WIF_TOKEN_CACHE.get(cache_key)
+                  if cached and cached[1] > time.time() + 60:
+                      return {"Authorization": f"Bearer {cached[0]}"}
+                  response = wif_api_request(
+                      self.site, "/api/v2/delegated-token",
+                      {"Authorization": f"Delegated {self._proof()}"}, method="POST",
+                  )
+                  try:
+                      attributes = response["data"]["attributes"]
+                      token = attributes["access_token"]
+                      expiry = float(attributes["expires"])
+                      if not isinstance(token, str) or not token or not math.isfinite(expiry) or expiry <= time.time() + 60:
+                          raise ValueError()
+                  except (KeyError, TypeError, ValueError):
+                      raise WifError("Datadog returned an invalid or expired WIF token") from None
+                  # The exchange currently issues 15-minute tokens. Never cache longer
+                  # than 14 minutes, even if a server response advertises a longer expiry.
+                  _WIF_TOKEN_CACHE[cache_key] = (token, min(expiry, time.time() + 14 * 60))
+                  return {"Authorization": f"Bearer {token}"}
+
+
+          def datadog_stackset_urlopen(request, properties):
+              if properties.get("AuthenticationMode") == "wif":
+                  return urllib.request.build_opener(_NoCredentialRedirect()).open(request, timeout=15)
+              return urllib.request.urlopen(request)
+
+
+          def datadog_stackset_headers(properties):
+              mode = properties.get("AuthenticationMode", "api_keys")
+              if mode == "wif":
+                  return WifClient(
+                      properties["ApiURL"], properties["DatadogOrgUUID"], properties["WifBrokerRoleArn"],
+                  ).headers()
+              if mode == "api_keys":
+                  return {"DD-API-KEY": properties["APIKey"], "DD-APPLICATION-KEY": properties["APPKey"]}
+              raise WifError("Unknown StackSet authentication mode")
+
+
+          """One-time PAT bootstrap for AWS Organizations StackSet workload identity.
+
+          The mapping is deliberately retained. Ordinary updates and deletion do not use
+          or renew the PAT. Revoke the mapping in Datadog after deleting stack instances.
+          """
+
+          import hashlib
+          import json
+          import re
+          import time
+          import urllib.parse
+          import uuid
+
+          import boto3
+          import cfnresponse
+
+
+          _MAPPING_PATH = "/api/v2/cloud_auth/aws/persona_mapping"
+          _BINDING_PROPERTIES = (
+              "DatadogSite", "DatadogOrgUUID", "ServiceAccountId", "WifBrokerRoleArn", "ExpectedAccountId",
+          )
+          _REQUIRED_PERMISSIONS = {"aws_configuration_read", "aws_configuration_edit", "aws_configurations_manage"}
+
+
+          def _arn_pattern(role_arn):
+              account_id = role_arn.split(":")[4]
+              role_name = role_arn.rsplit("/", 1)[1]
+              return f"arn:aws:sts::{account_id}:assumed-role/{role_name}/*"
+
+
+          def _binding_digest(properties):
+              binding = {key: properties.get(key) for key in _BINDING_PROPERTIES}
+              for key in ("DatadogOrgUUID", "ServiceAccountId"):
+                  if isinstance(binding[key], str):
+                      binding[key] = binding[key].lower()
+              return hashlib.sha256(json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+          def _physical_id(mapping_id, trusted_account, properties):
+              # No credential is included. Recording the immutable binding also permits
+              # CloudFormation to roll back a rejected update to the original values.
+              return f"datadog-wif:v1:{mapping_id}:{trusted_account}:{_binding_digest(properties)}"
+
+
+          def _previous_result(event):
+              parts = event.get("PhysicalResourceId", "").split(":")
+              if len(parts) != 5 or parts[:2] != ["datadog-wif", "v1"] or not re.fullmatch(r"[0-9]{12}", parts[3]) or not re.fullmatch(r"[0-9a-f]{64}", parts[4]):
+                  raise WifError("Unknown bootstrap resource identity; do not replace an existing WIF binding in place")
+              return {"MappingId": parts[2], "DatadogTrustedAccountId": parts[3]}
+
+
+          def _trusted_account(integration):
+              """Reuse the actual integration principal, including on the staging site.
+
+              Only an unambiguous root-account principal gated by this integration's
+              exact external ID is accepted. Never guess a staging AWS account number or
+              broaden a trust policy containing a specific foreign role.
+              """
+              auth = integration["attributes"].get("auth_config", {})
+              role_name, external_id = auth.get("role_name"), auth.get("external_id")
+              if not role_name or not external_id:
+                  raise WifError("The broker AWS account must have an existing IAM-role-based Datadog integration")
+              role = boto3.client("iam", config=WIF_AWS_CONFIG).get_role(RoleName=role_name)["Role"]
+              policy = role["AssumeRolePolicyDocument"]
+              if isinstance(policy, str):
+                  policy = json.loads(urllib.parse.unquote(policy))
+              account_ids = set()
+              statements = policy.get("Statement", [])
+              if isinstance(statements, dict):
+                  statements = [statements]
+              for statement in statements:
+                  actions = statement.get("Action", [])
+                  if isinstance(actions, str):
+                      actions = [actions]
+                  if statement.get("Effect") != "Allow" or "sts:AssumeRole" not in actions:
+                      continue
+                  required_id = statement.get("Condition", {}).get("StringEquals", {}).get("sts:ExternalId")
+                  if required_id != external_id and required_id != [external_id]:
+                      continue
+                  principals = statement.get("Principal", {}).get("AWS", [])
+                  if isinstance(principals, str):
+                      principals = [principals]
+                  for principal in principals:
+                      match = re.fullmatch(r"arn:aws:iam::([0-9]{12}):root", principal)
+                      if not match:
+                          raise WifError("The existing integration must trust a Datadog AWS account root with an exact external ID")
+                      account_ids.add(match[1])
+              if len(account_ids) != 1:
+                  raise WifError("Cannot identify one Datadog AWS principal from the broker account's existing integration role")
+              return account_ids.pop()
+
+
+          def _create_mapping(properties):
+              client = WifClient(properties["DatadogSite"], properties["DatadogOrgUUID"], properties["WifBrokerRoleArn"])
+              broker_account = client.role_arn.split(":")[4]
+              if properties["ExpectedAccountId"] != broker_account or properties["AccountId"] != broker_account:
+                  raise WifError("Launch this stack in the already-integrated AWS account selected in Datadog")
+              pat = properties.get("BootstrapPAT", "")
+              if not pat:
+                  raise WifError("A fresh bootstrap PAT is required for initial setup")
+              auth = {"Authorization": f"Bearer {pat}"}
+
+              def call(path, method="GET", body=None):
+                  return wif_api_request(client.site, path, auth, method=method, body=body)
+
+              # Validate all prerequisites before creating a persistent mapping.
+              accounts = call(f"/api/v2/integration/aws/accounts?aws_account_id={broker_account}").get("data", [])
+              accounts = [item for item in accounts if item.get("attributes", {}).get("aws_account_id") == broker_account]
+              if len(accounts) != 1:
+                  raise WifError("The broker AWS account must already be integrated with this Datadog organization")
+              trusted_account = _trusted_account(accounts[0])
+              try:
+                  user_id = str(uuid.UUID(properties["ServiceAccountId"]))
+              except (ValueError, TypeError, AttributeError):
+                  raise WifError("ServiceAccountId must be the UUID of an existing Datadog service account") from None
+              user = call(f"/api/v2/users/{user_id}")["data"]
+              attributes = user["attributes"]
+              if not attributes.get("service_account") or attributes.get("disabled"):
+                  raise WifError("Select an active Datadog service account; human users are not accepted")
+              user_org = user.get("relationships", {}).get("org", {}).get("data") or {}
+              if user_org.get("id", "").lower() != client.org_uuid:
+                  raise WifError("The PAT, service account, and DatadogOrgUUID must belong to the same organization")
+              permissions = call(f"/api/v2/users/{user_id}/permissions").get("data", [])
+              names = {item.get("attributes", {}).get("name") for item in permissions}
+              if not _REQUIRED_PERMISSIONS.issubset(names):
+                  raise WifError("The service account needs AWS Configuration Read, AWS Configuration Edit, and AWS Configurations Manage permissions")
+              handle = attributes["handle"]
+              pattern = _arn_pattern(client.role_arn)
+              mappings = call(_MAPPING_PATH).get("data", [])
+              matches = [item for item in mappings if item["attributes"].get("arn_pattern") == pattern]
+              if matches:
+                  if len(matches) != 1 or matches[0]["attributes"].get("account_uuid") != user_id:
+                      raise WifError("The broker role already has a conflicting WIF mapping; it was not changed")
+                  mapping = matches[0]
+              else:
+                  try:
+                      mapping = call(_MAPPING_PATH, method="POST", body={
+                          "data": {
+                              "type": "aws_cloud_auth_config",
+                              "attributes": {"arn_pattern": pattern, "account_identifier": handle},
+                          },
+                      })["data"]
+                  except DatadogHttpError as error:
+                      if error.status == 403:
+                          raise WifError("Verify WIF is enabled and the bootstrap PAT includes WIF configuration write access and all permissions held by the selected service account") from None
+                      raise
+
+              # Exercise the same AWS proof and bearer-token API path used by future
+              # StackSet instances before marking setup ready. Allow bounded propagation
+              # time for the new role trust and org-config mapping, without PAT fallback.
+              deadline = time.monotonic() + 90
+              for attempt in range(10):
+                  try:
+                      wif_api_request(client.site, f"/api/v2/integration/aws/accounts?aws_account_id={broker_account}", client.headers())
+                      break
+                  except WifError:
+                      client.invalidate()
+                      if attempt == 9 or time.monotonic() >= deadline:
+                          raise WifError("The mapping was created but WIF verification failed. Check AWS trust, the service account's integration access, and WIF enablement; retry setup or revoke the mapping in Datadog") from None
+                      time.sleep(min(2 ** attempt, 8))
+              return {"MappingId": mapping["id"], "DatadogTrustedAccountId": trusted_account}
+
+
+          def handle(event):
+              properties = event["ResourceProperties"]
+              request_type = event["RequestType"]
+              if request_type == "Delete":
+                  # Deliberately do not authenticate with the original PAT or remove a
+                  # mapping still needed by account teardown. Revocation is explicit.
+                  return {}, event.get("PhysicalResourceId", "datadog-wif-retained")
+              if event["ResourceType"] != "Custom::DatadogStackSetWif":
+                  raise WifError("Unknown bootstrap resource type")
+              if request_type == "Update":
+                  result = _previous_result(event)
+                  if _binding_digest(properties) != event["PhysicalResourceId"].split(":")[4]:
+                      raise WifError("WIF identity bindings are immutable in this stack. Create a replacement bootstrap stack and revoke the old mapping explicitly")
+                  return result, event["PhysicalResourceId"]
+              if request_type != "Create":
+                  raise WifError("Unsupported CloudFormation request")
+              result = _create_mapping(properties)
+              return result, _physical_id(result["MappingId"], result["DatadogTrustedAccountId"], properties)
+
+
+          def handler(event, context):
+              # Never log events: ResourceProperties contains the one-time bootstrap PAT.
+              try:
+                  data, resource_id = handle(event)
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, data, physicalResourceId=resource_id)
+              except WifError as error:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, physicalResourceId=event.get("PhysicalResourceId"), reason=str(error))
+              except Exception:
+                  # SDK exceptions and response bodies can contain credentials. Keep the
+                  # customer-facing message bounded and do not dump the request/response.
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, physicalResourceId=event.get("PhysicalResourceId"), reason="AWS StackSet WIF bootstrap failed; verify the documented prerequisites and retry with a fresh PAT")
+          # END GENERATED WIF BOOTSTRAP
+  WifMapping:
+    Type: Custom::DatadogStackSetWif
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ServiceToken: !GetAtt BootstrapFunction.Arn
+      ServiceTimeout: 360
+      BootstrapPAT: !Ref BootstrapPAT
+      DatadogSite: !Ref DatadogSite
+      DatadogOrgUUID: !Ref DatadogOrgUUID
+      ServiceAccountId: !Ref ServiceAccountId
+      AccountId: !Ref AWS::AccountId
+      ExpectedAccountId: !Ref ExpectedAccountId
+      WifBrokerRoleArn: !GetAtt WifBrokerRole.Arn
+  IntegrationStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Properties:
+      StackSetName: !Ref AWS::StackName
+      Description: Datadog AWS integration using AWS workload identity instead of persistent Datadog keys.
+      PermissionModel: SERVICE_MANAGED
+      CallAs: !Ref CallAs
+      Capabilities: [CAPABILITY_NAMED_IAM]
+      AutoDeployment:
+        Enabled: true
+        RetainStacksOnAccountRemoval: false
+      ManagedExecution: {Active: true}
+      TemplateURL: https://<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>/main_organizations.yaml
+      Parameters:
+        - ParameterKey: AuthenticationMode
+          ParameterValue: wif
+        - ParameterKey: DatadogSite
+          ParameterValue: !Ref DatadogSite
+        - ParameterKey: DatadogOrgUUID
+          ParameterValue: !Ref DatadogOrgUUID
+        - ParameterKey: WifBrokerRoleArn
+          ParameterValue: !GetAtt WifBrokerRole.Arn
+        - ParameterKey: WifWorkerRoleName
+          ParameterValue: !Sub
+            - DatadogWif-${StackUuid}
+            - StackUuid: !Select [2, !Split ['/', !Ref AWS::StackId]]
+        - ParameterKey: DatadogTrustedAccountId
+          ParameterValue: !GetAtt WifMapping.DatadogTrustedAccountId
+        - ParameterKey: IAMRoleName
+          ParameterValue: !Ref IAMRoleName
+        - ParameterKey: DisableMetricCollection
+          ParameterValue: !Ref DisableMetricCollection
+        - ParameterKey: DisableResourceCollection
+          ParameterValue: !Ref DisableResourceCollection
+        - ParameterKey: CloudSecurityPostureManagement
+          ParameterValue: !Ref CloudSecurityPostureManagement
+      StackInstancesGroup:
+        - DeploymentTargets:
+            OrganizationalUnitIds: !Ref OrganizationalUnitIds
+          # IAM role names are global within an account: deploy in one region.
+          Regions: [!Ref AWS::Region]
+      OperationPreferences:
+        FailureToleranceCount: 0
+        MaxConcurrentCount: 1
+Outputs:
+  StackSetName:
+    Value: !Ref AWS::StackName
+  WifBrokerRoleArn:
+    Value: !GetAtt WifBrokerRole.Arn
+  WifMappingId:
+    Description: Retained until explicitly revoked in Datadog. Delete StackSet instances before revoking it.
+    Value: !GetAtt WifMapping.MappingId
+  WifSettings:
+    Value: !Sub https://app.${DatadogSite}/organization-settings/workload-identity-federation
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Datadog bootstrap — copied from the onboarding page}
+        Parameters: [BootstrapPAT, DatadogSite, DatadogOrgUUID, ServiceAccountId, ExpectedAccountId]
+      - Label: {default: AWS deployment targets}
+        Parameters: [CallAs, OrganizationalUnitIds, IAMRoleName]
+      - Label: {default: Collection settings}
+        Parameters: [DisableMetricCollection, DisableResourceCollection, CloudSecurityPostureManagement]
