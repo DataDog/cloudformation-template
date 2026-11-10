@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - "**.py"
+      - "aws_terraform_wif/release.sh"
+      - "aws_terraform_wif/version.txt"
       - "aws_quickstart/main_workflow.yaml"
       - "aws_quickstart/main_extended_workflow.yaml"
       - "aws_quickstart/main_agent_installation.yaml"
@@ -15,6 +17,8 @@ on:
   pull_request:
     paths:
       - "**.py"
+      - "aws_terraform_wif/release.sh"
+      - "aws_terraform_wif/version.txt"
       - "aws_quickstart/main_workflow.yaml"
       - "aws_quickstart/main_extended_workflow.yaml"
       - "aws_quickstart/main_agent_installation.yaml"
@@ -58,3 +62,46 @@ jobs:
           python -m pip install PyYAML
           cd aws_quickstart
           python -B -m unittest agentless_workflow_test.py -v
+
+  terraform_wif_provider_test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        terraform: ['1.10.5', '1.16.6']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ matrix.terraform }}
+          terraform_wrapper: false
+      - name: Download signed provider releases for the isolated test
+        env:
+          CHECKPOINT_DISABLE: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/wif-provider-seed"
+          cat > "$RUNNER_TEMP/wif-provider-seed/main.tf" <<'HCL'
+          terraform {
+            required_providers {
+              aws = {
+                source = "hashicorp/aws"
+                version = "= 6.72.0"
+              }
+              datadog = {
+                source = "DataDog/datadog"
+                version = "= 4.29.0"
+              }
+            }
+          }
+          HCL
+          terraform -chdir="$RUNNER_TEMP/wif-provider-seed" init -backend=false -input=false -no-color
+      - name: Verify PAT-to-WIF transition with real providers and fake services
+        run: |
+          export TERRAFORM_WIF_INTEGRATION_BINARY="$(command -v terraform)"
+          export TERRAFORM_WIF_PROVIDER_MIRROR="$RUNNER_TEMP/wif-provider-seed/.terraform/providers"
+          cd aws_terraform_wif
+          python -B -m unittest terraform_wif_bootstrap_test release_test terraform_wif_provider_integration_test -v
