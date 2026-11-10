@@ -1,3 +1,7 @@
+# 4.22.1 (November 10, 2026)
+
+- Accept personal access tokens in the APPKey parameter of the AWS integration workflow templates.
+
 # 4.22.0 (November 3, 2026)
 
 - Remove the Datadog application key from EventBridge resource update forwarding, which now authenticates with the API key only. The `APPKey` parameter is removed from `datadog_agent_resource_update_forwarding.yaml` and `main_agent_installation.yaml`.

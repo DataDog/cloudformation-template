@@ -20,9 +20,7 @@ Parameters:
     Default: ""
   APPKey:
     Description: >-
-      APP key for the Datadog account (find at https://app.datadoghq.com/organization-settings/application-keys).
-      If this template was launched from the Datadog app, this key is tied to the user that launched the template,
-      and is a key specifically generated for this integration.
+      Application key or personal access token (PAT) for the Datadog account.
     Type: String
     NoEcho: true
     Default: ""
