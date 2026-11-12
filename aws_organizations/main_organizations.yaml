@@ -163,9 +163,6 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              # CreatePolicy/DeletePolicy are scoped to the policy-name prefixes this function owns.
-              # Wildcards cover both the v2 names it creates and the un-suffixed legacy names it
-              # cleans up on an in-place upgrade.
               - Sid: ManageIntegrationManagedPolicies
                 Effect: Allow
                 Action:
@@ -174,10 +171,6 @@ Resources:
                 Resource:
                   - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*"
                   - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*"
-              # Attach/Detach are scoped by the iam:PolicyARN condition (the only way to restrict which
-              # policy is attached, since the action's sole resource type is the role) so the function
-              # can only attach the Datadog-managed policies, plus the AWS-managed SecurityAudit, to the
-              # integration role -- never an arbitrary policy such as AdministratorAccess.
               - Sid: AttachDetachApprovedPolicies
                 Effect: Allow
                 Action:
@@ -191,9 +184,6 @@ Resources:
                       - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*"
                       - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*"
                       - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
-              # Put/DeleteRolePolicy manage inline policies on the single integration role. IAM has no
-              # condition key for inline-policy names, so these are scoped to the role; the handler
-              # restricts writes to fixed Datadog policy names in application code.
               - Sid: ManageIntegrationInlinePolicies
                 Effect: Allow
                 Action:
