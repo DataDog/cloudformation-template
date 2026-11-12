@@ -163,19 +163,34 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
+              - Sid: ManageIntegrationManagedPolicies
+                Effect: Allow
                 Action:
                   - iam:CreatePolicy
                   - iam:DeletePolicy
-                  - iam:DeleteRolePolicy
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*"
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*"
+              - Sid: AttachDetachApprovedPolicies
+                Effect: Allow
+                Action:
                   - iam:AttachRolePolicy
                   - iam:DetachRolePolicy
-                  - iam:PutRolePolicy
                 Resource:
-                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${IAMRoleName}
-                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*
-                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*
-                  - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${IAMRoleName}"
+                Condition:
+                  ArnLike:
+                    iam:PolicyARN:
+                      - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-resource-collection-permissions-*"
+                      - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/datadog-aws-integration-instrumentation-permissions-*"
+                      - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
+              - Sid: ManageIntegrationInlinePolicies
+                Effect: Allow
+                Action:
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${IAMRoleName}"
   DatadogAWSAccountIntegration:
     Type: "Custom::DatadogAWSAccountIntegration"
     UpdateReplacePolicy: Retain
