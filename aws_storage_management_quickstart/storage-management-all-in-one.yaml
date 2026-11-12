@@ -35,7 +35,7 @@ Parameters:
     Description: >-
       Define your Datadog Site to send data to.
       Allowed values: datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com,
-      ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com (GovCloud).
+      ap1.datadoghq.com, ap2.datadoghq.com, ddog-gov.com, us2.ddog-gov.com (GovCloud).
   BucketMapping:
     Type: CommaDelimitedList
     Description: >-
@@ -280,7 +280,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
       Policies:
         - PolicyName: InventoryConfigPolicy
           PolicyDocument:
@@ -289,18 +289,18 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:PutInventoryConfiguration
-                Resource: "arn:aws:s3:::*"
+                Resource: !Sub "arn:${AWS::Partition}:s3:::*"
               - Effect: Allow
                 Action:
                   - s3:PutBucketPolicy
                   - s3:GetBucketPolicy
                   - s3:GetBucketLogging
                   - s3:PutBucketLogging
-                Resource: "arn:aws:s3:::*"
+                Resource: !Sub "arn:${AWS::Partition}:s3:::*"
               - Effect: Allow
                 Action:
                   - iam:PutRolePolicy
-                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/${DatadogIntegrationRole}"
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DatadogIntegrationRole}"
               - Effect: Allow
                 Action:
                   - lambda:InvokeFunction
@@ -371,7 +371,11 @@ Resources:
               return mapping
 
 
-          def put_inventory(bucket, dest_bucket, dest_prefix, account_id):
+          def s3_arn(partition, resource):
+              return f'arn:{partition}:s3:::{resource}'
+
+
+          def put_inventory(bucket, dest_bucket, dest_prefix, account_id, partition):
               s3.put_bucket_inventory_configuration(
                   Bucket=bucket,
                   Id='DatadogInventory',
@@ -379,7 +383,7 @@ Resources:
                       'Destination': {
                           'S3BucketDestination': {
                               'AccountId': account_id,
-                              'Bucket': f'arn:aws:s3:::{dest_bucket}',
+                              'Bucket': s3_arn(partition, dest_bucket),
                               'Format': 'CSV',
                               'Prefix': dest_prefix,
                           }
@@ -417,7 +421,7 @@ Resources:
                   raise
 
 
-          def sync_dest_bucket_policy(dest_bucket, src_arns, account_id):
+          def sync_dest_bucket_policy(dest_bucket, src_arns, account_id, partition):
               policy = get_bucket_policy(dest_bucket) or {'Version': '2012-10-17', 'Statement': []}
               policy['Statement'] = [s for s in policy.get('Statement', []) if s.get('Sid') != INVENTORY_POLICY_SID]
               policy['Statement'].append({
@@ -426,8 +430,8 @@ Resources:
                   'Principal': {'Service': 's3.amazonaws.com'},
                   'Action': 's3:PutObject',
                   'Resource': [
-                      f'arn:aws:s3:::{dest_bucket}',
-                      f'arn:aws:s3:::{dest_bucket}/*',
+                      s3_arn(partition, dest_bucket),
+                      s3_arn(partition, f'{dest_bucket}/*'),
                   ],
                   'Condition': {
                       'StringEquals': {
@@ -464,7 +468,7 @@ Resources:
           LOG_POLICY_SID = 'AllowDatadogS3ServerAccessLogs'
 
 
-          def sync_log_dest_bucket_policy(log_dest, src_arns, account_id):
+          def sync_log_dest_bucket_policy(log_dest, src_arns, account_id, partition):
               policy = get_bucket_policy(log_dest) or {'Version': '2012-10-17', 'Statement': []}
               policy['Statement'] = [s for s in policy.get('Statement', []) if s.get('Sid') != LOG_POLICY_SID]
               policy['Statement'].append({
@@ -472,7 +476,7 @@ Resources:
                   'Effect': 'Allow',
                   'Principal': {'Service': 'logging.s3.amazonaws.com'},
                   'Action': 's3:PutObject',
-                  'Resource': f'arn:aws:s3:::{log_dest}/datadog-s3-access-logs/*',
+                  'Resource': s3_arn(partition, f'{log_dest}/datadog-s3-access-logs/*'),
                   'Condition': {
                       'StringEquals': {'aws:SourceAccount': account_id},
                       'ArnLike': {'aws:SourceArn': sorted(set(src_arns))},
@@ -482,14 +486,14 @@ Resources:
               logger.info('Updated log destination bucket policy on %s (%d source arns)', log_dest, len(src_arns))
 
 
-          def sync_datadog_role_policy(role_name, dest_prefix, dest_buckets):
+          def sync_datadog_role_policy(role_name, dest_prefix, dest_buckets, partition):
               iam = boto3.client('iam')
               statements = []
               for dest_bucket in sorted(dest_buckets):
                   statements.append({
                       'Effect': 'Allow',
                       'Action': 's3:ListBucket',
-                      'Resource': f'arn:aws:s3:::{dest_bucket}',
+                      'Resource': s3_arn(partition, dest_bucket),
                       'Condition': {
                           'StringLike': {
                               's3:prefix': f'{dest_prefix}/*',
@@ -499,7 +503,7 @@ Resources:
                   statements.append({
                       'Effect': 'Allow',
                       'Action': 's3:GetObject',
-                      'Resource': f'arn:aws:s3:::{dest_bucket}/{dest_prefix}/*',
+                      'Resource': s3_arn(partition, f'{dest_bucket}/{dest_prefix}/*'),
                   })
               iam.put_role_policy(
                   RoleName=role_name,
@@ -519,19 +523,20 @@ Resources:
                   mapping = parse_pairs(props.get('BucketMapping', []))
                   dest_prefix = 'datadog-inventories'
                   account_id = props['AccountId']
+                  partition = props['Partition']
                   dd_role = props['DatadogIntegrationRole']
 
                   all_src_buckets = [b for srcs in mapping.values() for b in srcs]
 
                   for dest_bucket, src_buckets in mapping.items():
                       for bucket in src_buckets:
-                          put_inventory(bucket, dest_bucket, dest_prefix, account_id)
+                          put_inventory(bucket, dest_bucket, dest_prefix, account_id, partition)
 
                   for dest_bucket, src_buckets in mapping.items():
-                      src_arns = [f'arn:aws:s3:::{b}' for b in src_buckets]
-                      sync_dest_bucket_policy(dest_bucket, src_arns, account_id)
+                      src_arns = [s3_arn(partition, b) for b in src_buckets]
+                      sync_dest_bucket_policy(dest_bucket, src_arns, account_id, partition)
 
-                  sync_datadog_role_policy(dd_role, dest_prefix, list(mapping.keys()))
+                  sync_datadog_role_policy(dd_role, dest_prefix, list(mapping.keys()), partition)
 
                   enable_logging = str(props.get('EnableBucketLogging', 'false')).lower() == 'true'
                   log_dest = props.get('LogDestinationBucket', '').strip()
@@ -546,8 +551,9 @@ Resources:
                       if enabled:
                           sync_log_dest_bucket_policy(
                               log_dest,
-                              [f'arn:aws:s3:::{b}' for b in enabled],
+                              [s3_arn(partition, b) for b in enabled],
                               account_id,
+                              partition,
                           )
 
                   logger.info(
@@ -617,6 +623,7 @@ Resources:
       EnableBucketLogging: !Ref EnableBucketLogging
       LogDestinationBucket: !Ref LogDestinationBucket
       AccountId: !Ref AWS::AccountId
+      Partition: !Ref AWS::Partition
       DatadogIntegrationRole: !Ref DatadogIntegrationRole
       WorkflowId: !Ref WorkflowId
       DdApiKey: !Ref DdApiKey
