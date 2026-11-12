@@ -120,6 +120,8 @@ cp main_organizations.yaml main_organizations.yaml.bak
 perl -pi -e "s/<BUCKET_PLACEHOLDER>/${BUCKET}/g" main_organizations.yaml
 perl -pi -e "s/<VERSION_PLACEHOLDER>/${VERSION}/g" main_organizations.yaml
 trap 'mv main_organizations.yaml.bak main_organizations.yaml' EXIT
+# Embed the shared SaaS policy in the published template.
+yq -i '(.. | select(tag == "!Rain::Include")) |=c load(.)' main_organizations.yaml
 
 # Upload
 if [ "$PRIVATE_TEMPLATE" = true ] ; then
