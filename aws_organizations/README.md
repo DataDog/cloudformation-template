@@ -10,6 +10,7 @@ The Datadog Cloudformation StackSet performs the following steps:
 - Automatically creates the necessary IAM role and policies in the target accounts.
 - Automatically initiates ingestion of AWS CloudWatch metrics and events from the AWS resources in the accounts.
 - Optionally configures Datadog Cloud Security Management to monitor resource misconfigurations in your AWS accounts.
+- Optionally installs Agentless SaaS permissions and initializes Agentless scanning in each target account.
 
 ## Prerequisites
 
@@ -29,6 +30,7 @@ Before getting started, ensure you have the following prerequisites:
 5. Under Specify template, paste the template URL from Step 2 and click Next.
 6. Name your StackSet and fill in the API and APP keys you selected in Step 2.
    1. Optionally, enable Cloud Security Posture Management (CSPM) to scan your cloud environment, hosts, and containers for misconfigurations and security risks.
+   2. Optionally, set `AgentlessScanning` to `true`. Set `AgentlessSensitiveDataScanning` to `true` to also initialize sensitive data scanning. Both options default to `false`; see the lifecycle details below.
 7. In Step 3 of the StackSet template, choose to either deploy the Datadog integration across an Organization or a specific Organizational Unit.
 8. Keep Automatic deployment enabled in order to automatically deploy the Datadog AWS Integration in new accounts that are added to the Organization or OU.
 9. Select which regions in which you’d like to deploy the integration. Note that you can modify regions to monitor from the Datadog AWS configuration page after deploying the stack.
@@ -39,3 +41,21 @@ Before getting started, ensure you have the following prerequisites:
 
 This CloudFormation StackSet only manages *AWS* resources required by the Datadog AWS integration. The actual integration configuration within Datadog platform can also be managed in CloudFormation using the custom resource [Datadog::Integrations::AWS](https://github.com/DataDog/datadog-cloudformation-resources/tree/master/datadog-integrations-aws-handler) if you like.
 
+## Agentless SaaS scanning
+
+Agentless SaaS must be available for your organization. It requires `DisableResourceCollection=false`, a commercial AWS partition and Datadog site, and an application key permitted to manage the integration and write Agentless scan options.
+
+| Parameter | Default | Behavior |
+| --- | --- | --- |
+| `AgentlessScanning` | `false` | Installs SaaS scanning permissions and initializes vulnerability scanning for hosts, containers, and Lambda functions, plus host compliance scanning. |
+| `AgentlessSensitiveDataScanning` | `false` | Selects whether sensitive data scanning is enabled during initialization. Ignored when `AgentlessScanning=false`. |
+
+Initialization **overwrites existing scan settings**, including those used by self-hosted scanners. It runs on first enablement and resource recreation, including disabling and re-enabling Agentless. Automatically enrolled accounts use the current StackSet parameters.
+
+Manage subsequent settings in Datadog: stack updates, including sensitive-data parameter changes, do not reapply them. The full SaaS IAM policy is installed with either sensitive-data choice.
+
+Activation is best effort. API failures are logged in the API Lambda's CloudWatch logs and do not fail stack creation. Verify activation in Datadog; IAM discovery is asynchronous. To retry, configure scanning in Datadog or disable and re-enable Agentless.
+
+Disabling Agentless removes the stack-owned policy but retains scan settings. Activation deletion and rollback also retain settings. Policy removal takes time to be discovered; other policies or self-hosted scanners may still permit scanning.
+
+Upgrade existing StackSet-managed accounts to enable this feature. Do not deploy this integration StackSet over accounts whose integration is managed separately.

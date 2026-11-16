@@ -28,7 +28,7 @@ fi
 mkdir -p ./tmp
 
 for f in ../*.yaml; do
-   sed "s|<BUCKET_PLACEHOLDER>.s3.amazonaws.com/aws/<VERSION_PLACEHOLDER>|${TASKCAT_S3_BUCKET}.s3.amazonaws.com/${TASKCAT_PROJECT}|g" $f > ./tmp/$(basename $f)
+   (cd .. && yq '(.. | select(tag == "!Rain::Include")) |=c load(.)' "$(basename "$f")") > "./tmp/$(basename "$f")" || exit 1
 done
 
 sed "s|<REPLACE_DD_API_KEY>|${DD_API_KEY}|g ; s|<REPLACE_DD_APP_KEY>|${DD_APP_KEY}|g ; s|<REPLACE_AWS_PROFILE>|${AWS_SSO_PROFILE_NAME}|g" ./.taskcat.yml > ./tmp/.taskcat.yml
