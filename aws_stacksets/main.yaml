@@ -1,0 +1,290 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Datadog AWS Integration With Stack Sets
+Parameters:
+  DdApiKeyEncrypted:
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: DdApiKeyEncrypted is required
+  DdAppKeyEncrypted:
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: DdAppKeyEncrypted is required
+  DdKMSKeyId:
+    Type: String
+    AllowedPattern: .+
+    ConstraintDescription: DdKMSKeyId is required
+  DdBodyData:
+    Description: >-
+      Datadog API Request Body Data
+    Type: String
+    Default: "{}"
+  IAMRoleName:
+    Description: Customize the name of IAM role for Datadog AWS integration
+    Type: String
+    Default: DatadogIntegrationRole
+  BasePermissions:
+    Description: >-
+      Customize the base permissions for the Datadog IAM role.
+      Select "Core" to only grant Datadog permissions to a very limited set of metrics and metadata (not recommended).
+    Type: String
+    Default: Full
+    AllowedValues:
+      - Full
+      - Core
+  DdAWSAccountId:
+    Description: >-
+      Datadog AWS account ID allowed to assume the integration IAM role. DO NOT CHANGE!
+    Type: String
+    Default: "464622532012"
+  CloudSecurityPostureManagementPermissions:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      Set this value to "true" to add permissions for Datadog to monitor your AWS cloud resource configurations.
+      You need this set to "true" to use Cloud Security Posture Management. You will also need "BasePermissions" set to "Full".
+Conditions:
+  GrantFullPermissions:
+    Fn::Equals:
+      - Ref: BasePermissions
+      - Full
+  ShouldInstallCSPMPolicy:
+    Fn::Equals:
+      - Ref: CloudSecurityPostureManagementPermissions
+      - true
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AccessDdSecret
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource:
+                  - !Ref DdKMSKeyId
+  DatadogIntegration:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Runtime: python3.8
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      Environment:
+        Variables:
+          AWS_ACCOUNT_ID: !Ref "AWS::AccountId"
+          AWS_IAM_ROLE_NAME: !Ref IAMRoleName
+          DD_KMS_API_KEY: !Ref DdApiKeyEncrypted
+          DD_KMS_APP_KEY: !Ref DdAppKeyEncrypted
+          DD_BODY_DATA: !Ref DdBodyData
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import base64
+          import logging
+          import urllib.request
+          import os
+          import cfnresponse
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def create_headers():
+            DD_API_KEY = boto3.client("kms").decrypt(
+                CiphertextBlob=base64.b64decode(os.environ["DD_KMS_API_KEY"])
+            )["Plaintext"]
+            DD_APP_KEY = boto3.client("kms").decrypt(
+                CiphertextBlob=base64.b64decode(os.environ["DD_KMS_APP_KEY"])
+            )["Plaintext"]
+
+            return {
+              'Content-Type': 'application/json',
+              'DD-API-KEY': DD_API_KEY,
+              'DD-APPLICATION-KEY': DD_APP_KEY,
+            }
+
+          def create_body():
+            body = json.loads(os.environ.get("DD_BODY_DATA"))
+            body.update({
+              'account_id': os.environ.get("AWS_ACCOUNT_ID"),
+              'role_name': os.environ.get("AWS_IAM_ROLE_NAME"),
+            })
+            return json.dumps(body).encode('utf-8')
+          
+          def create_aws_integration():
+            url = "https://api.datadoghq.com/api/v1/integration/aws"
+            req = urllib.request.Request(url, create_body(), create_headers(), method='POST')
+            with urllib.request.urlopen(req) as response:
+              logger.info(f'response: {response.status}, {response.reason}')
+              body = json.load(response)
+              return body["external_id"]
+          
+          def update_aws_integration():
+            url = "https://api.datadoghq.com/api/v1/integration/aws"
+            req = urllib.request.Request(url, create_body(), create_headers(), method='PUT')
+            with urllib.request.urlopen(req) as response:
+              logger.info(f'response: {response.status}, {response.reason}')
+              body = json.load(response)
+          
+          def delete_aws_integration():
+            url = "https://api.datadoghq.com/api/v1/integration/aws"
+            req_body = json.dumps({
+              'account_id': os.environ.get("AWS_ACCOUNT_ID"),
+              'role_name': os.environ.get("AWS_IAM_ROLE_NAME"),
+            }).encode('utf-8')
+            req = urllib.request.Request(url, req_body, create_headers(), method='DELETE')
+            with urllib.request.urlopen(req) as response:
+              logger.info(f'response: {response.status}, {response.reason}')
+              body = json.load(response)
+
+          def handler(event, context):
+            logger.info(f'Received event: {json.dumps(event)}')
+            physicalId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event else context.log_stream_name
+            responseData = {}
+            requestType = event['RequestType']
+            logger.info(f'RequestType is {requestType}')
+            try:
+              if requestType == 'Create':
+                physicalId = create_aws_integration()
+                responseData['ExternalId'] = physicalId
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalId)
+              elif requestType == 'Update':
+                update_aws_integration()
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalId)
+              elif requestType == 'Delete':
+                delete_aws_integration()
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalId)
+              else:
+                logger.info(f'RequestType {requestType} not supported')
+                responseData['ExternalId'] = physicalId
+                cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalId)
+            except Exception as e:
+              logger.exception("Exception when create integration")
+              responseData = {}
+              cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalId)
+  LambdaInvoke:
+    Type: Custom::LambdaInvoke
+    Properties:
+      ServiceToken: !GetAtt "DatadogIntegration.Arn"
+  DatadogIntegrationRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub
+                - 'arn:aws:iam::${DdAWSAccountId}:root'
+                - { DdAWSAccountId: !Ref DdAWSAccountId }
+            Action:
+              - 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !GetAtt LambdaInvoke.ExternalId
+      Path: /
+      RoleName: !Ref IAMRoleName
+      ManagedPolicyArns: !If [ ShouldInstallCSPMPolicy, [ 'arn:aws:iam::aws:policy/SecurityAudit' ], !Ref AWS::NoValue ]
+      Policies:
+        - PolicyName: DatadogAWSIntegrationPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - !If
+                - GrantFullPermissions
+                - Effect: Allow
+                  Resource: '*'
+                  Action:
+                    - 'apigateway:GET'
+                    - 'autoscaling:Describe*'
+                    - 'backup:List*'
+                    - 'budgets:ViewBudget'
+                    - 'cloudfront:GetDistributionConfig'
+                    - 'cloudfront:ListDistributions'
+                    - 'cloudtrail:DescribeTrails'
+                    - 'cloudtrail:GetTrailStatus'
+                    - 'cloudtrail:LookupEvents'
+                    - 'cloudwatch:Describe*'
+                    - 'cloudwatch:Get*'
+                    - 'cloudwatch:List*'
+                    - 'codedeploy:List*'
+                    - 'codedeploy:BatchGet*'
+                    - 'directconnect:Describe*'
+                    - 'dynamodb:List*'
+                    - 'dynamodb:Describe*'
+                    - 'ec2:Describe*'
+                    - 'ecs:Describe*'
+                    - 'ecs:List*'
+                    - 'elasticache:Describe*'
+                    - 'elasticache:List*'
+                    - 'elasticfilesystem:DescribeAccessPoints'
+                    - 'elasticfilesystem:DescribeFileSystems'
+                    - 'elasticfilesystem:DescribeTags'
+                    - 'elasticloadbalancing:Describe*'
+                    - 'elasticmapreduce:List*'
+                    - 'elasticmapreduce:Describe*'
+                    - 'es:ListTags'
+                    - 'es:ListDomainNames'
+                    - 'es:DescribeElasticsearchDomains'
+                    - 'fsx:DescribeFileSystems'
+                    - 'fsx:ListTagsForResource'
+                    - 'health:DescribeEvents'
+                    - 'health:DescribeEventDetails'
+                    - 'health:DescribeAffectedEntities'
+                    - 'kinesis:List*'
+                    - 'kinesis:Describe*'
+                    - 'lambda:GetPolicy'
+                    - 'lambda:List*'
+                    - 'logs:TestMetricFilter'
+                    - 'logs:PutSubscriptionFilter'
+                    - 'logs:DeleteSubscriptionFilter'
+                    - 'logs:DescribeSubscriptionFilters'
+                    - 'organizations:DescribeOrganization'
+                    - 'rds:Describe*'
+                    - 'rds:List*'
+                    - 'redshift:DescribeClusters'
+                    - 'redshift:DescribeLoggingStatus'
+                    - 'route53:List*'
+                    - 's3:GetBucketLogging'
+                    - 's3:GetBucketLocation'
+                    - 's3:GetBucketNotification'
+                    - 's3:GetBucketTagging'
+                    - 's3:ListAllMyBuckets'
+                    - 's3:PutBucketNotification'
+                    - 'ses:Get*'
+                    - 'sns:List*'
+                    - 'sns:Publish'
+                    - 'sqs:ListQueues'
+                    - 'states:ListStateMachines'
+                    - 'states:DescribeStateMachine'
+                    - 'support:*'
+                    - 'tag:GetResources'
+                    - 'tag:GetTagKeys'
+                    - 'tag:GetTagValues'
+                    - 'xray:BatchGetTraces'
+                    - 'xray:GetTraceSummaries'
+                - Effect: Allow
+                  Resource: '*'
+                  Action:
+                    - 'cloudwatch:Get*'
+                    - 'cloudwatch:List*'
+                    - 'ec2:Describe*'
+                    - 'support:*'
+                    - 'tag:GetResources'
+                    - 'tag:GetTagKeys'
+                    - 'tag:GetTagValues'
