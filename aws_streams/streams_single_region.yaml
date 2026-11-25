@@ -165,7 +165,7 @@ Resources:
           LogStreamName: "http_endpoint_delivery"
         RoleARN: !Ref ServiceRoleArn
         RetryOptions:
-          DurationInSeconds: 60
+          DurationInSeconds: 300
         S3BackupMode: "FailedDataOnly"
         S3Configuration:
           RoleARN: !Ref ServiceRoleArn
